@@ -5,6 +5,7 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
+    "generate-refresh-token": "tsx --env-file=.env src/generate-refresh-token.ts",
     "test": "jest --config ./jest.config.ts",
     "build": "tsc",
     "dev": "tsx  --env-file=.env src/main.ts"
