@@ -1,5 +1,5 @@
 {
-  "name": "ts-starter",
+  "name": "tesla-charger",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
@@ -7,7 +7,7 @@
   "scripts": {
     "test": "jest --config ./jest.config.ts",
     "build": "tsc",
-    "dev": "tsx src/main.ts"
+    "dev": "tsx  --env-file=.env src/main.ts"
   },
   "author": "",
   "license": "ISC",
