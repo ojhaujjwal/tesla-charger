@@ -13,9 +13,9 @@ import path from 'path';
         querystring.stringify({
           response_type: "code",
           client_id: process.env.TESLA_OAUTH2_CLIENT_ID,
-          scope: "offline_access vehicle_location vehicle_charging_cmds",
+          scope: "openid offline_access vehicle_location vehicle_charging_cmds vehicle_device_data vehicle_cmds",
           state,
-          redirect_uri: 'http://localhost:4321/tesla-charger',
+          redirect_uri: `https://${process.env.TESLA_APP_DOMAIN}/tesla-charger`,
           locale: 'en-US',
           prompt: 'login'
         }),
@@ -32,7 +32,7 @@ import path from 'path';
       client_secret: process.env.TESLA_OAUTH2_CLIENT_SECRET,
       audience: 'https://fleet-api.prd.na.vn.cloud.tesla.com',
       code: authorizationCode,
-      redirect_uri: 'http://localhost:4321/tesla-charger',
+      redirect_uri: `https://${process.env.TESLA_APP_DOMAIN}/tesla-charger`,
     }),
     headers: {
       'Content-Type': 'application/json',
