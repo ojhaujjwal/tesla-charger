@@ -1,3 +1,10 @@
+
+Tesla Charger
+====================
+Using excess solar charger from my solar setup with sungrow inverter to charge my tesla model y. 
+It's very much experimental for now.
+
+
 ## Generate Refresh Tokens
 This is needed to run vehicle commands on behalf of a certain tesla user. It's based on OAuth2.
 
