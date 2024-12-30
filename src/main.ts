@@ -17,13 +17,17 @@ const refreshAccessToken = async () => {
     },
   });
 
+  if (!response.ok) {
+    throw new Error(`Failed to refresh access token: ${response.statusText} response: ${await response.text()}`);
+  }
+
   const accessToken = (await response.json()).access_token;
 
   fs.writeFileSync('./.access-token', accessToken);
 };
 
 let chargeState = {
-  running: true,
+  running: false,
   ampere: 0,
   ampereFluctuations: 0,
 };
@@ -32,30 +36,39 @@ const runShellCommand = async (command: string) => {
 
   console.log(`Running command: ${command}`);
 
-  // const { exec } = require('child_process');
-
-  // await promisify(exec)(command);
+  await promisify(exec)(command);
 }
 
 const setAmpere = async (ampere: number) => {
   const stopCharging = ampere < 5;
 
   if (stopCharging && chargeState.running) {
-    await runShellCommand('tesla-control charge-stop');
+    await runShellCommand('tesla-control charging-stop');
+    await promisify(setTimeout)(1000);
     chargeState.running = false;
+    return;
+  }
+
+  if (stopCharging) {
+    return;
   }
 
   if (!stopCharging && !chargeState.running) {
-    await runShellCommand('tesla-control charge-start');
+    await runShellCommand('tesla-control charging-start');
     chargeState.running = true;
   }
 
   if (ampere !== chargeState.ampere) {
+
+    const ampDifference = Math.abs(ampere - chargeState.ampere);
+
     console.log(`Setting charging rate to ${ampere}A`);
 
     await runShellCommand(`tesla-control charging-set-amps ${ampere}`);
     chargeState.ampere = ampere;
     chargeState.ampereFluctuations++;
+
+    await promisify(setTimeout)(ampDifference * 2000); // 2 seconds for every amp difference
   }
 };
 
@@ -65,33 +78,58 @@ const dataAdapter = new SunGatherInfluxDbDataAdapter(
   process.env.INFLUX_ORG as string,
 );
 
-const syncChargingRate = async () => { 
-  const excessSolar = await dataAdapter.getExcessSolar();
+const bufferPower = 500; // in watts
+
+const VOLTAGE = 240;
+
+const syncChargingRate = async (retryInterval = 0) => { 
+  const exporingToGrid = await dataAdapter.getExcessSolar();
+
+  if (exporingToGrid <= bufferPower) {
+    console.log('No excess solar, stopping charging');
+    await setAmpere(0);
+    return;
+  }
+
+  const excessSolar = Math.min(9200, exporingToGrid - bufferPower + chargeState.ampere * VOLTAGE); // 9.2kW max
   console.log(`Excess solar: ${excessSolar}`);
 
-  const bufferPower = 1000; // 1kW buffer
-
-  const ampere = (excessSolar - bufferPower) / 240;
+  const ampere = excessSolar / VOLTAGE;
 
   // round to nearest multiple of 5
   const roundedAmpere = Math.floor(ampere / 5) * 5;
 
-  setAmpere(Math.min(32, roundedAmpere));
+  await setAmpere(Math.min(32, roundedAmpere));
+
+  if (retryInterval > 0) {
+    setTimeout(() => syncChargingRate(retryInterval), retryInterval);
+  }
 };
 
 (async () => {
-
   await refreshAccessToken();
 
   setInterval(refreshAccessToken, 1000 * 60 * 60 * 2); // 2 hours
 
-  await syncChargingRate();
-
-  setInterval(syncChargingRate, 1000 * 2); // 2 seconds
+  await syncChargingRate(5000);// 5 seconds
 })();
 
 process.on('SIGINT', async () => {
   console.log(`Fluctuated charging amps count: ${chargeState.ampereFluctuations}`);
-  await runShellCommand('tesla-control charge-stop');
+  try {
+    await runShellCommand('tesla-control charging-stop');
+  } catch (e) {
+    process.exit(1);
+  }
   process.exit();
+});
+
+
+process.on('unhandledRejection', async (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  try {
+    await runShellCommand('tesla-control charging-stop');
+  } finally {
+    process.exit(1);
+  }
 });
