@@ -1,45 +1,9 @@
-(async () => {
-  // const refreshToken = process.env.REFRESH_TOKEN;
+import fs from 'fs';
+import { SunGatherInfluxDbDataAdapter } from './data-adapter/influx-db-sungather.data-adapter';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 
-  // const authResponse = await fetch('https://auth.tesla.com/oauth2/v3/token', {
-  //   method: 'POST',
-  //   body: JSON.stringify({
-  //     grant_type: "refresh_token",
-  //     client_id: process.env.TESLA_OAUTH2_CLIENT_ID,
-  //     refresh_token: process.env.TESLA_OAUTH2_REFRESH_TOKEN,
-  //     scope: "openid email offline_access"
-  //   }),
-  //   headers: {
-  //     'Content-Type': 'application/json',
-  //     'Accept': 'application/json',
-  //   },
-  // });
-
-  // const accessToken = (await authResponse.json()).access_token;``
-  // console.log(accessToken);
-
-
-  // const response1 = await fetch('https://owner-api.teslamotors.com/api/1/products', {
-  //   method: 'GET',
-  //   headers: {
-  //     "Authorization": `Bearer ${accessToken}`,
-  //   },
-  // });
-
-  // console.log(response1.status, await response1.text());
-
-  // //TODO: use vehicle sdk for vehicles command
-  // // https://github.com/teslamotors/vehicle-command
-
-  // const response = await fetch('https://owner-api.teslamotors.com/api/1/vehicles/LRWYHCFS9RC541952/command/charge_start', {
-  //   method: 'POST',
-  //   headers: {
-  //     "Authorization": `Bearer ${accessToken}`,
-  //   },
-  // });
-
-  // console.log(response.status, await response.text());
-
+const refreshAccessToken = async () => {
   const response = await fetch('https://fleet-auth.prd.vn.cloud.tesla.com/oauth2/v3/token', {
     method: 'POST',
     body: JSON.stringify({
@@ -55,7 +19,79 @@
 
   const accessToken = (await response.json()).access_token;
 
-  console.log(accessToken);
+  fs.writeFileSync('./.access-token', accessToken);
+};
 
-  // todo use accessToken to send vehicle command to start charging
+let chargeState = {
+  running: true,
+  ampere: 0,
+  ampereFluctuations: 0,
+};
+
+const runShellCommand = async (command: string) => { 
+
+  console.log(`Running command: ${command}`);
+
+  // const { exec } = require('child_process');
+
+  // await promisify(exec)(command);
+}
+
+const setAmpere = async (ampere: number) => {
+  const stopCharging = ampere < 5;
+
+  if (stopCharging && chargeState.running) {
+    await runShellCommand('tesla-control charge-stop');
+    chargeState.running = false;
+  }
+
+  if (!stopCharging && !chargeState.running) {
+    await runShellCommand('tesla-control charge-start');
+    chargeState.running = true;
+  }
+
+  if (ampere !== chargeState.ampere) {
+    console.log(`Setting charging rate to ${ampere}A`);
+
+    await runShellCommand(`tesla-control charging-set-amps ${ampere}`);
+    chargeState.ampere = ampere;
+    chargeState.ampereFluctuations++;
+  }
+};
+
+const dataAdapter = new SunGatherInfluxDbDataAdapter(
+  process.env.INFLUX_URL as string,
+  process.env.INFLUX_TOKEN as string,
+  process.env.INFLUX_ORG as string,
+);
+
+const syncChargingRate = async () => { 
+  const excessSolar = await dataAdapter.getExcessSolar();
+  console.log(`Excess solar: ${excessSolar}`);
+
+  const bufferPower = 1000; // 1kW buffer
+
+  const ampere = (excessSolar - bufferPower) / 240;
+
+  // round to nearest multiple of 5
+  const roundedAmpere = Math.floor(ampere / 5) * 5;
+
+  setAmpere(Math.min(32, roundedAmpere));
+};
+
+(async () => {
+
+  await refreshAccessToken();
+
+  setInterval(refreshAccessToken, 1000 * 60 * 60 * 2); // 2 hours
+
+  await syncChargingRate();
+
+  setInterval(syncChargingRate, 1000 * 2); // 2 seconds
 })();
+
+process.on('SIGINT', async () => {
+  console.log(`Fluctuated charging amps count: ${chargeState.ampereFluctuations}`);
+  await runShellCommand('tesla-control charge-stop');
+  process.exit();
+});
