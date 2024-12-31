@@ -53,7 +53,9 @@ const setAmpere = async (ampere: number) => {
     return;
   }
 
-  if (!stopCharging && !chargeState.running) {
+  const shouldStartToCharge = !stopCharging && !chargeState.running;
+
+  if (shouldStartToCharge) {
     await runShellCommand('tesla-control charging-start');
     chargeState.running = true;
   }
@@ -68,7 +70,11 @@ const setAmpere = async (ampere: number) => {
     chargeState.ampere = ampere;
     chargeState.ampereFluctuations++;
 
-    await promisify(setTimeout)(ampDifference * 2000); // 2 seconds for every amp difference
+    await promisify(setTimeout)(ampDifference * 2000); // 2 second for every amp difference
+  }
+
+  if (shouldStartToCharge) {
+    await promisify(setTimeout)(10 * 1000); // 10 extra seconds
   }
 };
 
@@ -78,18 +84,14 @@ const dataAdapter = new SunGatherInfluxDbDataAdapter(
   process.env.INFLUX_ORG as string,
 );
 
-const bufferPower = 500; // in watts
+const bufferPower = 1000; // in watts
 
 const VOLTAGE = 240;
 
 const syncChargingRate = async (retryInterval = 0) => { 
-  const exporingToGrid = await dataAdapter.getExcessSolar();
+  const exporingToGrid = await dataAdapter.getGridExportValue();
 
-  if (exporingToGrid <= bufferPower) {
-    console.log('No excess solar, stopping charging');
-    await setAmpere(0);
-    return;
-  }
+  console.log('exporingToGrid', exporingToGrid);
 
   const excessSolar = Math.min(9200, exporingToGrid - bufferPower + chargeState.ampere * VOLTAGE); // 9.2kW max
   console.log(`Excess solar: ${excessSolar}`);
@@ -117,7 +119,7 @@ const syncChargingRate = async (retryInterval = 0) => {
 process.on('SIGINT', async () => {
   console.log(`Fluctuated charging amps count: ${chargeState.ampereFluctuations}`);
   try {
-    await runShellCommand('tesla-control charging-stop');
+    chargeState.running && await runShellCommand('tesla-control charging-stop');
   } catch (e) {
     process.exit(1);
   }
@@ -128,7 +130,7 @@ process.on('SIGINT', async () => {
 process.on('unhandledRejection', async (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
   try {
-    await runShellCommand('tesla-control charging-stop');
+    chargeState.running && await runShellCommand('tesla-control charging-stop');
   } finally {
     process.exit(1);
   }

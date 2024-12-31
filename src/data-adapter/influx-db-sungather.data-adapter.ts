@@ -6,7 +6,7 @@ type AuthContext = null;
 
 const parseCsv = async (rows: string[]) => {
   const headers = rows[0].split(',');
-  const data = rows.slice(1, 2).map(row => {
+  const data = rows.slice(1, 3).map(row => {
     const values = row.split(',');
     return headers.reduce((acc, header, index) => {
       acc[header] = values[index];
@@ -34,13 +34,7 @@ export class SunGatherInfluxDbDataAdapter implements IDataAdapter<AuthContext>  
     return null;
   }
 
-  async getExcessSolar(): Promise<number> {
-    const queryParams = querystring.encode({
-      q: 'SELECT last(export_to_grid) FROM "solar" order by time desc limit 1',
-      db: 'solar',
-      pretty: true,
-    });
-
+  async getGridExportValue(): Promise<number> {
     const response = await fetch(`${this.influxUrl}/api/v2/query?org=${this.org}&pretty=true`, {
       method: 'POST',
       headers: {
@@ -52,7 +46,7 @@ export class SunGatherInfluxDbDataAdapter implements IDataAdapter<AuthContext>  
         `
         from(bucket: "solar")
           |> range(start: -2m)
-          |> filter(fn: (r) => r._field == "export_to_grid")
+          |> filter(fn: (r) => r._field == "export_to_grid" or r._field == "import_from_grid")
           |> last()
         `
     });
@@ -63,8 +57,13 @@ export class SunGatherInfluxDbDataAdapter implements IDataAdapter<AuthContext>  
       return Promise.reject('No data found');
     }
 
-    const data = (await parseCsv(lines))[0];
+    const parsedLines = (await parseCsv(lines));
+    
+    const exportValue = parsedLines.find(d => d._field === 'export_to_grid')?._value;
+    const importValue = parsedLines.find(d => d._field === 'import_from_grid')?._value;
 
-    return parseInt(data._value);
+
+    return parseInt(exportValue ?? '0') - parseInt(importValue ?? '0');
   }
 }
+ 
