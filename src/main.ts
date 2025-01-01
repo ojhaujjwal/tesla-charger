@@ -1,29 +1,18 @@
 import fs from 'fs';
 import { SunGatherInfluxDbDataAdapter } from './data-adapter/influx-db-sungather.data-adapter';
-import { exec } from 'child_process';
 import { promisify } from 'util';
+import { TeslaClient } from './tesla-client';
 
 const delay = await promisify(setTimeout);
 
+const teslaClient = new TeslaClient(
+  process.env.TESLA_OAUTH2_CLIENT_ID as string,
+  process.env.TESLA_OAUTH2_CLIENT_SECRET as string,
+  process.env.TESLA_OAUTH2_REFRESH_TOKEN,
+);
+
 const refreshAccessToken = async () => {
-  const response = await fetch('https://fleet-auth.prd.vn.cloud.tesla.com/oauth2/v3/token', {
-    method: 'POST',
-    body: JSON.stringify({
-      grant_type: "refresh_token",
-      client_id: process.env.TESLA_OAUTH2_CLIENT_ID,
-      refresh_token: process.env.TESLA_OAUTH2_REFRESH_TOKEN,
-    }),
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error(`Failed to refresh access token: ${response.statusText} response: ${await response.text()}`);
-  }
-
-  const accessToken = (await response.json()).access_token;
+  const accessToken = await teslaClient.refreshAccessToken();
 
   await promisify(fs.writeFile)('.access-token', accessToken, 'utf8');
 };
@@ -34,18 +23,11 @@ let chargeState = {
   ampereFluctuations: 0,
 };
 
-const runShellCommand = async (command: string) => { 
-
-  console.log(`Running command: ${command}`);
-
-  await promisify(exec)(command);
-}
-
 const setAmpere = async (ampere: number) => {
   const stopCharging = ampere < 5;
 
   if (stopCharging && chargeState.running) {
-    await runShellCommand('tesla-control charging-stop');
+    await teslaClient.stopCharging();
     await delay(1000);
     chargeState.running = false;
     return;
@@ -58,7 +40,7 @@ const setAmpere = async (ampere: number) => {
   const shouldStartToCharge = !stopCharging && !chargeState.running;
 
   if (shouldStartToCharge) {
-    await runShellCommand('tesla-control charging-start');
+    await teslaClient.startCharging();
     chargeState.running = true;
   }
 
@@ -68,7 +50,7 @@ const setAmpere = async (ampere: number) => {
 
     console.log(`Setting charging rate to ${ampere}A`);
 
-    await runShellCommand(`tesla-control charging-set-amps ${ampere}`);
+    await teslaClient.setAmpere(ampere);
     chargeState.ampere = ampere;
     chargeState.ampereFluctuations++;
 
@@ -96,7 +78,7 @@ const syncChargingRate = async (retryInterval = 0) => {
   console.log('exporingToGrid', exporingToGrid);
 
   const excessSolar = Math.min(9200, exporingToGrid - bufferPower + chargeState.ampere * VOLTAGE); // 9.2kW max
-  console.log(`Excess solar: ${excessSolar}`);
+  excessSolar > 0 && console.log(`Excess solar: ${excessSolar}`);
 
   const ampere = excessSolar / VOLTAGE;
 
@@ -113,7 +95,7 @@ const syncChargingRate = async (retryInterval = 0) => {
 (async () => {
   await refreshAccessToken();
 
-  await runShellCommand('tesla-control wake');
+  await teslaClient.wakeUpCar();
 
   await delay(5000);
 
@@ -125,18 +107,17 @@ const syncChargingRate = async (retryInterval = 0) => {
 process.on('SIGINT', async () => {
   console.log(`Fluctuated charging amps count: ${chargeState.ampereFluctuations}`);
   try {
-    chargeState.running && await runShellCommand('tesla-control charging-stop');
+    chargeState.running && await teslaClient.stopCharging();
   } catch (e) {
     process.exit(1);
   }
   process.exit();
 });
 
-
 process.on('unhandledRejection', async (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
   try {
-    chargeState.running && await runShellCommand('tesla-control charging-stop');
+    chargeState.running && await teslaClient.stopCharging();
   } finally {
     process.exit(1);
   }
