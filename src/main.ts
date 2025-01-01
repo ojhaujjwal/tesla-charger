@@ -3,6 +3,8 @@ import { SunGatherInfluxDbDataAdapter } from './data-adapter/influx-db-sungather
 import { exec } from 'child_process';
 import { promisify } from 'util';
 
+const delay = await promisify(setTimeout);
+
 const refreshAccessToken = async () => {
   const response = await fetch('https://fleet-auth.prd.vn.cloud.tesla.com/oauth2/v3/token', {
     method: 'POST',
@@ -23,7 +25,7 @@ const refreshAccessToken = async () => {
 
   const accessToken = (await response.json()).access_token;
 
-  fs.writeFileSync('./.access-token', accessToken);
+  await promisify(fs.writeFile)('.access-token', accessToken, 'utf8');
 };
 
 let chargeState = {
@@ -44,7 +46,7 @@ const setAmpere = async (ampere: number) => {
 
   if (stopCharging && chargeState.running) {
     await runShellCommand('tesla-control charging-stop');
-    await promisify(setTimeout)(1000);
+    await delay(1000);
     chargeState.running = false;
     return;
   }
@@ -70,11 +72,11 @@ const setAmpere = async (ampere: number) => {
     chargeState.ampere = ampere;
     chargeState.ampereFluctuations++;
 
-    await promisify(setTimeout)(ampDifference * 2000); // 2 second for every amp difference
+    await delay(ampDifference * 2000); // 2 second for every amp difference
   }
 
   if (shouldStartToCharge) {
-    await promisify(setTimeout)(10 * 1000); // 10 extra seconds
+    await delay(10 * 1000); // 10 extra seconds
   }
 };
 
@@ -84,7 +86,7 @@ const dataAdapter = new SunGatherInfluxDbDataAdapter(
   process.env.INFLUX_ORG as string,
 );
 
-const bufferPower = 1000; // in watts
+const bufferPower = 500; // in watts
 
 const VOLTAGE = 240;
 
@@ -110,6 +112,10 @@ const syncChargingRate = async (retryInterval = 0) => {
 
 (async () => {
   await refreshAccessToken();
+
+  await runShellCommand('tesla-control wake');
+
+  await delay(5000);
 
   setInterval(refreshAccessToken, 1000 * 60 * 60 * 2); // 2 hours
 
