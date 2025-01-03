@@ -2,6 +2,7 @@ import querystring from 'querystring';
 import { TeslaClient } from './tesla-client';
 
 const teslaClient = new TeslaClient(
+  process.env.TESLA_APP_DOMAIN as string,
   process.env.TESLA_OAUTH2_CLIENT_ID as string,
   process.env.TESLA_OAUTH2_CLIENT_SECRET as string,
   process.env.TESLA_OAUTH2_REFRESH_TOKEN,

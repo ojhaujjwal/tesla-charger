@@ -1,10 +1,9 @@
-import fs from 'fs';
 import { SunGatherInfluxDbDataAdapter } from './data-adapter/influx-db-sungather.data-adapter';
-import { promisify } from 'util';
 import { TeslaClient } from './tesla-client';
 import { App } from './app';
 
 const teslaClient = new TeslaClient(
+  process.env.TESLA_APP_DOMAIN as string,
   process.env.TESLA_OAUTH2_CLIENT_ID as string,
   process.env.TESLA_OAUTH2_CLIENT_SECRET as string,
   process.env.TESLA_OAUTH2_REFRESH_TOKEN,

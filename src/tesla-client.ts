@@ -5,6 +5,7 @@ const OAUTH2_TOKEN_BASE_URL = 'https://fleet-auth.prd.vn.cloud.tesla.com/oauth2/
 
 export class TeslaClient {
   constructor(
+    private appDomain: string,
     private clientId: string,
     private clientSecret: string,
     private refreshToken?: string
@@ -18,6 +19,7 @@ export class TeslaClient {
         client_id: this.clientId,
         client_secret: this.clientSecret,
         audience: 'https://fleet-api.prd.na.vn.cloud.tesla.com',
+        redirect_uri: `https://${this.appDomain}/tesla-charger`,
         code: authorizationCode,
       }),
       headers: {
