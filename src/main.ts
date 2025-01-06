@@ -24,6 +24,7 @@ process.on('SIGINT', async () => {
   try {
     await app.stop();
   } catch (e) {
+    console.error(e);
     process.exit(1);
   }
   process.exit();

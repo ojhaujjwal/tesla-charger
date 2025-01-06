@@ -1,5 +1,3 @@
-//import { InfluxDB, FluxTableMetaData } from '@influxdata/influxdb-client';
-import querystring from 'querystring';
 import { IDataAdapter } from "./types";
 
 type AuthContext = null;
