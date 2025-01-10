@@ -64,7 +64,7 @@ export class App {
     if (stopCharging && this.chargeState.running) {
       await this.stopCharging();
 
-      await delay(1000);
+      await delay(10000);
 
       return;
     }
