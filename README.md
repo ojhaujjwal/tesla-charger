@@ -5,6 +5,15 @@ Using excess solar charger from my solar setup with sungrow inverter to charge m
 It's very much experimental for now.
 
 
+# Setup
+## Create a tesla developer application
+Go to [Tesla Developer Dashboard](https://developer.tesla.com/en_US/dashboard) and create a tesla application.
+
+## Set config and secrets
+1. Copy example.env to .env
+2. Modify .env and update all the credentials and config
+
+
 ## Generate Refresh Tokens
 This is needed to run vehicle commands on behalf of a certain tesla user. It's based on OAuth2.
 
@@ -40,3 +49,17 @@ TESLA_OAUTH2_REFRESH_TOKEN=NA_sdfgslitrvhnoweitunheroituhewrotiuehrmtylibuerhnyo
 - Upload public key to `.well-known` directory under the required path.
 
 2. Go to https://www.tesla.com/_ak/domain.com and follow the instructions
+
+
+## Setup Influx and Run SunGather to export data to influx
+[SunGather](https://github.com/bohdan-s/SunGather) is a tool to Collect data from Sungrow Inverters and export data to various locations.
+For this project, you just need to setup SunGather to write two data points
+  - export_to_grid
+  - import_to_grid
+
+In theory, you could easily use this without SunGather and for any inverters as long as you can find a way to write those two values in the configured bucket. 
+
+# Running
+```sh
+npm run dev
+```
