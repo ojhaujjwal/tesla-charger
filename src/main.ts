@@ -13,6 +13,7 @@ const dataAdapter = new SunGatherInfluxDbDataAdapter(
   process.env.INFLUX_URL as string,
   process.env.INFLUX_TOKEN as string,
   process.env.INFLUX_ORG as string,
+  process.env.INFLUX_BUCKET as string,
 );
 
 const app = new App(

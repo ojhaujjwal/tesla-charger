@@ -24,7 +24,7 @@ export class SunGatherInfluxDbDataAdapter implements IDataAdapter<AuthContext>  
     private influxUrl: string,
     private influxToken: string,
     private org: string,
-
+    private bucket: string,
   ) {}
 
   async authenticate() {
@@ -42,7 +42,7 @@ export class SunGatherInfluxDbDataAdapter implements IDataAdapter<AuthContext>  
       },
       body: 
         `
-        from(bucket: "solar")
+        from(bucket: "${this.bucket}")
           |> range(start: -2m)
           |> filter(fn: (r) => r._field == "export_to_grid" or r._field == "import_from_grid")
           |> last()
