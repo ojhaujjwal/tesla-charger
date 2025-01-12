@@ -2,9 +2,9 @@ import { IDataAdapter } from "./types";
 
 type AuthContext = null;
 
-const parseCsv = async (rows: string[]) => {
+const parseCsv = async (rows: string[], numberOfRows: number) => {
   const headers = rows[0].split(',');
-  const data = rows.slice(1, 3).map(row => {
+  const data = rows.slice(1, 1 + numberOfRows).map(row => {
     const values = row.split(',');
     return headers.reduce((acc, header, index) => {
       acc[header] = values[index];
@@ -16,7 +16,10 @@ const parseCsv = async (rows: string[]) => {
     return Promise.reject('No data found');
   }
 
-  return data;
+  return data.reduce((acc, row) => {
+    acc[row._field] = row._value;
+    return acc;
+  }, {} as Record<string, string>);
 }
 
 export class SunGatherInfluxDbDataAdapter implements IDataAdapter<AuthContext>  {
@@ -32,7 +35,22 @@ export class SunGatherInfluxDbDataAdapter implements IDataAdapter<AuthContext>  
     return null;
   }
 
+  async getDailyImportValue(): Promise<number> {
+    const result = await this.queryLatestValue(['daily_import_from_grid']);
+
+    return result.daily_import_from_grid ? parseFloat(result.daily_import_from_grid) : Promise.reject('No data found');
+  }
+
   async getGridExportValue(): Promise<number> {
+    const result = await this.queryLatestValue(['export_to_grid', 'import_from_grid']);
+
+    return parseInt(result.export_to_grid ?? '0') - parseInt(result.import_from_grid ?? '0');
+  }
+
+  private async queryLatestValue(fields: string[]) {
+
+    const filterExpression = fields.map(field => `r._field == "${field}"`).join(' or ');
+
     const response = await fetch(`${this.influxUrl}/api/v2/query?org=${this.org}&pretty=true`, {
       method: 'POST',
       headers: {
@@ -44,7 +62,7 @@ export class SunGatherInfluxDbDataAdapter implements IDataAdapter<AuthContext>  
         `
         from(bucket: "${this.bucket}")
           |> range(start: -2m)
-          |> filter(fn: (r) => r._field == "export_to_grid" or r._field == "import_from_grid")
+          |> filter(fn: (r) => ${filterExpression})
           |> last()
         `
     });
@@ -55,13 +73,7 @@ export class SunGatherInfluxDbDataAdapter implements IDataAdapter<AuthContext>  
       return Promise.reject('No data found');
     }
 
-    const parsedLines = (await parseCsv(lines));
-    
-    const exportValue = parsedLines.find(d => d._field === 'export_to_grid')?._value;
-    const importValue = parsedLines.find(d => d._field === 'import_from_grid')?._value;
-
-
-    return parseInt(exportValue ?? '0') - parseInt(importValue ?? '0');
+    return await parseCsv(lines, fields.length);
   }
 }
  

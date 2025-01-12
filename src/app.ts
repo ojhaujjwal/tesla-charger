@@ -14,6 +14,7 @@ type ChargingState = {
   ampere: number;
   ampereFluctuations: number;
   lastCommandAt: Date | null;
+  dailyImportValueAtStart: number;
 };
 
 export class App {
@@ -22,6 +23,7 @@ export class App {
     ampere: 0,
     ampereFluctuations: 0,
     lastCommandAt: null,
+    dailyImportValueAtStart: 0,
   };
 
   public constructor(
@@ -35,7 +37,13 @@ export class App {
 
     await this.wakeUpCarIfNecessary();
 
-    await delay(10 * 1000);
+    await Promise.all([
+      delay(10 * 1000),
+      // record daily import value at start to measure net import value 
+      // at the end of the program
+      this.dataAdapter.getDailyImportValue()
+        .then((value) => this.chargeState.dailyImportValueAtStart = value),
+    ]);
 
     // refresh access token every "2 hours" before it expires
     setInterval(() => this.refreshAccessToken(), 1000 * 60 * 60 * 2);
@@ -45,10 +53,15 @@ export class App {
 
   public async stop() {
     console.log(`Fluctuated charging amps count: ${this.chargeState.ampereFluctuations}`);
-    if (!this.chargeState.running) {
-      return;
+
+    try {
+      this.chargeState.running && await this.stopCharging();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      const netValue = await this.dataAdapter.getDailyImportValue() - this.chargeState.dailyImportValueAtStart;
+      console.log(`Net daily import value for session: ${netValue} kWh`);
     }
-    await this.stopCharging();
   }
 
   private async refreshAccessToken() {
@@ -59,6 +72,16 @@ export class App {
   }
 
   private async syncAmpere(ampere: number) {
+    const time = new Date().getTime();
+
+    await fetch(`${process.env.INFLUX_URL}/api/v2/write?bucket=tesla_charging&org=${process.env.INFLUX_ORG}`, {
+      method: 'POST',
+      body: `ampere,make=tesla-model-y,year=2024 value=${ampere} ${time}`,
+      headers: {
+        'Authorization': `Token ${process.env.INFLUX_TOKEN}`,        
+      }
+    });
+
     const stopCharging = ampere < 5;
 
     if (stopCharging && this.chargeState.running) {
