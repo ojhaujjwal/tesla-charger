@@ -165,7 +165,7 @@ export class App {
     };
   }
 
-  private async stopCharging() {
+  private async stopCharging(): Promise<void> {
     await this.wakeUpCarIfNecessary();
     await this.teslaClient.stopCharging();
     this.chargeState = {
