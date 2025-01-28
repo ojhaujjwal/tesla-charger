@@ -2,12 +2,9 @@ import fs from 'fs';
 import { promisify } from 'util';
 import { TeslaClient } from './tesla-client';
 import { IDataAdapter } from './data-adapter/types';
+import { ChargingSpeedController } from './charging-speed-controller/types';
 
 const delay = await promisify(setTimeout);
-
-// TODO: use ENV
-const bufferPower = 500; // in watts
-const VOLTAGE = 240;
 
 type ChargingState = {
   running: boolean;
@@ -29,6 +26,8 @@ export class App {
   public constructor(
     private readonly teslaClient: TeslaClient,
     private readonly dataAdapter: IDataAdapter<unknown>,
+    private readonly chargingSpeedController: ChargingSpeedController,
+    private readonly isDryRun = false,
   ) { }
 
   public async start() {
@@ -61,6 +60,7 @@ export class App {
     } finally {
       const netValue = await this.dataAdapter.getDailyImportValue() - this.chargeState.dailyImportValueAtStart;
       console.log(`Net daily import value for session: ${netValue} kWh`);
+      console.log(`Total cost for grid import for session: $${netValue * parseFloat(process.env.COST_PER_KWH || '0.30')}`);
     }
   }
 
@@ -119,18 +119,7 @@ export class App {
   }
 
   private async syncChargingRateBasedOnExcess(retryInterval = 0) {
-    const exporingToGrid = await this.dataAdapter.getGridExportValue();
-
-    console.log('exporingToGrid', exporingToGrid);
-
-    const excessSolar = Math.min(9200, exporingToGrid - bufferPower + this.chargeState.ampere * VOLTAGE); // 9.2kW max
-    
-    if (excessSolar > 0) {
-      console.log(`Excess solar: ${excessSolar}`);
-    }
-
-    // round to nearest multiple of 5
-    const ampere = Math.floor(excessSolar / VOLTAGE / 5) * 5;
+    const ampere = await this.chargingSpeedController.determineChargingSpeed(this.chargeState.ampere);
 
     await this.syncAmpere(Math.min(32, ampere));
 
@@ -141,7 +130,11 @@ export class App {
 
   private async wakeUpCarIfNecessary(): Promise<void> {
     if (null === this.chargeState.lastCommandAt) {
-      await this.teslaClient.wakeUpCar();
+      if (this.isDryRun) {
+        console.log('Waking up car for the first time');
+      } else {
+        await this.teslaClient.wakeUpCar();
+      }
       await delay(5 * 1000); // 5 seconds
       return;
     }
@@ -150,14 +143,24 @@ export class App {
 
     // wake up car if last command was more than 3 minutes ago
     if (secondsSinceLastCommand > (3 * 60)) {
-      await this.teslaClient.wakeUpCar();
+
+      if (this.isDryRun) {
+        console.log('Waking up car after idle activity');
+      } else {
+        await this.teslaClient.wakeUpCar();
+      }
+
       await delay(5 * 1000); // 5 seconds
     }
   }
 
   private async startCharging() {
     await this.wakeUpCarIfNecessary();
-    await this.teslaClient.startCharging();
+    if (this.isDryRun) {
+      console.log('Starting charging');
+    } else {
+      await this.teslaClient.startCharging();
+    }
     this.chargeState = {
       ...this.chargeState,
       running: true,
@@ -167,7 +170,13 @@ export class App {
 
   private async stopCharging(): Promise<void> {
     await this.wakeUpCarIfNecessary();
-    await this.teslaClient.stopCharging();
+
+    if (this.isDryRun) {
+      console.log('Stopping charging');
+    } else {
+      await this.teslaClient.stopCharging();
+    }
+
     this.chargeState = {
       ...this.chargeState,
       running: false,
@@ -177,7 +186,13 @@ export class App {
 
   private async setAmpere(ampere: number) {
     await this.wakeUpCarIfNecessary();
-    await this.teslaClient.setAmpere(ampere);
+
+    if (this.isDryRun) {
+      console.log(`Setting ampere to ${ampere}`);
+    } else {
+      await this.teslaClient.setAmpere(ampere);
+    }
+
     this.chargeState = {
       ...this.chargeState,
       ampereFluctuations: this.chargeState.ampereFluctuations + 1,

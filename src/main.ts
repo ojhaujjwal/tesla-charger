@@ -1,6 +1,9 @@
 import { SunGatherInfluxDbDataAdapter } from './data-adapter/influx-db-sungather.data-adapter';
 import { TeslaClient } from './tesla-client';
 import { App } from './app';
+import { ExcessSolarAggresiveController } from './charging-speed-controller/excess-solar-aggresive-controller';
+import { ConservativeController } from './charging-speed-controller/conservative-controller';
+import { ExcessFeedInSolarController } from './charging-speed-controller/excess-feed-in-solar-controller';
 
 const teslaClient = new TeslaClient(
   process.env.TESLA_APP_DOMAIN as string,
@@ -16,9 +19,19 @@ const dataAdapter = new SunGatherInfluxDbDataAdapter(
   process.env.INFLUX_BUCKET as string,
 );
 
+const chargingSpeedController = process.argv.includes('--conservative')
+  ? new ConservativeController(dataAdapter)
+  : (
+    process.argv.includes('--excess-feed-in-solar')
+      ? new ExcessFeedInSolarController(dataAdapter, { maxFeedInAllowed: parseInt(process.env.MAX_ALLOWED_FEED_IN_POWER ?? '5000') })
+      : new ExcessSolarAggresiveController(dataAdapter, { bufferPower: parseInt(process.env.EXCESS_SOLAR_BUFFER_POWER ?? '1000') })
+  );
+
 const app = new App(
   teslaClient,
   dataAdapter,
+  chargingSpeedController,
+  process.argv.includes('--dry-run'),
 );
 
 process.on('SIGINT', async () => {
