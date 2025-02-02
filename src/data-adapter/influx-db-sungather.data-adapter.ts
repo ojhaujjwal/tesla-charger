@@ -2,12 +2,6 @@ import { IDataAdapter } from "./types";
 
 type AuthContext = null;
 
-type Field = 'daily_import_from_grid'
-  | 'export_to_grid'
-  | 'import_from_grid'
-  | 'load_power'
-  | 'total_active_power';
-
 const parseCsv = async (rows: string[], numberOfRows: number) => {
   const headers = rows[0].split(',');
   const data = rows.slice(1, 1 + numberOfRows).map(row => {
