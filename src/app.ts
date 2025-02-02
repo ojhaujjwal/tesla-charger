@@ -36,13 +36,7 @@ export class App {
 
     await this.wakeUpCarIfNecessary();
 
-    await Promise.all([
-      delay(10 * 1000),
-      // record daily import value at start to measure net import value 
-      // at the end of the program
-      this.dataAdapter.getDailyImportValue()
-        .then((value) => this.chargeState.dailyImportValueAtStart = value),
-    ]);
+    this.chargeState.dailyImportValueAtStart = await this.dataAdapter.getDailyImportValue();
 
     // refresh access token every "2 hours" before it expires
     setInterval(() => this.refreshAccessToken(), 1000 * 60 * 60 * 2);
@@ -119,7 +113,9 @@ export class App {
   }
 
   private async syncChargingRateBasedOnExcess(retryInterval = 0) {
-    const ampere = await this.chargingSpeedController.determineChargingSpeed(this.chargeState.ampere);
+    const ampere = await this.chargingSpeedController.determineChargingSpeed(
+      this.chargeState.running ? this.chargeState.ampere : 0,
+    );
 
     await this.syncAmpere(Math.min(32, ampere));
 
@@ -135,7 +131,7 @@ export class App {
       } else {
         await this.teslaClient.wakeUpCar();
       }
-      await delay(5 * 1000); // 5 seconds
+      await delay(10 * 1000); // 5 seconds
       return;
     }
 
