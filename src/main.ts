@@ -1,9 +1,9 @@
-import { SunGatherInfluxDbDataAdapter } from './data-adapter/influx-db-sungather.data-adapter';
-import { TeslaClient } from './tesla-client';
-import { App } from './app';
-import { ExcessSolarAggresiveController } from './charging-speed-controller/excess-solar-aggresive-controller';
-import { ConservativeController } from './charging-speed-controller/conservative-controller';
-import { ExcessFeedInSolarController } from './charging-speed-controller/excess-feed-in-solar-controller';
+import { SunGatherInfluxDbDataAdapter } from './data-adapter/influx-db-sungather.data-adapter.js';
+import { TeslaClient } from './tesla-client.js';
+import { App } from './app.js';
+import { ExcessSolarAggresiveController } from './charging-speed-controller/excess-solar-aggresive-controller.js';
+import { ConservativeController } from './charging-speed-controller/conservative-controller.js';
+import { ExcessFeedInSolarController } from './charging-speed-controller/excess-feed-in-solar-controller.js';
 
 const teslaClient = new TeslaClient(
   process.env.TESLA_APP_DOMAIN as string,

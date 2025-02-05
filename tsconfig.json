@@ -1,6 +1,7 @@
 {
   "compilerOptions": {
-    "module": "ESNext",
+    "module": "node16", 
+    "moduleResolution": "node16",
     "declaration": true,
     "removeComments": true,
     "target": "ES2021",

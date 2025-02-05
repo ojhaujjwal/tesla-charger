@@ -1,4 +1,4 @@
-import { IDataAdapter } from "./types";
+import { IDataAdapter } from "./types.js";
 
 type AuthContext = null;
 

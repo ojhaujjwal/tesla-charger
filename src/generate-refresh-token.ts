@@ -1,5 +1,5 @@
 import querystring from 'querystring';
-import { TeslaClient } from './tesla-client';
+import { TeslaClient } from './tesla-client.js';
 
 const teslaClient = new TeslaClient(
   process.env.TESLA_APP_DOMAIN as string,

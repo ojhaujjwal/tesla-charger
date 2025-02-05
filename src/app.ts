@@ -1,8 +1,8 @@
-import fs from 'fs';
-import { promisify } from 'util';
-import { TeslaClient } from './tesla-client';
-import { IDataAdapter } from './data-adapter/types';
-import { ChargingSpeedController } from './charging-speed-controller/types';
+import fs from 'node:fs';
+import { promisify } from 'node:util';
+import { TeslaClient } from './tesla-client.js';
+import { IDataAdapter } from './data-adapter/types.js';
+import { ChargingSpeedController } from './charging-speed-controller/types.js';
 
 const delay = await promisify(setTimeout);
 
@@ -33,8 +33,6 @@ export class App {
   public async start() {
     // refresh access token for running tesla commands including wake up
     await this.refreshAccessToken();
-
-    await this.wakeUpCarIfNecessary();
 
     this.chargeState.dailyImportValueAtStart = await this.dataAdapter.getDailyImportValue();
 
@@ -131,7 +129,7 @@ export class App {
       } else {
         await this.teslaClient.wakeUpCar();
       }
-      await delay(10 * 1000); // 5 seconds
+      await delay(10 * 1000); // 10 seconds
       return;
     }
 

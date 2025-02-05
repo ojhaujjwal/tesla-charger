@@ -2,8 +2,11 @@
   "name": "tesla-charger",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "exports": "./index.js",
   "type": "module",
+  "engines": {
+    "node": ">=21.7.3"
+  },
   "scripts": {
     "cmd:generate-refresh-token": "tsx --env-file=.env src/generate-refresh-token.ts",
     "cmd:setup-tesla-partner-application": "tsx --env-file=.env src/setup-tesla-partner-application.ts",
@@ -25,5 +28,8 @@
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.19.0"
+  },
+  "dependencies": {
+    "p-retry": "^6.2.1"
   }
 }

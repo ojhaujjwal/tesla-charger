@@ -1,5 +1,7 @@
-import { exec } from 'child_process';
-import { promisify } from 'util';
+import { exec, ExecException } from 'node:child_process';
+import { promisify } from 'node:util';
+import pRetry from 'p-retry';
+
 
 const OAUTH2_TOKEN_BASE_URL = 'https://fleet-auth.prd.vn.cloud.tesla.com/oauth2/v3/token';
 
@@ -73,6 +75,12 @@ export class TeslaClient {
 
   private async execTeslaControl(command: string): Promise<void> { 
     console.log(`Running command: tesla-control ${command}`);
-    await promisify(exec)(`tesla-control ${command}`);
+    
+    await pRetry(() => promisify(exec)(`tesla-control ${command}`), {
+      retries: 3,
+      shouldRetry: (error) => {
+        return (error as ExecException).stderr?.includes('context deadline exceeded') ?? false;
+      }
+    });
   }
 }

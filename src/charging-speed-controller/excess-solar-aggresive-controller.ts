@@ -1,6 +1,6 @@
-import { VOLTAGE } from "../constants";
-import { IDataAdapter } from "../data-adapter/types";
-import { ChargingSpeedController } from "./types";
+import { VOLTAGE } from "../constants.js";
+import { IDataAdapter } from "../data-adapter/types.js";
+import { ChargingSpeedController } from "./types.js";
 
 export class ExcessSolarAggresiveController implements ChargingSpeedController {
   public constructor(
@@ -19,6 +19,10 @@ export class ExcessSolarAggresiveController implements ChargingSpeedController {
     
     if (excessSolar > 0) {
       console.log(`Excess solar: ${excessSolar}`);
+    }
+
+    if ((excessSolar / VOLTAGE) >= 32) {
+      return 32;
     }
 
     // round to nearest multiple of 5
