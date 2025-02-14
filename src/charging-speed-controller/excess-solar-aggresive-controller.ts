@@ -1,4 +1,3 @@
-import { VOLTAGE } from "../constants.js";
 import { IDataAdapter } from "../data-adapter/types.js";
 import { ChargingSpeedController } from "./types.js";
 
@@ -11,21 +10,24 @@ export class ExcessSolarAggresiveController implements ChargingSpeedController {
   ) { }
 
   public async determineChargingSpeed(currentChargingSpeed: number): Promise<number> {
-    const exporingToGrid = await this.dataAdapter.getGridExportValue();
+    const [exportingToGrid, { voltage }] = await Promise.all([
+      this.dataAdapter.getGridExportValue(),
+      this.dataAdapter.getValues(['voltage']),
+    ]);
 
-    console.log('exportingToGrid', exporingToGrid);
+    console.log('exportingToGrid', exportingToGrid);
 
-    const excessSolar = Math.min(9200, exporingToGrid - this.config.bufferPower + (currentChargingSpeed * VOLTAGE)); // 9.2kW max
+    const excessSolar = Math.min(9200, exportingToGrid - this.config.bufferPower + (currentChargingSpeed * voltage)); // 9.2kW max
     
     if (excessSolar > 0) {
       console.log(`Excess solar: ${excessSolar}`);
     }
 
-    if ((excessSolar / VOLTAGE) >= 32) {
+    if ((excessSolar / voltage) >= 32) {
       return 32;
     }
 
     // round to nearest multiple of 5
-    return Math.floor(excessSolar / VOLTAGE / 5) * 5;
+    return Math.floor(excessSolar / voltage / 5) * 5;
   }
 }

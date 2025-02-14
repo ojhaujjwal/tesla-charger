@@ -12,10 +12,10 @@ export class ExcessFeedInSolarController implements ChargingSpeedController {
 
 
   async determineChargingSpeed(currentChargingSpeed: number): Promise<number>{
-    const exporingToGrid = await this.dataAdapter.getGridExportValue();
-    console.log('exportingToGrid', exporingToGrid);
+    const { export_to_grid: exportingToGrid } = await this.dataAdapter.getValues(['export_to_grid']);
+    console.log('exportingToGrid', exportingToGrid);
 
-    const excessSolarProduced = exporingToGrid + (currentChargingSpeed * VOLTAGE);
+    const excessSolarProduced = exportingToGrid + (currentChargingSpeed * VOLTAGE);
     const excessSolarGoingWaste = excessSolarProduced - this.config.maxFeedInAllowed;
     console.log('excessSolarGoingWaste', excessSolarGoingWaste);
 
