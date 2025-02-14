@@ -3,6 +3,9 @@ import { promisify } from 'node:util';
 import { TeslaClient } from './tesla-client.js';
 import { IDataAdapter } from './data-adapter/types.js';
 import { ChargingSpeedController } from './charging-speed-controller/types.js';
+import { bufferPower } from './constants.js';
+import { AbruptProductionDrop } from './errors/abrupt-production-drop.js';
+import pRetry from 'p-retry';
 
 const delay = await promisify(setTimeout);
 
@@ -95,14 +98,20 @@ export class App {
     }
 
     if (ampere !== this.chargeState.ampere) {
-
-      const ampDifference = Math.abs(ampere - this.chargeState.ampere);
+      const ampDifference = ampere - this.chargeState.ampere;
 
       console.log(`Setting charging rate to ${ampere}A`);
 
       await this.setAmpere(ampere);
 
-      await delay(ampDifference * 2000); // 2 second for every amp difference
+      // 2 second for every amp difference
+      const secondsToWait = Math.abs(ampDifference) * 2;
+
+      if (ampDifference > 0) {
+        await this.waitAndWatchoutForSuddenDropInProduction(secondsToWait);
+      } else {
+        await delay(secondsToWait * 1000);
+      }
     }
 
     if (shouldStartToCharge) {
@@ -110,16 +119,44 @@ export class App {
     }
   }
 
+  private async waitAndWatchoutForSuddenDropInProduction(timeInSeconds: number) {
+    const currentProductionAtStart = await this.dataAdapter.getCurrentProduction();
+
+    return new Promise<void>((resolve, reject) => {
+      const start= new Date().getTime();
+      const interval = setInterval(async () => {
+        const currentProduction = await this.dataAdapter.getCurrentProduction();
+        console.log('watching for sudden drop in production', {
+          currentProduction,
+          currentProductionAtStart,
+        });
+        if (currentProduction < (currentProductionAtStart - bufferPower)) {
+          clearInterval(interval);
+          reject(new AbruptProductionDrop());
+        }
+      }, 2000);
+
+      delay(timeInSeconds * 1000).then(() => {
+        clearInterval(interval);
+        resolve();
+      });
+    });
+  }
+
   private async syncChargingRateBasedOnExcess(retryInterval = 0) {
-    const ampere = await this.chargingSpeedController.determineChargingSpeed(
-      this.chargeState.running ? this.chargeState.ampere : 0,
-    );
-
-    await this.syncAmpere(Math.min(32, ampere));
-
-    if (retryInterval > 0) {
-      setTimeout(() => this.syncChargingRateBasedOnExcess(retryInterval), retryInterval);
-    }
+    await pRetry(async () => {
+      const ampere = await this.chargingSpeedController.determineChargingSpeed(
+        this.chargeState.running ? this.chargeState.ampere : 0,
+      );
+      await this.syncAmpere(Math.min(32, ampere));
+  
+      if (retryInterval > 0) {
+        setTimeout(() => this.syncChargingRateBasedOnExcess(retryInterval), retryInterval);
+      }
+    }, {
+      shouldRetry: (error) => error instanceof AbruptProductionDrop,
+      retries: 10,
+    });
   }
 
   private async wakeUpCarIfNecessary(): Promise<void> {
@@ -144,7 +181,7 @@ export class App {
         await this.teslaClient.wakeUpCar();
       }
 
-      await delay(5 * 1000); // 5 seconds
+      await delay(10 * 1000); // 5 seconds
     }
   }
 
