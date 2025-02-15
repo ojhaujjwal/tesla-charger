@@ -20,6 +20,6 @@ export class ExcessFeedInSolarController implements ChargingSpeedController {
     console.log('excessSolarGoingWaste', excessSolarGoingWaste);
 
     // round to nearest multiple of 2
-    return Math.floor((excessSolarGoingWaste / VOLTAGE) / 2) * 2;
+    return Math.ceil((excessSolarGoingWaste / VOLTAGE) / 2) * 2;
   }
 }

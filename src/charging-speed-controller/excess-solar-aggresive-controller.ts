@@ -10,14 +10,19 @@ export class ExcessSolarAggresiveController implements ChargingSpeedController {
   ) { }
 
   public async determineChargingSpeed(currentChargingSpeed: number): Promise<number> {
-    const [exportingToGrid, { voltage }] = await Promise.all([
-      this.dataAdapter.getGridExportValue(),
-      this.dataAdapter.getValues(['voltage']),
-    ]);
+    const {
+      voltage,
+      export_to_grid: exportingToGrid,
+      import_from_grid: importingFromGrid
+    } = await this.dataAdapter.getValues(
+        ['voltage', 'export_to_grid', 'import_from_grid']
+      );
+    
+    const netExport = exportingToGrid - importingFromGrid;
 
-    console.log('exportingToGrid', exportingToGrid);
+    console.log('exportingToGrid', netExport);
 
-    const excessSolar = Math.min(9200, exportingToGrid - this.config.bufferPower + (currentChargingSpeed * voltage)); // 9.2kW max
+    const excessSolar = netExport - this.config.bufferPower + (currentChargingSpeed * voltage);
     
     if (excessSolar > 0) {
       console.log(`Excess solar: ${excessSolar}`);

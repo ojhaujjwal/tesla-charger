@@ -82,18 +82,6 @@ export class SunGatherInfluxDbDataAdapter implements IDataAdapter<AuthContext>  
     return result.daily_import_from_grid ? parseFloat(result.daily_import_from_grid) : Promise.reject('No data found');
   }
 
-  async getGridExportValue(): Promise<number> {
-    const result = await this.queryLatestValue(['export_to_grid', 'import_from_grid']);
-
-    return parseInt(result.export_to_grid ?? '0') - parseInt(result.import_from_grid ?? '0');
-  }
-
-  async getCurrentLoad(): Promise<number> {
-    const result = await this.queryLatestValue(['load_power']);
-
-    return result.load_power ? parseFloat(result.load_power) : Promise.reject('No data found');
-  }
-
   async getLowestValueInLastXMinutes(field: string, minutes: number): Promise<number> {
     const response = await fetch(`${this.influxUrl}/api/v2/query?org=${this.org}&pretty=true`, {
       method: 'POST',
@@ -136,7 +124,7 @@ export class SunGatherInfluxDbDataAdapter implements IDataAdapter<AuthContext>  
       body: 
         `
         from(bucket: "${this.bucket}")
-          |> range(start: -2m)
+          |> range(start: -10m)
           |> filter(fn: (r) => ${filterExpression})
           |> last()
         `

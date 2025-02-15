@@ -10,8 +10,6 @@ export type IDataAdapter<AuthContext> = {
   authenticate: () => Promise<AuthContext>;
   getCurrentProduction: () => Promise<number>;
   getVoltage: () => Promise<number>;
-  getCurrentLoad: () => Promise<number>;
-  getGridExportValue: () => Promise<number>;
   getDailyImportValue: () => Promise<number>;
 
   getValues(fields: Field[]): Promise<Record<Field, number>>;
