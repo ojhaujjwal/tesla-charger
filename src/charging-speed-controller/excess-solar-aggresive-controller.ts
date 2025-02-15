@@ -28,6 +28,6 @@ export class ExcessSolarAggresiveController implements ChargingSpeedController {
     }
 
     // round to nearest multiple of 5
-    return Math.floor(excessSolar / voltage / 5) * 5;
+    return Math.max(0, Math.floor(excessSolar / voltage / 5) * 5);
   }
 }
