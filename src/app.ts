@@ -123,7 +123,7 @@ export class App {
     const currentProductionAtStart = await this.dataAdapter.getCurrentProduction();
 
     return new Promise<void>((resolve, reject) => {
-      const start= new Date().getTime();
+      //const start= new Date().getTime();
       const interval = setInterval(async () => {
         const currentProduction = await this.dataAdapter.getCurrentProduction();
         console.log('watching for sudden drop in production', {
