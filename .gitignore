@@ -2,6 +2,7 @@ node_modules
 /dist
 /coverage
 /.env
+/logs
 
 /private-key.pem
 /public-key.pem
