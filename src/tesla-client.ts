@@ -6,8 +6,8 @@ import fs from 'node:fs';
 
 const OAUTH2_TOKEN_BASE_URL = 'https://fleet-auth.prd.vn.cloud.tesla.com/oauth2/v3/token';
 
-export interface ITeslaClient {
-  authenticateFromAuthCodeGrant(authorizationCode: string): Promise<any>;
+export type ITeslaClient = {
+  authenticateFromAuthCodeGrant(authorizationCode: string): Promise<unknown>;
   setupAccessTokenAutoRefresh(timeoutInSeconds: number): () => void;
   startCharging(): Promise<void>;
   stopCharging(): Promise<void>;

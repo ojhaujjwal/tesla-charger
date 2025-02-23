@@ -1,4 +1,3 @@
-import fs from 'node:fs';
 import { promisify } from 'node:util';
 import { ITeslaClient } from './tesla-client.js';
 import { IDataAdapter } from './data-adapter/types.js';
@@ -34,13 +33,13 @@ export class App {
 
   private appStatus: AppStatus = AppStatus.Pending;
 
-  private onAppStopCleanupCallbacks: Array<() => void> = [];
+  private onAppStopCleanupCallbacks: (() => void)[] = [];
 
   public constructor(
     private readonly teslaClient: ITeslaClient,
     private readonly dataAdapter: IDataAdapter<unknown>,
     private readonly chargingSpeedController: ChargingSpeedController,
-    private readonly syncInterval: number = 5000,
+    private readonly syncInterval = 5000,
     private readonly isDryRun = false,
   ) { }
 
