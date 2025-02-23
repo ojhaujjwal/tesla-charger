@@ -1,4 +1,3 @@
-import { VOLTAGE } from "../constants.js";
 import { IDataAdapter } from "../data-adapter/types.js";
 import { ChargingSpeedController } from "./types.js";
 
@@ -12,14 +11,24 @@ export class ExcessFeedInSolarController implements ChargingSpeedController {
 
 
   async determineChargingSpeed(currentChargingSpeed: number): Promise<number>{
-    const { export_to_grid: exportingToGrid } = await this.dataAdapter.getValues(['export_to_grid']);
-    console.log('exportingToGrid', exportingToGrid);
 
-    const excessSolarProduced = exportingToGrid + (currentChargingSpeed * VOLTAGE);
+    const {
+      voltage,
+      export_to_grid: exportingToGrid,
+      import_from_grid: importingFromGrid
+    } = await this.dataAdapter.getValues(
+        ['voltage', 'export_to_grid', 'import_from_grid']
+      );
+    
+    const netExport = exportingToGrid - importingFromGrid;
+
+    console.log('netExport', netExport);
+
+    const excessSolarProduced = netExport + (currentChargingSpeed * voltage);
     const excessSolarGoingWaste = excessSolarProduced - this.config.maxFeedInAllowed;
     console.log('excessSolarGoingWaste', excessSolarGoingWaste);
 
     // round to nearest multiple of 2
-    return Math.ceil((excessSolarGoingWaste / VOLTAGE) / 2) * 2;
+    return Math.ceil((excessSolarGoingWaste / voltage) / 2) * 2;
   }
 }
