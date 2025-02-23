@@ -1,11 +1,21 @@
 import { exec, ExecException } from 'node:child_process';
 import { promisify } from 'node:util';
 import pRetry from 'p-retry';
+import fs from 'node:fs';
 
 
 const OAUTH2_TOKEN_BASE_URL = 'https://fleet-auth.prd.vn.cloud.tesla.com/oauth2/v3/token';
 
-export class TeslaClient {
+export interface ITeslaClient {
+  authenticateFromAuthCodeGrant(authorizationCode: string): Promise<any>;
+  setupAccessTokenAutoRefresh(timeoutInSeconds: number): () => void;
+  startCharging(): Promise<void>;
+  stopCharging(): Promise<void>;
+  setAmpere(ampere: number): Promise<void>;
+  wakeUpCar(): Promise<void>;
+}
+
+export class TeslaClient implements ITeslaClient {
   constructor(
     private appDomain: string,
     private clientId: string,
@@ -33,7 +43,7 @@ export class TeslaClient {
     return await response.json();
   }
 
-  public async refreshAccessToken(): Promise<string>
+  private async refreshAccessToken(): Promise<string>
   { 
     const response = await fetch(OAUTH2_TOKEN_BASE_URL, {
       method: 'POST',
@@ -55,6 +65,22 @@ export class TeslaClient {
     }
   
     return (await response.json()).access_token;
+  }
+
+  public setupAccessTokenAutoRefresh(timeoutInSeconds: number): () => void {
+    const refresher = async () => {
+      const accessToken = await this.refreshAccessToken();
+
+      // TODO: use temp file instead
+      await promisify(fs.writeFile)('.access-token', accessToken, 'utf8');
+    };
+
+    // call it at the start
+    refresher();
+    
+    const interval = setInterval(refresher, 1000 * timeoutInSeconds);
+
+    return () => clearInterval(interval);
   }
 
   public startCharging(): Promise<void> {

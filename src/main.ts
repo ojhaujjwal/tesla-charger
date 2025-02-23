@@ -31,6 +31,7 @@ const app = new App(
   teslaClient,
   dataAdapter,
   chargingSpeedController,
+  5000,
   process.argv.includes('--dry-run'),
 );
 

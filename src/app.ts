@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { promisify } from 'node:util';
-import { TeslaClient } from './tesla-client.js';
+import { ITeslaClient } from './tesla-client.js';
 import { IDataAdapter } from './data-adapter/types.js';
 import { ChargingSpeedController } from './charging-speed-controller/types.js';
 import { bufferPower } from './constants.js';
@@ -17,6 +17,12 @@ type ChargingState = {
   dailyImportValueAtStart: number;
 };
 
+enum AppStatus {
+  Pending,
+  Running,
+  Stopped,
+}
+
 export class App {
   private chargeState: ChargingState = {
     running: false,
@@ -26,27 +32,35 @@ export class App {
     dailyImportValueAtStart: 0,
   };
 
+  private appStatus: AppStatus = AppStatus.Pending;
+
+  private onAppStopCleanupCallbacks: Array<() => void> = [];
+
   public constructor(
-    private readonly teslaClient: TeslaClient,
+    private readonly teslaClient: ITeslaClient,
     private readonly dataAdapter: IDataAdapter<unknown>,
     private readonly chargingSpeedController: ChargingSpeedController,
+    private readonly syncInterval: number = 5000,
     private readonly isDryRun = false,
   ) { }
 
-  public async start() {
-    // refresh access token for running tesla commands including wake up
-    await this.refreshAccessToken();
+  public async start() {   
+    this.appStatus = AppStatus.Running;
+
+    this.onAppStopCleanupCallbacks.push(
+      // refresh access token every "2 hours" before it expires
+      this.teslaClient.setupAccessTokenAutoRefresh(60 * 60 * 2)
+    );
 
     this.chargeState.dailyImportValueAtStart = await this.dataAdapter.getDailyImportValue();
 
-    // refresh access token every "2 hours" before it expires
-    setInterval(() => this.refreshAccessToken(), 1000 * 60 * 60 * 2);
-
-    await this.syncChargingRateBasedOnExcess(5000);// every 5 seconds
+    await this.syncChargingRateBasedOnExcess();
   }
 
   public async stop() {
     console.log(`Fluctuated charging amps count: ${this.chargeState.ampereFluctuations}`);
+
+    this.appStatus = AppStatus.Stopped;
 
     try {
       this.chargeState.running && await this.stopCharging();
@@ -57,13 +71,8 @@ export class App {
       console.log(`Net daily import value for session: ${netValue} kWh`);
       console.log(`Total cost for grid import for session: $${netValue * parseFloat(process.env.COST_PER_KWH || '0.30')}`);
     }
-  }
 
-  private async refreshAccessToken() {
-    const accessToken = await this.teslaClient.refreshAccessToken();
-
-    // TODO: use temp file instead
-    await promisify(fs.writeFile)('.access-token', accessToken, 'utf8')
+    this.onAppStopCleanupCallbacks.forEach((cb) => cb());
   }
 
   private async syncAmpere(ampere: number) {
@@ -143,15 +152,15 @@ export class App {
     });
   }
 
-  private async syncChargingRateBasedOnExcess(retryInterval = 0) {
+  private async syncChargingRateBasedOnExcess() {
     await pRetry(async () => {
       const ampere = await this.chargingSpeedController.determineChargingSpeed(
         this.chargeState.running ? this.chargeState.ampere : 0,
       );
       await this.syncAmpere(Math.min(32, ampere));
   
-      if (retryInterval > 0) {
-        setTimeout(() => this.syncChargingRateBasedOnExcess(retryInterval), retryInterval);
+      if (this.syncInterval > 0 && AppStatus.Running == this.appStatus) {
+        setTimeout(() => this.syncChargingRateBasedOnExcess(), this.syncInterval);
       }
     }, {
       shouldRetry: (error) => error instanceof AbruptProductionDrop,
@@ -232,4 +241,3 @@ export class App {
     };
   }
 }
-
