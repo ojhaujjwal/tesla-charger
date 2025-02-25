@@ -195,6 +195,16 @@ export class App {
 
   private async startCharging() {
     await this.wakeUpCarIfNecessary();
+
+    if (this.chargeState.ampereFluctuations === 0) {
+      try {
+        // stop charging if car is already charging when program starts
+        await this.teslaClient.stopCharging();
+      } catch {
+        // ignore if car is not charging
+      }
+    }
+
     if (this.isDryRun) {
       console.log('Starting charging');
     } else {
