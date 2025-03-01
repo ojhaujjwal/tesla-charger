@@ -3,8 +3,9 @@ import { ITeslaClient } from './tesla-client.js';
 import { IDataAdapter } from './data-adapter/types.js';
 import { ChargingSpeedController } from './charging-speed-controller/types.js';
 import { bufferPower } from './constants.js';
-import { AbruptProductionDrop } from './errors/abrupt-production-drop.js';
+import { AbruptProductionDropError } from './errors/abrupt-production-drop.error.js';
 import pRetry from 'p-retry';
+import { VehicleAsleepError } from './errors/vehicle-asleep-error.js';
 
 const delay = await promisify(setTimeout);
 
@@ -21,6 +22,12 @@ enum AppStatus {
   Running,
   Stopped,
 }
+
+type TimingConfig = {
+  syncIntervalInMs: number;
+  vehicleAwakeningTimeInMs: number;
+  inactivityTimeInSeconds: number;
+};
 
 export class App {
   private chargeState: ChargingState = {
@@ -39,7 +46,11 @@ export class App {
     private readonly teslaClient: ITeslaClient,
     private readonly dataAdapter: IDataAdapter<unknown>,
     private readonly chargingSpeedController: ChargingSpeedController,
-    private readonly syncInterval = 5000,
+    private readonly timingConfig: TimingConfig = {
+      syncIntervalInMs: 5000,
+      vehicleAwakeningTimeInMs: 10 * 1000, // 10 seconds
+      inactivityTimeInSeconds: 15 * 60, // 15 minutes
+    },
     private readonly isDryRun = false,
   ) { }
 
@@ -140,7 +151,7 @@ export class App {
         });
         if (currentProduction < (currentProductionAtStart - bufferPower)) {
           clearInterval(interval);
-          reject(new AbruptProductionDrop());
+          reject(new AbruptProductionDropError());
         }
       }, 2000);
 
@@ -158,44 +169,25 @@ export class App {
       );
       await this.syncAmpere(Math.min(32, ampere));
   
-      if (this.syncInterval > 0 && AppStatus.Running == this.appStatus) {
-        setTimeout(() => this.syncChargingRateBasedOnExcess(), this.syncInterval);
+      if (this.timingConfig.syncIntervalInMs > 0 && AppStatus.Running == this.appStatus) {
+        setTimeout(() => this.syncChargingRateBasedOnExcess(), this.timingConfig.syncIntervalInMs);
       }
     }, {
-      shouldRetry: (error) => error instanceof AbruptProductionDrop,
+      shouldRetry: (error) => error instanceof AbruptProductionDropError || error instanceof VehicleAsleepError,
+      onFailedAttempt: async (error) => { 
+        if (error instanceof VehicleAsleepError) {
+          await this.teslaClient.wakeUpCar();
+          await delay(this.timingConfig.vehicleAwakeningTimeInMs);
+        }
+      },
       retries: 10,
+      minTimeout: 1,
+      maxTimeout: 2,
+      factor: 0,
     });
   }
 
-  private async wakeUpCarIfNecessary(): Promise<void> {
-    if (null === this.chargeState.lastCommandAt) {
-      if (this.isDryRun) {
-        console.log('Waking up car for the first time');
-      } else {
-        await this.teslaClient.wakeUpCar();
-      }
-      await delay(10 * 1000); // 10 seconds
-      return;
-    }
-
-    const secondsSinceLastCommand = (new Date().getTime() - this.chargeState.lastCommandAt.getTime()) / 1000;
-
-    // wake up car if last command was more than 3 minutes ago
-    if (secondsSinceLastCommand > (3 * 60)) {
-
-      if (this.isDryRun) {
-        console.log('Waking up car after idle activity');
-      } else {
-        await this.teslaClient.wakeUpCar();
-      }
-
-      await delay(10 * 1000); // 5 seconds
-    }
-  }
-
   private async startCharging() {
-    await this.wakeUpCarIfNecessary();
-
     if (this.chargeState.ampereFluctuations === 0) {
       try {
         // stop charging if car is already charging when program starts
@@ -218,8 +210,6 @@ export class App {
   }
 
   private async stopCharging(): Promise<void> {
-    await this.wakeUpCarIfNecessary();
-
     if (this.isDryRun) {
       console.log('Stopping charging');
     } else {
@@ -234,8 +224,6 @@ export class App {
   }
 
   private async setAmpere(ampere: number) {
-    await this.wakeUpCarIfNecessary();
-
     if (this.isDryRun) {
       console.log(`Setting ampere to ${ampere}`);
     } else {

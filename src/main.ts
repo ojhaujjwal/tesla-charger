@@ -31,7 +31,11 @@ const app = new App(
   teslaClient,
   dataAdapter,
   chargingSpeedController,
-  5000,
+  {
+    syncIntervalInMs: parseInt(process.env.SYNC_INTERVAL_MS ?? '5000'),
+    vehicleAwakeningTimeInMs: 10 * 1000,
+    inactivityTimeInSeconds: 15 * 60,
+  },
   process.argv.includes('--dry-run'),
 );
 

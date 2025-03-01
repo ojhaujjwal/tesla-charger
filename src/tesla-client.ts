@@ -2,6 +2,7 @@ import { exec, ExecException } from 'node:child_process';
 import { promisify } from 'node:util';
 import pRetry from 'p-retry';
 import fs from 'node:fs';
+import { VehicleAsleepError } from './errors/vehicle-asleep-error.js';
 
 
 const OAUTH2_TOKEN_BASE_URL = 'https://fleet-auth.prd.vn.cloud.tesla.com/oauth2/v3/token';
@@ -102,11 +103,18 @@ export class TeslaClient implements ITeslaClient {
   private async execTeslaControl(command: string): Promise<void> { 
     console.log(`Running command: tesla-control ${command}`);
     
-    await pRetry(() => promisify(exec)(`tesla-control ${command}`), {
-      retries: 3,
-      shouldRetry: (error) => {
-        return (error as ExecException).stderr?.includes('context deadline exceeded') ?? false;
+    try {
+      await pRetry(() => promisify(exec)(`tesla-control ${command}`), {
+        retries: 3,
+        shouldRetry: (error) => {
+          return (error as ExecException).stderr?.includes('context deadline exceeded') ?? false;
+        }
+      });
+    } catch (err) {
+      if ((err as ExecException).stderr?.includes('vehicle is offline or asleep')) {
+        throw new VehicleAsleepError();
       }
-    });
+      throw err;
+    }
   }
 }
