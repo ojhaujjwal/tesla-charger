@@ -4,6 +4,11 @@ import { App } from './app.js';
 import { ExcessSolarAggresiveController } from './charging-speed-controller/excess-solar-aggresive-controller.js';
 import { ConservativeController } from './charging-speed-controller/conservative-controller.js';
 import { ExcessFeedInSolarController } from './charging-speed-controller/excess-feed-in-solar-controller.js';
+import { pino } from 'pino';
+
+const logger = pino({
+  level: process.env.LOG_LEVEL ?? 'info',
+});
 
 const teslaClient = new TeslaClient(
   process.env.TESLA_APP_DOMAIN as string,
@@ -24,19 +29,15 @@ const chargingSpeedController = process.argv.includes('--conservative')
   : (
     process.argv.includes('--excess-feed-in-solar')
       ? new ExcessFeedInSolarController(dataAdapter, { maxFeedInAllowed: parseInt(process.env.MAX_ALLOWED_FEED_IN_POWER ?? '5000') })
-      : new ExcessSolarAggresiveController(dataAdapter, { bufferPower: parseInt(process.env.EXCESS_SOLAR_BUFFER_POWER ?? '1000') })
+      : new ExcessSolarAggresiveController(dataAdapter, logger, { bufferPower: parseInt(process.env.EXCESS_SOLAR_BUFFER_POWER ?? '1000') })
   );
 
 const app = new App(
   teslaClient,
   dataAdapter,
   chargingSpeedController,
-  {
-    syncIntervalInMs: parseInt(process.env.SYNC_INTERVAL_MS ?? '5000'),
-    vehicleAwakeningTimeInMs: 10 * 1000,
-    inactivityTimeInSeconds: 15 * 60,
-  },
   process.argv.includes('--dry-run'),
+  logger,
 );
 
 process.on('SIGINT', async () => {

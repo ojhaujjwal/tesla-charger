@@ -6,6 +6,9 @@ import { bufferPower } from './constants.js';
 import { AbruptProductionDropError } from './errors/abrupt-production-drop.error.js';
 import pRetry from 'p-retry';
 import { VehicleAsleepError } from './errors/vehicle-asleep-error.js';
+import { Logger } from 'pino';
+import { IEventLogger } from './event-logger/types.js';
+import { EventLogger } from './event-logger/index.js';
 
 const delay = await promisify(setTimeout);
 
@@ -27,6 +30,9 @@ type TimingConfig = {
   syncIntervalInMs: number;
   vehicleAwakeningTimeInMs: number;
   inactivityTimeInSeconds: number;
+  waitPerAmereInSeconds: number,
+  extraWaitOnChargeStartInSeconds: number;
+  extraWaitOnChargeStopInSeconds: number;
 };
 
 export class App {
@@ -46,12 +52,17 @@ export class App {
     private readonly teslaClient: ITeslaClient,
     private readonly dataAdapter: IDataAdapter<unknown>,
     private readonly chargingSpeedController: ChargingSpeedController,
+    private readonly isDryRun = false,
+    private readonly logger: Logger,
+    private readonly eventLogger: IEventLogger = new EventLogger(logger),
     private readonly timingConfig: TimingConfig = {
       syncIntervalInMs: 5000,
       vehicleAwakeningTimeInMs: 10 * 1000, // 10 seconds
       inactivityTimeInSeconds: 15 * 60, // 15 minutes
+      waitPerAmereInSeconds: 2,
+      extraWaitOnChargeStartInSeconds: 10, // 10 seconds
+      extraWaitOnChargeStopInSeconds: 10, // 10 seconds
     },
-    private readonly isDryRun = false,
   ) { }
 
   public async start() {   
@@ -68,7 +79,7 @@ export class App {
   }
 
   public async stop() {
-    console.log(`Fluctuated charging amps count: ${this.chargeState.ampereFluctuations}`);
+    this.logger.info(`Fluctuated charging amps count: ${this.chargeState.ampereFluctuations}`);
 
     this.appStatus = AppStatus.Stopped;
 
@@ -78,8 +89,8 @@ export class App {
       console.error(e);
     } finally {
       const netValue = await this.dataAdapter.getDailyImportValue() - this.chargeState.dailyImportValueAtStart;
-      console.log(`Net daily import value for session: ${netValue} kWh`);
-      console.log(`Total cost for grid import for session: $${netValue * parseFloat(process.env.COST_PER_KWH || '0.30')}`);
+      this.logger.info(`Net daily import value for session: ${netValue} kWh`);
+      this.logger.info(`Total cost for grid import for session: $${netValue * parseFloat(process.env.COST_PER_KWH || '0.30')}`);
     }
 
     this.onAppStopCleanupCallbacks.forEach((cb) => cb());
@@ -92,16 +103,18 @@ export class App {
       method: 'POST',
       body: `ampere,make=tesla-model-y,year=2024 value=${ampere} ${time}`,
       headers: {
-        'Authorization': `Token ${process.env.INFLUX_TOKEN}`,        
+        'Authorization': `Token ${process.env.INFLUX_TOKEN}`,
       }
     });
+    
+    const currentProductionAtStart = await this.dataAdapter.getCurrentProduction();
 
     const stopCharging = ampere < 5;
 
     if (stopCharging && this.chargeState.running) {
       await this.stopCharging();
 
-      await delay(10000);
+      await delay(this.timingConfig.extraWaitOnChargeStopInSeconds * 1000);
 
       return;
     }
@@ -119,39 +132,46 @@ export class App {
     if (ampere !== this.chargeState.ampere) {
       const ampDifference = ampere - this.chargeState.ampere;
 
-      console.log(`Setting charging rate to ${ampere}A`);
+      this.eventLogger.onSetAmpere(ampere);
 
       await this.setAmpere(ampere);
 
       // 2 second for every amp difference
-      const secondsToWait = Math.abs(ampDifference) * 2;
+      const secondsToWait = Math.abs(ampDifference) * this.timingConfig.waitPerAmereInSeconds;
 
       if (ampDifference > 0) {
-        await this.waitAndWatchoutForSuddenDropInProduction(secondsToWait);
+        await this.waitAndWatchoutForSuddenDropInProduction(
+          currentProductionAtStart,
+          secondsToWait 
+          + (
+            shouldStartToCharge ? this.timingConfig.extraWaitOnChargeStartInSeconds : 0
+          )
+        );
       } else {
         await delay(secondsToWait * 1000);
       }
-    }
-
-    if (shouldStartToCharge) {
-      await delay(10 * 1000); // 10 extra seconds
+    } else {
+      this.eventLogger.onNoAmpereChange(ampere);
     }
   }
 
-  private async waitAndWatchoutForSuddenDropInProduction(timeInSeconds: number) {
-    const currentProductionAtStart = await this.dataAdapter.getCurrentProduction();
-
+  private async waitAndWatchoutForSuddenDropInProduction(
+    currentProductionAtStart: number,
+    timeInSeconds: number,
+  ) {
     return new Promise<void>((resolve, reject) => {
       //const start= new Date().getTime();
       const interval = setInterval(async () => {
-        const currentProduction = await this.dataAdapter.getCurrentProduction();
-        console.log('watching for sudden drop in production', {
+        //const currentProduction = await this.dataAdapter.getCurrentProduction();
+        const { current_production: currentProduction, import_from_grid: importingFromGrid } = await this.dataAdapter.getValues(['current_production', 'import_from_grid']);
+        this.logger.debug('watching for sudden drop in production', {
           currentProduction,
           currentProductionAtStart,
+          importingFromGrid,
         });
-        if (currentProduction < (currentProductionAtStart - bufferPower)) {
+        if (importingFromGrid > 0 || currentProduction < (currentProductionAtStart - bufferPower)) {
           clearInterval(interval);
-          reject(new AbruptProductionDropError());
+          reject(new AbruptProductionDropError(currentProductionAtStart, currentProduction));
         }
       }, 2000);
 
@@ -163,6 +183,7 @@ export class App {
   }
 
   private async syncChargingRateBasedOnExcess() {
+    this.logger.debug('syncChargingRateBasedOnExcess trigerred');
     await pRetry(async () => {
       const ampere = await this.chargingSpeedController.determineChargingSpeed(
         this.chargeState.running ? this.chargeState.ampere : 0,
@@ -175,15 +196,21 @@ export class App {
     }, {
       shouldRetry: (error) => error instanceof AbruptProductionDropError || error instanceof VehicleAsleepError,
       onFailedAttempt: async (error) => { 
+        if (error instanceof AbruptProductionDropError) { 
+          this.logger.info('AbruptProductionDropError', {
+            initialProduction: error.initialProduction,
+            currentProduction: error.currentProduction,
+          });
+        }
+
         if (error instanceof VehicleAsleepError) {
           await this.teslaClient.wakeUpCar();
           await delay(this.timingConfig.vehicleAwakeningTimeInMs);
         }
       },
-      retries: 10,
-      minTimeout: 1,
-      maxTimeout: 2,
-      factor: 0,
+      retries: 5,
+      minTimeout: 50,
+      factor: 2,
     });
   }
 

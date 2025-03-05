@@ -1,9 +1,11 @@
+import { Logger } from "pino";
 import { IDataAdapter } from "../data-adapter/types.js";
 import { ChargingSpeedController } from "./types.js";
 
 export class ExcessSolarAggresiveController implements ChargingSpeedController {
   public constructor(
     private readonly dataAdapter: IDataAdapter<unknown>,
+    private readonly logger: Logger,
     private readonly config: {
       bufferPower: number;
     }
@@ -21,10 +23,12 @@ export class ExcessSolarAggresiveController implements ChargingSpeedController {
     const netExport = exportingToGrid - importingFromGrid;
 
     console.log('exportingToGrid', netExport);
+    //this.logger.info('exportingToGrid', { value: netExport});
 
     const excessSolar = netExport - this.config.bufferPower + (currentChargingSpeed * voltage);
     
     if (excessSolar > 0) {
+      //this.logger.info('Excess solar', {  value: excessSolar });
       console.log(`Excess solar: ${excessSolar}`);
     }
 

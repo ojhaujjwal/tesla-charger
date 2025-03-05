@@ -3,6 +3,7 @@ import { vi } from 'vitest';
 import { type MockedObject } from 'vitest';
 import { ExcessSolarAggresiveController } from '../../../charging-speed-controller/excess-solar-aggresive-controller.js';
 import { type IDataAdapter } from '../../../data-adapter/types.js';
+import { pino } from 'pino';
 
 describe('ExcessSolarAggresiveController', () => {
   let mockDataAdapter: MockedObject<IDataAdapter<unknown>>;
@@ -19,7 +20,7 @@ describe('ExcessSolarAggresiveController', () => {
     };
 
     // Create controller with mock adapter and config
-    controller = new ExcessSolarAggresiveController(mockDataAdapter, {
+    controller = new ExcessSolarAggresiveController(mockDataAdapter, pino(), {
       bufferPower: 100
     });
   });
