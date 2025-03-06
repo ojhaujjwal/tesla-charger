@@ -1,13 +1,13 @@
 import { promisify } from 'node:util';
-import { ITeslaClient } from './tesla-client.js';
-import { IDataAdapter } from './data-adapter/types.js';
-import { ChargingSpeedController } from './charging-speed-controller/types.js';
+import type { ITeslaClient } from './tesla-client.js';
+import type { IDataAdapter } from './data-adapter/types.js';
+import type { ChargingSpeedController } from './charging-speed-controller/types.js';
 import { bufferPower } from './constants.js';
 import { AbruptProductionDropError } from './errors/abrupt-production-drop.error.js';
 import pRetry from 'p-retry';
 import { VehicleAsleepError } from './errors/vehicle-asleep-error.js';
-import { Logger } from 'pino';
-import { IEventLogger } from './event-logger/types.js';
+import type { Logger } from 'pino';
+import type { IEventLogger } from './event-logger/types.js';
 import { EventLogger } from './event-logger/index.js';
 
 const delay = await promisify(setTimeout);
@@ -160,9 +160,7 @@ export class App {
     timeInSeconds: number,
   ) {
     return new Promise<void>((resolve, reject) => {
-      //const start= new Date().getTime();
       const interval = setInterval(async () => {
-        //const currentProduction = await this.dataAdapter.getCurrentProduction();
         const { current_production: currentProduction, import_from_grid: importingFromGrid } = await this.dataAdapter.getValues(['current_production', 'import_from_grid']);
         this.logger.debug('watching for sudden drop in production', {
           currentProduction,

@@ -1,4 +1,4 @@
-import { IDataAdapter, Field } from "./types.js";
+import type { IDataAdapter, Field } from "./types.js";
 
 // Enhanced logging utility
 const logger = {
@@ -34,6 +34,11 @@ const fieldMap: Record<Field, InfluxField> = {
 }
 
 const parseCsv = async (rows: string[], numberOfRows: number) => {
+  if (rows.length === 0) {
+    logger.error('No data rows found in CSV');
+    throw new InfluxDataAdapterError('No data found', 'NO_DATA');
+  }
+  
   if (rows.length < 2) { 
     logger.error('No data rows found in CSV');
     throw new InfluxDataAdapterError('No data found', 'NO_DATA');

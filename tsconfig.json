@@ -1,10 +1,10 @@
 {
   "compilerOptions": {
-    "module": "node16", 
-    "moduleResolution": "node16",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
     "declaration": true,
     "removeComments": true,
-    "target": "ES2021",
+    "target": "ES2024",
     "sourceMap": true,
     "outDir": "./dist",
     "baseUrl": "./src",
@@ -14,9 +14,15 @@
     "noImplicitAny": true,
     "strict": true,
     "esModuleInterop": true,
-    "strictBindCallApply": true,
-    "forceConsistentCasingInFileNames": false,
-    "noFallthroughCasesInSwitch": false
+    "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": false,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "forceConsistentCasingInFileNames": true,
+    "moduleDetection": "force",
+    "noEmit": false
   },
   "include": ["src"],
   "exclude": ["node_modules"]

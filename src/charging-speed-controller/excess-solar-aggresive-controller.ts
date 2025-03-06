@@ -1,6 +1,6 @@
-import { Logger } from "pino";
-import { IDataAdapter } from "../data-adapter/types.js";
-import { ChargingSpeedController } from "./types.js";
+import type { Logger } from "pino";
+import type { IDataAdapter } from "../data-adapter/types.js";
+import type { ChargingSpeedController } from "./types.js";
 
 export class ExcessSolarAggresiveController implements ChargingSpeedController {
   public constructor(

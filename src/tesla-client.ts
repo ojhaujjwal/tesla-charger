@@ -1,4 +1,5 @@
-import { exec, ExecException } from 'node:child_process';
+import { exec } from 'node:child_process';
+import type { ExecException } from 'node:child_process';
 import { promisify } from 'node:util';
 import pRetry from 'p-retry';
 import fs from 'node:fs';

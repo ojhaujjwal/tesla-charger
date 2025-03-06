@@ -1,5 +1,5 @@
-import { Logger } from "pino";
-import { IEventLogger } from "./types.js";
+import type { Logger } from "pino";
+import type { IEventLogger } from "./types.js";
 
 export class EventLogger implements IEventLogger {
   public constructor(private readonly logger: Logger) { }
