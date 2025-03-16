@@ -14,5 +14,5 @@ export type IDataAdapter<AuthContext> = {
 
   getValues(fields: Field[]): Promise<Record<Field, number>>;
 
-  getLowestValueInLastXMinutes: (field: string, minutes: number) => Promise<number>;
+  getLowestValueInLastXMinutes: (field: Field, minutes: number) => Promise<number>;
 };

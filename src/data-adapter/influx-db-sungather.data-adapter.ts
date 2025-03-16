@@ -154,7 +154,9 @@ export class SunGatherInfluxDbDataAdapter implements IDataAdapter<AuthContext>  
     }
   }
 
-  async getLowestValueInLastXMinutes(field: string, minutes: number): Promise<number> {
+  async getLowestValueInLastXMinutes(field: Field, minutes: number): Promise<number> {
+    const mappedField = fieldMap[field] ?? field;
+
     try {
       const response = await this.fetchWithTimeout(`${this.influxUrl}/api/v2/query?org=${this.org}&pretty=true`, {
         method: 'POST',
@@ -167,7 +169,7 @@ export class SunGatherInfluxDbDataAdapter implements IDataAdapter<AuthContext>  
           `
           from(bucket: "${this.bucket}")
             |> range(start: -${minutes}m)
-            |> filter(fn: (r) => r._field == "${field}")
+            |> filter(fn: (r) => r._field == "${mappedField}")
             |> min()
           `
       });
@@ -181,8 +183,8 @@ export class SunGatherInfluxDbDataAdapter implements IDataAdapter<AuthContext>  
 
       const result = await parseCsv(lines, 1);
 
-      return result[field] 
-        ? parseFloat(result[field]) 
+      return result[mappedField] 
+        ? parseFloat(result[mappedField]) 
         : Promise.reject(new InfluxDataAdapterError('No data found', 'NO_MIN_VALUE'));
     } catch (error) {
       logger.error(`Error getting lowest value: ${error instanceof Error ? error.message : String(error)}`);

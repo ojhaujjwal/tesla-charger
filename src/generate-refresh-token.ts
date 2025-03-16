@@ -5,7 +5,6 @@ const teslaClient = new TeslaClient(
   process.env.TESLA_APP_DOMAIN as string,
   process.env.TESLA_OAUTH2_CLIENT_ID as string,
   process.env.TESLA_OAUTH2_CLIENT_SECRET as string,
-  process.env.TESLA_OAUTH2_REFRESH_TOKEN,
 );
 
 (async () => { 
@@ -32,6 +31,6 @@ const teslaClient = new TeslaClient(
 
   const result = await teslaClient.authenticateFromAuthCodeGrant(authorizationCode);
 
-  console.log(result);
+  await teslaClient.saveTokens(result.access_token, result.refresh_token);
 })();
 

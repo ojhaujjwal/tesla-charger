@@ -2,8 +2,9 @@ import { exec } from 'node:child_process';
 import type { ExecException } from 'node:child_process';
 import { promisify } from 'node:util';
 import pRetry from 'p-retry';
-import fs from 'node:fs';
+//import fs from 'node:fs';
 import { VehicleAsleepError } from './errors/vehicle-asleep-error.js';
+import { promises as fs } from 'node:fs';
 
 
 const OAUTH2_TOKEN_BASE_URL = 'https://fleet-auth.prd.vn.cloud.tesla.com/oauth2/v3/token';
@@ -22,8 +23,17 @@ export class TeslaClient implements ITeslaClient {
     private appDomain: string,
     private clientId: string,
     private clientSecret: string,
-    private refreshToken?: string
   ) { }
+
+  private async getTokens(): Promise<{ access_token: string; refresh_token: string }> {
+    try {
+      const tokens = JSON.parse(await fs.readFile('token.json', 'utf8'));
+      return tokens;
+    } catch(error) {
+      console.error(error);
+      throw new Error('Failed to read tokens from token.json file');
+    }
+  }
   
   public async authenticateFromAuthCodeGrant(authorizationCode: string) {
     const response = await fetch(OAUTH2_TOKEN_BASE_URL, {
@@ -45,14 +55,15 @@ export class TeslaClient implements ITeslaClient {
     return await response.json();
   }
 
-  private async refreshAccessToken(): Promise<string>
-  { 
+  private async refreshAccessToken(): Promise<[string, string]> { 
+    const { refresh_token } = await this.getTokens();
+    
     const response = await fetch(OAUTH2_TOKEN_BASE_URL, {
       method: 'POST',
       body: JSON.stringify({
         grant_type: "refresh_token",
         client_id: this.clientId,
-        refresh_token: this.refreshToken,
+        refresh_token: refresh_token,
       }),
       headers: {
         'Content-Type': 'application/json',
@@ -65,16 +76,26 @@ export class TeslaClient implements ITeslaClient {
         Failed to refresh access token: ${response.statusText} response: ${await response.text()}
       `);
     }
+
+    const result = await response.json();
   
-    return (await response.json()).access_token;
+    return [result.access_token, result.refresh_token];
+  }
+
+  public async saveTokens(accessToken: string, refreshToken: string) {
+    await fs.writeFile('token.json', JSON.stringify({
+      access_token: accessToken,
+      refresh_token: refreshToken
+    }, null, 2), 'utf8');
+
+    await fs.writeFile('.access-token', accessToken, 'utf8');
   }
 
   public setupAccessTokenAutoRefresh(timeoutInSeconds: number): () => void {
     const refresher = async () => {
-      const accessToken = await this.refreshAccessToken();
+      const [accessToken, refreshToken] = await this.refreshAccessToken();
 
-      // TODO: use temp file instead
-      await promisify(fs.writeFile)('.access-token', accessToken, 'utf8');
+      await this.saveTokens(accessToken, refreshToken);
     };
 
     // call it at the start

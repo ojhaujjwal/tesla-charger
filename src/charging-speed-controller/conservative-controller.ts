@@ -7,7 +7,7 @@ export class ConservativeController implements ChargingSpeedController {
     private readonly dataAdapter: IDataAdapter<unknown>,
     private readonly config: {
       bufferPower: number;
-    } = { bufferPower: 500 }
+    } = { bufferPower: 100 }
   ) { }
 
 
@@ -15,7 +15,8 @@ export class ConservativeController implements ChargingSpeedController {
     // use last 30 minutes solar production data to determine charging speed
     // also take into account the currentChargingSpeed and current import from grid + export to grid
 
-    const { voltage, current_load: lowestSolarProduction, current_production: currentLoad } = await this.dataAdapter.getValues(['voltage', 'current_load', 'current_production']);
+    const { voltage, current_load: currentLoad } = await this.dataAdapter.getValues(['voltage', 'current_load', 'current_production']);
+    const lowestSolarProduction = await this.dataAdapter.getLowestValueInLastXMinutes('current_production', 30);
     
     return Math.floor((lowestSolarProduction - currentLoad - currentChargingSpeed * voltage - this.config.bufferPower) / voltage);
   }
