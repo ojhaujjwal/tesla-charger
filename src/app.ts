@@ -70,7 +70,7 @@ export class App {
 
     this.onAppStopCleanupCallbacks.push(
       // refresh access token every "2 hours" before it expires
-      this.teslaClient.setupAccessTokenAutoRefresh(60 * 60 * 2)
+      await this.teslaClient.setupAccessTokenAutoRefresh(60 * 60 * 2)
     );
 
     this.chargeState.dailyImportValueAtStart = await this.dataAdapter.getDailyImportValue();
@@ -97,15 +97,15 @@ export class App {
   }
 
   private async syncAmpere(ampere: number) {
-    const time = new Date().getTime();
+    // const time = new Date().getTime();
 
-    await fetch(`${process.env.INFLUX_URL}/api/v2/write?bucket=tesla_charging&org=${process.env.INFLUX_ORG}`, {
-      method: 'POST',
-      body: `ampere,make=tesla-model-y,year=2024 value=${ampere} ${time}`,
-      headers: {
-        'Authorization': `Token ${process.env.INFLUX_TOKEN}`,
-      }
-    });
+    // await fetch(`${process.env.INFLUX_URL}/api/v2/write?bucket=tesla_charging&org=${process.env.INFLUX_ORG}`, {
+    //   method: 'POST',
+    //   body: `ampere,make=tesla-model-y,year=2024 value=${ampere} ${time}`,
+    //   headers: {
+    //     'Authorization': `Token ${process.env.INFLUX_TOKEN}`,
+    //   }
+    // });
     
     const currentProductionAtStart = await this.dataAdapter.getCurrentProduction();
 
@@ -213,15 +213,6 @@ export class App {
   }
 
   private async startCharging() {
-    if (this.chargeState.ampereFluctuations === 0) {
-      try {
-        // stop charging if car is already charging when program starts
-        await this.teslaClient.stopCharging();
-      } catch {
-        // ignore if car is not charging
-      }
-    }
-
     if (this.isDryRun) {
       console.log('Starting charging');
     } else {
@@ -243,6 +234,7 @@ export class App {
 
     this.chargeState = {
       ...this.chargeState,
+      ampere: 0,
       running: false,
       lastCommandAt: new Date(),
     };

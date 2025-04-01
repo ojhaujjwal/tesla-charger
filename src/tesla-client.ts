@@ -11,7 +11,7 @@ const OAUTH2_TOKEN_BASE_URL = 'https://fleet-auth.prd.vn.cloud.tesla.com/oauth2/
 
 export type ITeslaClient = {
   authenticateFromAuthCodeGrant(authorizationCode: string): Promise<unknown>;
-  setupAccessTokenAutoRefresh(timeoutInSeconds: number): () => void;
+  setupAccessTokenAutoRefresh(timeoutInSeconds: number): Promise<() => void>;
   startCharging(): Promise<void>;
   stopCharging(): Promise<void>;
   setAmpere(ampere: number): Promise<void>;
@@ -91,7 +91,7 @@ export class TeslaClient implements ITeslaClient {
     await fs.writeFile('.access-token', accessToken, 'utf8');
   }
 
-  public setupAccessTokenAutoRefresh(timeoutInSeconds: number): () => void {
+  public async setupAccessTokenAutoRefresh(timeoutInSeconds: number): Promise<() => void> {
     const refresher = async () => {
       const [accessToken, refreshToken] = await this.refreshAccessToken();
 
@@ -99,15 +99,22 @@ export class TeslaClient implements ITeslaClient {
     };
 
     // call it at the start
-    refresher();
+    await refresher();
     
     const interval = setInterval(refresher, 1000 * timeoutInSeconds);
 
     return () => clearInterval(interval);
   }
 
-  public startCharging(): Promise<void> {
-    return this.execTeslaControl('charging-start');
+  public async startCharging(): Promise<void> {
+    try {
+      await this.execTeslaControl('charging-start');
+    } catch (err) {
+      if ((err as ExecException).stderr?.includes('car could not execute command: is_charging')) {
+        // car is already charging
+        return;
+      }
+    }
   }
 
   public stopCharging(): Promise<void> {
@@ -123,15 +130,16 @@ export class TeslaClient implements ITeslaClient {
   }
 
   private async execTeslaControl(command: string): Promise<void> { 
-    console.log(`Running command: tesla-control ${command}`);
+    console.log(`Running command: tesla-control --debug ${command}`);
     
     try {
-      await pRetry(() => promisify(exec)(`tesla-control ${command}`), {
+      const output = await pRetry(() => promisify(exec)(`tesla-control ${command}`), {
         retries: 3,
         shouldRetry: (error) => {
           return (error as ExecException).stderr?.includes('context deadline exceeded') ?? false;
         }
       });
+      console.log(output.stdout, output.stderr);
     } catch (err) {
       if ((err as ExecException).stderr?.includes('vehicle is offline or asleep')) {
         throw new VehicleAsleepError();
