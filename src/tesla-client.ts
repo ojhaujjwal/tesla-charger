@@ -106,19 +106,25 @@ export class TeslaClient implements ITeslaClient {
     return () => clearInterval(interval);
   }
 
-  public async startCharging(): Promise<void> {
+  public async startCharging(): Promise<void> {    
     try {
-      await this.execTeslaControl('charging-start');
+      return await this.execTeslaControl('charging-start');
     } catch (err) {
       if ((err as ExecException).stderr?.includes('car could not execute command: is_charging')) {
         // car is already charging
         return;
       }
+
+      throw err;
     }
+
+    //todo: assert that car is charging by calling API
   }
 
   public stopCharging(): Promise<void> {
     return this.execTeslaControl('charging-stop');
+
+    //todo: ignore if car is already not charging
   }
 
   public setAmpere(ampere: number): Promise<void> {
@@ -130,7 +136,7 @@ export class TeslaClient implements ITeslaClient {
   }
 
   private async execTeslaControl(command: string): Promise<void> { 
-    console.log(`Running command: tesla-control --debug ${command}`);
+    console.log(`Running command: tesla-control ${command}`);
     
     try {
       const output = await pRetry(() => promisify(exec)(`tesla-control ${command}`), {
