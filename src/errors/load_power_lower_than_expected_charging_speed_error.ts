@@ -1,0 +1,1 @@
+export class LoadPowerLowerThanExpectedChargingSpeedError extends Error {}

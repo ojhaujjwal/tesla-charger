@@ -9,6 +9,7 @@ import { VehicleAsleepError } from './errors/vehicle-asleep-error.js';
 import type { Logger } from 'pino';
 import type { IEventLogger } from './event-logger/types.js';
 import { EventLogger } from './event-logger/index.js';
+import { LoadPowerLowerThanExpectedChargingSpeedError } from './errors/load_power_lower_than_expected_charging_speed_error.js';
 
 const delay = await promisify(setTimeout);
 
@@ -59,7 +60,7 @@ export class App {
       syncIntervalInMs: 5000,
       vehicleAwakeningTimeInMs: 10 * 1000, // 10 seconds
       inactivityTimeInSeconds: 15 * 60, // 15 minutes
-      waitPerAmereInSeconds: 2,
+      waitPerAmereInSeconds: 2.2,
       extraWaitOnChargeStartInSeconds: 10, // 10 seconds
       extraWaitOnChargeStopInSeconds: 10, // 10 seconds
     },
@@ -74,6 +75,8 @@ export class App {
     );
 
     this.chargeState.dailyImportValueAtStart = await this.dataAdapter.getDailyImportValue();
+
+    //console.log(await this.teslaClient.getVehicle(process.env.TESLA_VIN || ''));
 
     await this.syncChargingRateBasedOnExcess();
   }
@@ -155,6 +158,19 @@ export class App {
     }
   }
 
+  /**
+   * Check if load_power is abnormal or not being reflected; maybe the car is not charging.
+   */
+  private async checkIfCorrectlyCharging()
+  {
+    const { current_load: currentLoad, voltage } = await this.dataAdapter.getValues(['current_load', 'voltage']);
+    const currentLoadAmpere = currentLoad / voltage;
+
+    if (currentLoadAmpere < this.chargeState.ampere) {
+      throw new LoadPowerLowerThanExpectedChargingSpeedError();
+    }
+  }
+
   private async waitAndWatchoutForSuddenDropInProduction(
     currentProductionAtStart: number,
     timeInSeconds: number,
@@ -189,7 +205,10 @@ export class App {
       await this.syncAmpere(Math.min(32, ampere));
   
       if (this.timingConfig.syncIntervalInMs > 0 && AppStatus.Running == this.appStatus) {
-        setTimeout(() => this.syncChargingRateBasedOnExcess(), this.timingConfig.syncIntervalInMs);
+        setTimeout(() => {
+          this.checkIfCorrectlyCharging();
+          this.syncChargingRateBasedOnExcess();
+        }, this.timingConfig.syncIntervalInMs);
       }
     }, {
       shouldRetry: (error) => error instanceof AbruptProductionDropError || error instanceof VehicleAsleepError,
