@@ -1,5 +1,6 @@
+import { Effect } from "effect";
 import type { IDataAdapter } from "../data-adapter/types.js";
-import type { ChargingSpeedController } from "./types.js";
+import { InadequateDataToDetermineSpeedError, type ChargingSpeedController } from "./types.js";
 
 export class ConservativeController implements ChargingSpeedController {
 
@@ -10,14 +11,24 @@ export class ConservativeController implements ChargingSpeedController {
     } = { bufferPower: 100 }
   ) { }
 
+  public determineChargingSpeed(currentChargingSpeed: number): Effect.Effect<number, InadequateDataToDetermineSpeedError> {
+    const deps = this;
 
-  public async determineChargingSpeed(currentChargingSpeed: number): Promise<number> {
-    // use last 30 minutes solar production data to determine charging speed
-    // also take into account the currentChargingSpeed and current import from grid + export to grid
+    return Effect.gen(function* () {
+        const {
+          voltage,
+          current_load: currentLoad,
+        } = yield* deps.dataAdapter.queryLatestValues(['voltage', 'current_load']);
 
-    const { voltage, current_load: currentLoad } = await this.dataAdapter.getValues(['voltage', 'current_load', 'current_production']);
-    const lowestSolarProduction = await this.dataAdapter.getLowestValueInLastXMinutes('current_production', 30);
+        const lowestSolarProduction = yield* deps.dataAdapter.getLowestValueInLastXMinutes('current_production', 30);
     
-    return Math.floor((lowestSolarProduction - currentLoad - currentChargingSpeed * voltage - this.config.bufferPower) / voltage);
+        return Math.floor((lowestSolarProduction - currentLoad - currentChargingSpeed * voltage - deps.config.bufferPower) / voltage);
+      }.bind(this))
+        .pipe(
+          Effect.catchTags({
+            'DataNotAvailable': (err) => Effect.log(err).pipe(Effect.flatMap(() => Effect.fail(new InadequateDataToDetermineSpeedError()))),
+            'SourceNotAvailable': (err) => Effect.log(err).pipe(Effect.flatMap(() => Effect.fail(new InadequateDataToDetermineSpeedError()))),
+          })
+        );
   }
 }

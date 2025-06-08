@@ -1,4 +1,7 @@
-import type { IDataAdapter, Field } from "./types.js";
+import { Duration, Effect } from "effect";
+import { HttpClient } from "@effect/platform"
+import { type IDataAdapter, type Field, DataNotAvailableError, SourceNotAvailableError } from "./types.js";
+import { raw } from "@effect/platform/HttpBody";
 
 // Enhanced logging utility
 const logger = {
@@ -33,7 +36,7 @@ const fieldMap: Record<Field, InfluxField> = {
   import_from_grid: 'import_from_grid',
 }
 
-const parseCsv = async (rows: string[], numberOfRows: number) => {
+const parseCsv = (rows: string[], numberOfRows: number) => {
   if (rows.length === 0) {
     logger.error('No data rows found in CSV');
     throw new InfluxDataAdapterError('No data found', 'NO_DATA');
@@ -54,20 +57,21 @@ const parseCsv = async (rows: string[], numberOfRows: number) => {
   });
 
   return data.reduce((acc, row) => {
-    acc[row._field] = row._value;
+    acc[row._field] = parseFloat(row._value);
     return acc;
-  }, {} as Record<string, string>);
+  }, {} as Record<string, number>);
 }
+
 
 export class SunGatherInfluxDbDataAdapter implements IDataAdapter<AuthContext>  {
   private readonly TIMEOUT_MS = 10000; // 10 seconds timeout
-  private readonly MAX_RETRIES = 3;
 
   constructor(
     private influxUrl: string,
     private influxToken: string,
     private org: string,
     private bucket: string,
+    private httpClient: HttpClient.HttpClient,
   ) {
     logger.info(`Initializing InfluxDB Adapter for bucket: ${bucket}`);
   }
@@ -98,131 +102,110 @@ export class SunGatherInfluxDbDataAdapter implements IDataAdapter<AuthContext>  
     }
   }
 
-  async getValues(fields: Field[]): Promise<Record<Field, number>> {
-    try {
-      const result = await this.queryLatestValue(fields.map(field => fieldMap[field] ?? field));
+  public queryLatestValues<F extends Field>(fields: F[]): Effect.Effect<Record<F, number>, DataNotAvailableError | SourceNotAvailableError> {
+    const url = `${this.influxUrl}/api/v2/query?org=${this.org}&pretty=true`;
+    const influxToken = this.influxToken;
+
+    const filterExpression = fields
+      .map(field => fieldMap[field] ?? field)
+      .map(field => `r._field == "${field}"`).join(' or ');
+    
+    const body = `
+      from(bucket: "${this.bucket}")
+            |> range(start: -1h)
+            |> filter(fn: (r) => ${filterExpression})
+            |> last()
+    `;
+
+    const client = this.httpClient;
+
+    return Effect.gen(function* () {
+
+      const response = yield* client.post(
+          url,
+          {
+            headers: {
+              'Content-Type': 'application/vnd.flux',
+              'Accept': 'application/csv',
+              'Authorization': `Token ${influxToken}`     
+            },
+            body: raw(body),
+          }
+        );
+
+      const lines = (yield* response.text).trim().split('\n');
+
+      if (lines.length < 2) { 
+        logger.warn('No data found in latest value query');
+        yield* Effect.fail(new DataNotAvailableError)
+      }
+
+      const result = parseCsv(lines, fields.length);
 
       return fields.reduce((acc, field) => {
         const mappedField = fieldMap[field] ?? field;
         if (!(mappedField in result)) {
-          logger.warn(`No data found for field ${field}`);
+          // todo: convert throw to Effect.fail
+          // return Effect.fail(new DataNotAvailableError())
           throw new InfluxDataAdapterError(`No data found for field ${field}`, 'FIELD_NOT_FOUND');
         }
 
-        acc[field] = parseFloat(result[mappedField]);
+        acc[field] = result[mappedField];
         return acc;
       }, {} as Record<Field, number>);
-    } catch (error) {
-      logger.error(`Error in getValues: ${error instanceof Error ? error.message : String(error)}`);
-      throw error;
-    }
+    }).pipe(
+      Effect.timeout(Duration.millis(this.TIMEOUT_MS)),
+      Effect.retry({ times: 2, while: (err) => err._tag === 'TimeoutException' }),
+      Effect.catchTag('TimeoutException', () => Effect.fail(new SourceNotAvailableError())),
+      Effect.catchTag('RequestError', () => Effect.fail(new SourceNotAvailableError())),
+      Effect.catchTag('ResponseError', () => Effect.fail(new SourceNotAvailableError())),
+    ); 
   }
 
-  async getVoltage(): Promise<number> {
-    try {
-      const result = await this.queryLatestValue(['phase_a_voltage']);
-      return result.phase_a_voltage 
-        ? parseFloat(result.phase_a_voltage) 
-        : Promise.reject(new InfluxDataAdapterError('No voltage data found', 'NO_VOLTAGE'));
-    } catch (error) {
-      logger.error(`Error getting voltage: ${error instanceof Error ? error.message : String(error)}`);
-      throw error;
-    }
-  }
-
-  async getCurrentProduction(): Promise<number> {
-    try {
-      const result = await this.queryLatestValue(['total_active_power']);
-      return result.total_active_power 
-        ? parseFloat(result.total_active_power) 
-        : Promise.reject(new InfluxDataAdapterError('No production data found', 'NO_PRODUCTION'));
-    } catch (error) {
-      logger.error(`Error getting current production: ${error instanceof Error ? error.message : String(error)}`);
-      throw error;
-    }
-  }
-
-  async getDailyImportValue(): Promise<number> {
-    try {
-      const result = await this.queryLatestValue(['daily_import_from_grid']);
-      return result.daily_import_from_grid 
-        ? parseFloat(result.daily_import_from_grid) 
-        : Promise.reject(new InfluxDataAdapterError('No daily import data found', 'NO_DAILY_IMPORT'));
-    } catch (error) {
-      logger.error(`Error getting daily import value: ${error instanceof Error ? error.message : String(error)}`);
-      throw error;
-    }
-  }
-
-  async getLowestValueInLastXMinutes(field: Field, minutes: number): Promise<number> {
+  getLowestValueInLastXMinutes(field: Field, minutes: number) {
     const mappedField = fieldMap[field] ?? field;
 
-    try {
-      const response = await this.fetchWithTimeout(`${this.influxUrl}/api/v2/query?org=${this.org}&pretty=true`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/vnd.flux',
-          'Accept': 'application/csv',
-          'Authorization': `Token ${this.influxToken}`        
-        },
-        body: 
-          `
-          from(bucket: "${this.bucket}")
-            |> range(start: -${minutes}m)
-            |> filter(fn: (r) => r._field == "${mappedField}")
-            |> min()
-          `
-      });
+    const deps = this;
+    const client = this.httpClient;
 
-      const lines = (await response.text()).split('\n');
+    return Effect.gen(function*() {
+      const response = yield* client.post(
+          `${deps.influxUrl}/api/v2/query?org=${deps.org}&pretty=true`,
+          {
+            headers: {
+              'Content-Type': 'application/vnd.flux',
+              'Accept': 'application/csv',
+              'Authorization': `Token ${deps.influxToken}`     
+            },
+            body: raw(`
+              from(bucket: "${deps.bucket}")
+                |> range(start: -${minutes}m)
+                |> filter(fn: (r) => r._field == "${mappedField}")
+                |> min()
+            `),
+          }
+        );
+
+      const lines = (yield* response.text).trim().split('\n');
 
       if (lines.length < 2) { 
-        logger.warn(`No data found for lowest value in last ${minutes} minutes`);
-        return Promise.reject(new InfluxDataAdapterError('No data found', 'NO_MIN_VALUE'));
+        logger.warn('No data found in last x minutes');
+        yield* Effect.fail(new DataNotAvailableError)
       }
 
-      const result = await parseCsv(lines, 1);
+      //return parseCsv(lines, fields.length) as Record<F, number>;
+
+      const result = parseCsv(lines, 1) as Record<string, number>;
 
       return result[mappedField] 
-        ? parseFloat(result[mappedField]) 
-        : Promise.reject(new InfluxDataAdapterError('No data found', 'NO_MIN_VALUE'));
-    } catch (error) {
-      logger.error(`Error getting lowest value: ${error instanceof Error ? error.message : String(error)}`);
-      throw error;
-    }
-  }
-
-  private async queryLatestValue(fields: string[]) {
-    try {
-      const filterExpression = fields.map(field => `r._field == "${field}"`).join(' or ');
-
-      const response = await this.fetchWithTimeout(`${this.influxUrl}/api/v2/query?org=${this.org}&pretty=true`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/vnd.flux',
-          'Accept': 'application/csv',
-          'Authorization': `Token ${this.influxToken}`        
-        },
-        body: 
-          `
-          from(bucket: "${this.bucket}")
-            |> range(start: -1h)
-            |> filter(fn: (r) => ${filterExpression})
-            |> last()
-          `
-      });
-
-      const lines = (await response.text()).split('\n');
-
-      if (lines.length < 2) { 
-        logger.warn('No data found in latest value query');
-        return Promise.reject(new InfluxDataAdapterError('No data found', 'NO_LATEST_VALUE'));
-      }
-
-      return await parseCsv(lines, fields.length);
-    } catch (error) {
-      logger.error(`Error in queryLatestValue: ${error instanceof Error ? error.message : String(error)}`);
-      throw error;
-    }
+        ? result[mappedField]
+        : yield* Effect.fail(new DataNotAvailableError);
+    }).pipe(
+      Effect.timeout(Duration.millis(this.TIMEOUT_MS)),
+      Effect.retry({ times: 2, while: (err) => err._tag === 'TimeoutException' }),
+      Effect.catchTag('TimeoutException', () => Effect.fail(new SourceNotAvailableError())),
+      Effect.catchTag('RequestError', () => Effect.fail(new SourceNotAvailableError())),
+      Effect.catchTag('ResponseError', () => Effect.fail(new SourceNotAvailableError())),
+    );
   }
 }

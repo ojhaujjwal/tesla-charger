@@ -12,6 +12,7 @@ export default tseslint.config(
     rules: {
       '@typescript-eslint/consistent-type-definitions': ['error', 'type'],
       '@typescript-eslint/no-unused-expressions': ['error', { allowShortCircuit: true, allowTernary: true }], 
+      '@typescript-eslint/no-this-alias': 'off',
     },
   },
 );

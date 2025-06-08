@@ -13,6 +13,7 @@
     "strictNullChecks": true,
     "noImplicitAny": true,
     "strict": true,
+     "exactOptionalPropertyTypes": true,
     "esModuleInterop": true,
     "verbatimModuleSyntax": true,
     "allowImportingTsExtensions": false,

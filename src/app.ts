@@ -1,17 +1,13 @@
-import { promisify } from 'node:util';
 import type { ITeslaClient } from './tesla-client.js';
-import type { IDataAdapter } from './data-adapter/types.js';
+import { type IDataAdapter } from './data-adapter/types.js';
 import type { ChargingSpeedController } from './charging-speed-controller/types.js';
 import { bufferPower } from './constants.js';
 import { AbruptProductionDropError } from './errors/abrupt-production-drop.error.js';
-import pRetry from 'p-retry';
-import { VehicleAsleepError } from './errors/vehicle-asleep-error.js';
 import type { Logger } from 'pino';
 import type { IEventLogger } from './event-logger/types.js';
 import { EventLogger } from './event-logger/index.js';
 import { LoadPowerLowerThanExpectedChargingSpeedError } from './errors/load_power_lower_than_expected_charging_speed_error.js';
-
-const delay = await promisify(setTimeout);
+import { Duration, Effect, Fiber, pipe, Schedule } from 'effect';
 
 type ChargingState = {
   running: boolean;
@@ -66,40 +62,76 @@ export class App {
     },
   ) { }
 
-  public async start() {   
+  public start() {   
     this.appStatus = AppStatus.Running;
+    const deps = this;
 
-    this.onAppStopCleanupCallbacks.push(
-      // refresh access token every "2 hours" before it expires
-      await this.teslaClient.setupAccessTokenAutoRefresh(60 * 60 * 2)
+    return Effect.gen(function*() {
+      const fiber1 = yield* deps.teslaClient.setupAccessTokenAutoRefresh(60 * 60 * 2).pipe(Effect.fork);
+
+      yield* Effect.sleep(1000);
+
+      deps.chargeState.dailyImportValueAtStart = (
+        yield* deps.dataAdapter.queryLatestValues(['daily_import'])
+      ).daily_import;
+
+      const fiber2 = yield* Effect.repeat(
+        deps.syncChargingRateBasedOnExcess().pipe(
+          Effect.map(() => deps.appStatus)
+      ),
+        {
+          while: (appStatus) => appStatus === AppStatus.Running,
+        }
+      ).pipe(Effect.fork);
+
+      yield* Fiber.zip(fiber1, fiber2).pipe(Fiber.join);
+    });
+  }
+
+  public stop() {
+    const deps = this;
+
+    return Effect.gen(function*() {
+      Effect.log(`Fluctuated charging amps count: ${deps.chargeState.ampereFluctuations}`);
+
+      if (deps.chargeState.running) {
+        yield* Effect.retry(
+          deps.stopCharging(),
+          {
+            times: 3,
+            while: (err) => {
+              if (err._tag === 'VehicleAsleepError') {
+                return Effect.sleep(Duration.millis(deps.timingConfig.vehicleAwakeningTimeInMs)).pipe(
+                  Effect.flatMap(
+                    () => deps.teslaClient.wakeUpCar().pipe(Effect.map(() => true))
+                ),
+                  Effect.catchAll((err) => Effect.log(err).pipe(Effect.map(() => false))),
+                );
+              }
+
+              return true;
+            }
+          }
+        );
+      }
+
+      deps.appStatus = AppStatus.Stopped;
+    }).pipe(
+      Effect.catchAll((err) => {        
+        return Effect.fail(err).pipe(
+          Effect.tap(Effect.gen(function*() {
+            const netValue = (yield* deps.dataAdapter.queryLatestValues(['daily_import'])).daily_import - deps.chargeState.dailyImportValueAtStart;
+            Effect.log(`Net daily import value for session: ${netValue} kWh`);
+            Effect.log(`Total cost for grid import for session: $${netValue * parseFloat(process.env.COST_PER_KWH || '0.30')}`);
+          }).pipe(
+            Effect.catchAll(Effect.log)
+          ))
+        );
+      })
     );
-
-    this.chargeState.dailyImportValueAtStart = await this.dataAdapter.getDailyImportValue();
-
-    //console.log(await this.teslaClient.getVehicle(process.env.TESLA_VIN || ''));
-
-    await this.syncChargingRateBasedOnExcess();
   }
 
-  public async stop() {
-    this.logger.info(`Fluctuated charging amps count: ${this.chargeState.ampereFluctuations}`);
-
-    this.appStatus = AppStatus.Stopped;
-
-    try {
-      this.chargeState.running && await this.stopCharging();
-    } catch (e) {
-      console.error(e);
-    } finally {
-      const netValue = await this.dataAdapter.getDailyImportValue() - this.chargeState.dailyImportValueAtStart;
-      this.logger.info(`Net daily import value for session: ${netValue} kWh`);
-      this.logger.info(`Total cost for grid import for session: $${netValue * parseFloat(process.env.COST_PER_KWH || '0.30')}`);
-    }
-
-    this.onAppStopCleanupCallbacks.forEach((cb) => cb());
-  }
-
-  private async syncAmpere(ampere: number) {
+  private syncAmpere(ampere: number) {
     // const time = new Date().getTime();
 
     // await fetch(`${process.env.INFLUX_URL}/api/v2/write?bucket=tesla_charging&org=${process.env.INFLUX_ORG}`, {
@@ -109,168 +141,201 @@ export class App {
     //     'Authorization': `Token ${process.env.INFLUX_TOKEN}`,
     //   }
     // });
-    
-    const currentProductionAtStart = await this.dataAdapter.getCurrentProduction();
 
-    const stopCharging = ampere < 5;
 
-    if (stopCharging && this.chargeState.running) {
-      await this.stopCharging();
+    const deps = this;
 
-      await delay(this.timingConfig.extraWaitOnChargeStopInSeconds * 1000);
+    return Effect.gen(function* () {
+      const { current_load: currentProductionAtStart } = yield* deps.dataAdapter.queryLatestValues(['current_load']);
 
-      return;
-    }
+      const stopCharging = ampere < 5;
 
-    if (stopCharging) {
-      return;
-    }
+      if (stopCharging && deps.chargeState.running) {
+        yield* deps.stopCharging();
+        yield* Effect.sleep(
+          Duration.seconds(deps.timingConfig.extraWaitOnChargeStopInSeconds)
+        )
 
-    const shouldStartToCharge = !stopCharging && !this.chargeState.running;
-
-    if (shouldStartToCharge) {
-      await this.startCharging();
-    }
-
-    if (ampere !== this.chargeState.ampere) {
-      const ampDifference = ampere - this.chargeState.ampere;
-
-      this.eventLogger.onSetAmpere(ampere);
-
-      await this.setAmpere(ampere);
-
-      // 2 second for every amp difference
-      const secondsToWait = Math.abs(ampDifference) * this.timingConfig.waitPerAmereInSeconds;
-
-      if (ampDifference > 0) {
-        await this.waitAndWatchoutForSuddenDropInProduction(
-          currentProductionAtStart,
-          secondsToWait 
-          + (
-            shouldStartToCharge ? this.timingConfig.extraWaitOnChargeStartInSeconds : 0
-          )
-        );
-      } else {
-        await delay(secondsToWait * 1000);
+        return;
       }
-    } else {
-      this.eventLogger.onNoAmpereChange(ampere);
-    }
+
+      if (stopCharging) {
+        return;
+      }
+
+      const shouldStartToCharge = !stopCharging && !deps.chargeState.running;
+
+      if (shouldStartToCharge) {
+        yield* deps.startCharging();
+      }
+
+      if (ampere !== deps.chargeState.ampere) {
+        const ampDifference = ampere - deps.chargeState.ampere;
+
+        deps.eventLogger.onSetAmpere(ampere);
+
+        yield* deps.setAmpere(ampere);
+
+        // 2 second for every amp difference
+        const secondsToWait = Math.abs(ampDifference) * deps.timingConfig.waitPerAmereInSeconds;
+
+        if (ampDifference > 0) {
+          yield * deps.waitAndWatchoutForSuddenDropInProduction(
+            currentProductionAtStart,
+            secondsToWait 
+            + (
+              shouldStartToCharge ? deps.timingConfig.extraWaitOnChargeStartInSeconds : 0
+            )
+          );
+        } else {
+          yield* Effect.sleep(
+            Duration.seconds(secondsToWait)
+          )
+        }
+      } else {
+        deps.eventLogger.onNoAmpereChange(ampere);
+      }
+    });
   }
 
   /**
    * Check if load_power is abnormal or not being reflected; maybe the car is not charging.
    */
-  private async checkIfCorrectlyCharging()
+  private checkIfCorrectlyCharging()
   {
-    const { current_load: currentLoad, voltage } = await this.dataAdapter.getValues(['current_load', 'voltage']);
-    const currentLoadAmpere = currentLoad / voltage;
+    const deps = this;
+    return Effect.gen(function*() {
+      const { current_load: currentLoad, voltage } = yield* deps.dataAdapter.queryLatestValues(['current_load', 'voltage']);
+      const currentLoadAmpere = currentLoad / voltage;
 
-    if (currentLoadAmpere < this.chargeState.ampere) {
-      throw new LoadPowerLowerThanExpectedChargingSpeedError();
-    }
+      if (deps.chargeState.ampere <=0 || !deps.chargeState.running) {
+        return;
+      }
+
+      if (currentLoadAmpere < deps.chargeState.ampere) {
+        yield* Effect.logDebug('load power not expected', {
+          currentLoad,
+          voltage,
+          expectedAmpere: deps.chargeState.ampere,
+        });
+        yield* Effect.fail(new LoadPowerLowerThanExpectedChargingSpeedError());
+      }
+    })
   }
 
-  private async waitAndWatchoutForSuddenDropInProduction(
+  private waitAndWatchoutForSuddenDropInProduction(
     currentProductionAtStart: number,
     timeInSeconds: number,
   ) {
-    return new Promise<void>((resolve, reject) => {
-      const interval = setInterval(async () => {
-        const { current_production: currentProduction, import_from_grid: importingFromGrid } = await this.dataAdapter.getValues(['current_production', 'import_from_grid']);
-        this.logger.debug('watching for sudden drop in production', {
-          currentProduction,
-          currentProductionAtStart,
-          importingFromGrid,
-        });
-        if (importingFromGrid > 0 || currentProduction < (currentProductionAtStart - bufferPower)) {
-          clearInterval(interval);
-          reject(new AbruptProductionDropError(currentProductionAtStart, currentProduction));
-        }
-      }, 2000);
 
-      delay(timeInSeconds * 1000).then(() => {
-        clearInterval(interval);
-        resolve();
-      });
-    });
-  }
+    const dataAdapter = this.dataAdapter;
 
-  private async syncChargingRateBasedOnExcess() {
-    this.logger.debug('syncChargingRateBasedOnExcess trigerred');
-    await pRetry(async () => {
-      const ampere = await this.chargingSpeedController.determineChargingSpeed(
-        this.chargeState.running ? this.chargeState.ampere : 0,
-      );
-      await this.syncAmpere(Math.min(32, ampere));
-  
-      if (this.timingConfig.syncIntervalInMs > 0 && AppStatus.Running == this.appStatus) {
-        setTimeout(() => {
-          this.checkIfCorrectlyCharging();
-          this.syncChargingRateBasedOnExcess();
-        }, this.timingConfig.syncIntervalInMs);
-      }
-    }, {
-      shouldRetry: (error) => error instanceof AbruptProductionDropError || error instanceof VehicleAsleepError,
-      onFailedAttempt: async (error) => { 
-        if (error instanceof AbruptProductionDropError) { 
-          this.logger.info('AbruptProductionDropError', {
-            initialProduction: error.initialProduction,
-            currentProduction: error.currentProduction,
+    return Effect.race(
+      Effect.void.pipe(Effect.delay(Duration.seconds(timeInSeconds))),
+      Effect.repeat(Effect.gen(function*() {
+          const { 
+            current_production: currentProduction, 
+            import_from_grid: importingFromGrid 
+          }  = yield* dataAdapter.queryLatestValues(['current_production', 'import_from_grid']);
+
+          yield* Effect.logDebug('watching for sudden drop in production', {
+            currentProduction,
+            currentProductionAtStart,
+            importingFromGrid,
           });
-        }
+          if (importingFromGrid > 0 || currentProduction < (currentProductionAtStart - bufferPower)) {
+            yield* Effect.fail(new AbruptProductionDropError({ initialProduction: currentProductionAtStart, currentProduction}));
+          }
 
-        if (error instanceof VehicleAsleepError) {
-          await this.teslaClient.wakeUpCar();
-          await delay(this.timingConfig.vehicleAwakeningTimeInMs);
-        }
-      },
-      retries: 5,
-      minTimeout: 50,
-      factor: 2,
-    });
+          return Effect.void;
+        }), Schedule.fixed(Duration.seconds(2)), // every 2 seonds
+      )
+    );
   }
 
-  private async startCharging() {
-    if (this.isDryRun) {
-      console.log('Starting charging');
-    } else {
-      await this.teslaClient.startCharging();
-    }
-    this.chargeState = {
-      ...this.chargeState,
-      running: true,
-      lastCommandAt: new Date(),
-    };
+  private syncChargingRateBasedOnExcess() {
+    const deps = this;
+    
+    return Effect.retry(
+      Effect.gen(function*() {
+        const ampere = yield* deps.chargingSpeedController.determineChargingSpeed(
+          deps.chargeState.running ? deps.chargeState.ampere : 0,
+        );
+
+        yield* Effect.logDebug('Charging speed determined.', {
+          current_speed: deps.chargeState.ampere,
+          determined_speed: ampere,
+        });
+
+        yield* deps.syncAmpere(Math.min(32, ampere));
+
+        yield* Effect.sleep(deps.timingConfig.syncIntervalInMs);
+
+        yield* deps.checkIfCorrectlyCharging();
+      }),
+      {
+        while: (err) => {
+          if (err._tag === 'VehicleAsleepError') {
+            return Effect.sleep(Duration.millis(this.timingConfig.vehicleAwakeningTimeInMs)).pipe(
+              Effect.flatMap(
+                () => deps.teslaClient.wakeUpCar().pipe(Effect.map(() => true))
+            ),
+              Effect.catchAll((err) => Effect.log(err).pipe(Effect.map(() => false))),
+            );
+          }
+
+          if (err._tag !== 'AbruptProductionDrop') {
+            return Effect.succeed(false);
+          }
+
+          return pipe(Effect.succeed(true), Effect.tap(() => Effect.log('AbruptProductionDropError', {
+            initialProduction: err.initialProduction,
+            currentProduction: err.currentProduction,
+          })));
+        },
+        schedule: Schedule.exponential(Duration.millis(50), 2),
+        times: 5,
+      }
+    );
   }
 
-  private async stopCharging(): Promise<void> {
-    if (this.isDryRun) {
-      console.log('Stopping charging');
-    } else {
-      await this.teslaClient.stopCharging();
-    }
-
-    this.chargeState = {
-      ...this.chargeState,
-      ampere: 0,
-      running: false,
-      lastCommandAt: new Date(),
-    };
+  private startCharging() {
+    return (this.isDryRun ? Effect.log('Starting charging') : this.teslaClient.startCharging())
+      .pipe(
+        Effect.tap(() => {
+          this.chargeState = {
+            ...this.chargeState,
+            running: true,
+            lastCommandAt: new Date(),
+          };
+        })
+      )
   }
 
-  private async setAmpere(ampere: number) {
-    if (this.isDryRun) {
-      console.log(`Setting ampere to ${ampere}`);
-    } else {
-      await this.teslaClient.setAmpere(ampere);
-    }
+  private stopCharging() { 
+    return (this.isDryRun ? Effect.log('Stopping charging') : this.teslaClient.stopCharging())
+      .pipe(
+        Effect.tap(() => {
+          this.chargeState = {
+            ...this.chargeState,
+            ampere: 0,
+            running: false,
+            lastCommandAt: new Date(),
+          };
+        })
+      )
+  }
 
-    this.chargeState = {
-      ...this.chargeState,
-      ampereFluctuations: this.chargeState.ampereFluctuations + 1,
-      ampere,
-      lastCommandAt: new Date(),
-    };
+  private setAmpere(ampere: number) {
+    return (this.isDryRun ? Effect.log(`Setting ampere to ${ampere}`) : this.teslaClient.setAmpere(ampere))
+      .pipe(
+        Effect.tap(() => {
+          this.chargeState = {
+            ...this.chargeState,
+            ampere,
+            lastCommandAt: new Date(),
+          };
+        })
+      )
   }
 }
