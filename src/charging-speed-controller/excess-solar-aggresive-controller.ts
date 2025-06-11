@@ -1,42 +1,46 @@
-import type { Logger } from "pino";
 import type { IDataAdapter } from "../data-adapter/types.js";
-import type { ChargingSpeedController } from "./types.js";
+import { InadequateDataToDetermineSpeedError, type ChargingSpeedController } from "./types.js";
+import { Effect } from "effect";
 
 export class ExcessSolarAggresiveController implements ChargingSpeedController {
   public constructor(
     private readonly dataAdapter: IDataAdapter<unknown>,
-    private readonly logger: Logger,
     private readonly config: {
       bufferPower: number;
     }
   ) { }
 
-  public async determineChargingSpeed(currentChargingSpeed: number): Promise<number> {
-    const {
-      voltage,
-      export_to_grid: exportingToGrid,
-      import_from_grid: importingFromGrid
-    } = await this.dataAdapter.getValues(
-        ['voltage', 'export_to_grid', 'import_from_grid']
-      );
-    
-    const netExport = exportingToGrid - importingFromGrid;
+  public determineChargingSpeed(currentChargingSpeed: number): Effect.Effect<number, InadequateDataToDetermineSpeedError> {
+    // that
+    const deps = this;
 
-    console.log('exportingToGrid', netExport);
-    //this.logger.info('exportingToGrid', { value: netExport});
+    return Effect.gen(function* () {
+        const {
+          voltage,
+          export_to_grid: exportingToGrid,
+          import_from_grid: importingFromGrid
+        } = yield* deps.dataAdapter.queryLatestValues(['voltage', 'export_to_grid', 'import_from_grid']);
 
-    const excessSolar = netExport - this.config.bufferPower + (currentChargingSpeed * voltage);
-    
-    if (excessSolar > 0) {
-      //this.logger.info('Excess solar', {  value: excessSolar });
-      console.log(`Excess solar: ${excessSolar}`);
-    }
+        const netExport = exportingToGrid - importingFromGrid;
 
-    if ((excessSolar / voltage) >= 32) {
-      return 32;
-    }
+        const excessSolar = netExport - deps.config.bufferPower + (currentChargingSpeed * voltage);
+        
+        if (excessSolar > 0) {
+          yield* Effect.log('[ExcessSolarAggresiveController] raw result:', { excessSolar, netExport });
+        }
 
-    // round to nearest multiple of 5
-    return Math.max(0, Math.floor(excessSolar / voltage / 5) * 5);
+        if ((excessSolar / voltage) >= 32) {
+          return 32;
+        }
+
+        // round to nearest multiple of 5
+        return Math.max(0, Math.floor(excessSolar / voltage / 5) * 5);
+      }.bind(this))
+        .pipe(
+          Effect.catchTags({
+            'DataNotAvailable': (err) => Effect.log(err).pipe(Effect.flatMap(() => Effect.fail(new InadequateDataToDetermineSpeedError()))),
+            'SourceNotAvailable': (err) => Effect.log(err).pipe(Effect.flatMap(() => Effect.fail(new InadequateDataToDetermineSpeedError()))),
+          })
+        );
   }
 }
