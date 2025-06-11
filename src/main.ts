@@ -1,7 +1,7 @@
 import { NodeContext, NodeHttpClient, NodeRuntime } from "@effect/platform-node"
 import { Effect, Logger, LogLevel } from "effect"
 import { SunGatherInfluxDbDataAdapter } from './data-adapter/influx-db-sungather.data-adapter.js';
-import { TeslaClient } from './tesla-client.js';
+import { TeslaClient } from './tesla-client/index.js';
 import { App } from './app.js';
 import { ExcessSolarAggresiveController } from './charging-speed-controller/excess-solar-aggresive-controller.js';
 import { ConservativeController } from './charging-speed-controller/conservative-controller.js';

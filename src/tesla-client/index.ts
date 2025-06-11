@@ -1,46 +1,18 @@
-import { VehicleAsleepError } from './errors/vehicle-asleep-error.js';
-import { Data, Duration, Effect, pipe, Schedule, Schema, Stream, String } from 'effect';
+import { AuthenticationFailedError, ContextDeadlineExceededError, UnableToFetchAccessTokenError, VehicleAsleepError, VehicleCommandFailedError } from './errors.js';
+import { Duration, Effect, pipe, Schedule, Schema, Stream, String } from 'effect';
 import { Command, FileSystem, HttpClient } from "@effect/platform";
 import { NodeContext } from '@effect/platform-node';
 import { raw } from '@effect/platform/HttpBody';
-import type { PlatformError } from '@effect/platform/Error';
-import type { ParseError } from 'effect/ParseResult';
-import type { HttpClientError } from '@effect/platform/HttpClientError';
+import { TeslaTokenResponseSchema, type TeslaTokenResponse } from './schema.js';
 
 
 const OAUTH2_TOKEN_BASE_URL = 'https://fleet-auth.prd.vn.cloud.tesla.com/oauth2/v3/token';
 
-export class VehicleCommandFailedError extends Data.TaggedError("VehicleCommandFailed")<{
-  message: string;
-  stderr?: string;
-}> {}
-
-// Internal retryable error (not exposed externally)
-class ContextDeadlineExceededError extends Data.TaggedError("ContextDeadlineExceeded") {}
-
-class UnableToFetchAccessTokenError extends Data.TaggedError("UnableToFetchAccessToken") {}
-
-export class AuthenticationFailedError extends Data.TaggedError("AuthenticationFailedError")<{
-  previous: HttpClientError | PlatformError | UnableToFetchAccessTokenError | ParseError,
-}> {}
-
 
 type CommandResult = Effect.Effect<void, VehicleAsleepError | VehicleCommandFailedError>;
 
-export const TeslaTokenResponseSchema = Schema.Struct({
-  access_token: Schema.String,
-  refresh_token: Schema.String,
-});
-type TeslaTokenResponseSchema = typeof TeslaTokenResponseSchema.Type
-
-export const TeslaErrorResponse = Schema.Struct({
-  error: Schema.String,
-  error_description: Schema.optional(Schema.String),
-});
-export type TeslaErrorResponse = typeof TeslaErrorResponse.Type
-
 export type ITeslaClient = {
-  authenticateFromAuthCodeGrant(authorizationCode: string): Effect.Effect<TeslaTokenResponseSchema, unknown>;
+  authenticateFromAuthCodeGrant(authorizationCode: string): Effect.Effect<TeslaTokenResponse, unknown>;
   setupAccessTokenAutoRefresh(timeoutInSeconds: number): Effect.Effect<Duration.Duration, AuthenticationFailedError>;
   startCharging(): CommandResult;
   stopCharging(): CommandResult;

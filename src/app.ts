@@ -1,4 +1,4 @@
-import type { ITeslaClient } from './tesla-client.js';
+import type { ITeslaClient } from './tesla-client/index.js';
 import { type IDataAdapter } from './data-adapter/types.js';
 import type { ChargingSpeedController } from './charging-speed-controller/types.js';
 import { bufferPower } from './constants.js';
