@@ -1,14 +1,13 @@
-import type { Logger } from "pino";
 import type { IEventLogger } from "./types.js";
+import { Effect } from "effect";
 
 export class EventLogger implements IEventLogger {
-  public constructor(private readonly logger: Logger) { }
 
   public onSetAmpere(ampere: number) {
-    this.logger.info(`Setting charging rate to ${ampere}A`);
+    return Effect.log(`Setting charging rate to ${ampere}A`);
   }
 
   public onNoAmpereChange(currentChargingAmpere: number) {
-    this.logger.debug(`No ampere change. Current charging ampere: ${currentChargingAmpere}`);
+    return Effect.log(`No ampere change. Current charging ampere: ${currentChargingAmpere}`);
   }
 }

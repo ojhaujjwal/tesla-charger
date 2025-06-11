@@ -42,7 +42,6 @@
     "@effect/platform": "^0.84.8",
     "@effect/platform-node": "^0.85.7",
     "effect": "^3.16.4",
-    "pino": "^9.6.0",
     "pm2": "^5.4.3"
   }
 }

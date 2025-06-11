@@ -1,4 +1,6 @@
+import type { Effect } from "effect";
+
 export type IEventLogger = {
-  onSetAmpere: (ampere: number) => void;
-  onNoAmpereChange: (currentChargingAmpere: number) => void;
+  onSetAmpere: (ampere: number) => Effect.Effect<void>;
+  onNoAmpereChange: (currentChargingAmpere: number) => Effect.Effect<void>;
 };

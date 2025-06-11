@@ -3,7 +3,6 @@ import { type IDataAdapter } from './data-adapter/types.js';
 import type { ChargingSpeedController } from './charging-speed-controller/types.js';
 import { bufferPower } from './constants.js';
 import { AbruptProductionDropError } from './errors/abrupt-production-drop.error.js';
-import type { Logger } from 'pino';
 import type { IEventLogger } from './event-logger/types.js';
 import { EventLogger } from './event-logger/index.js';
 import { LoadPowerLowerThanExpectedChargingSpeedError } from './errors/load_power_lower_than_expected_charging_speed_error.js';
@@ -43,15 +42,12 @@ export class App {
 
   private appStatus: AppStatus = AppStatus.Pending;
 
-  private onAppStopCleanupCallbacks: (() => void)[] = [];
-
   public constructor(
     private readonly teslaClient: ITeslaClient,
     private readonly dataAdapter: IDataAdapter<unknown>,
     private readonly chargingSpeedController: ChargingSpeedController,
     private readonly isDryRun = false,
-    private readonly logger: Logger,
-    private readonly eventLogger: IEventLogger = new EventLogger(logger),
+    private readonly eventLogger: IEventLogger = new EventLogger(),
     private readonly timingConfig: TimingConfig = {
       syncIntervalInMs: 5000,
       vehicleAwakeningTimeInMs: 10 * 1000, // 10 seconds
@@ -92,7 +88,9 @@ export class App {
     const deps = this;
 
     return Effect.gen(function*() {
-      Effect.log(`Fluctuated charging amps count: ${deps.chargeState.ampereFluctuations}`);
+      yield* Effect.log('Stopping app', {
+        ampereFluctuations: deps.chargeState.ampereFluctuations,
+      });
 
       if (deps.chargeState.running) {
         yield* Effect.retry(
@@ -172,7 +170,7 @@ export class App {
       if (ampere !== deps.chargeState.ampere) {
         const ampDifference = ampere - deps.chargeState.ampere;
 
-        deps.eventLogger.onSetAmpere(ampere);
+        yield* deps.eventLogger.onSetAmpere(ampere);
 
         yield* deps.setAmpere(ampere);
 
@@ -193,7 +191,7 @@ export class App {
           )
         }
       } else {
-        deps.eventLogger.onNoAmpereChange(ampere);
+        yield* deps.eventLogger.onNoAmpereChange(ampere);
       }
     });
   }

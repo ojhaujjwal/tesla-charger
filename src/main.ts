@@ -6,13 +6,10 @@ import { App } from './app.js';
 import { ExcessSolarAggresiveController } from './charging-speed-controller/excess-solar-aggresive-controller.js';
 import { ConservativeController } from './charging-speed-controller/conservative-controller.js';
 import { ExcessFeedInSolarController } from './charging-speed-controller/excess-feed-in-solar-controller.js';
-import { pino } from 'pino';
 import { FixedSpeedController } from './charging-speed-controller/fixed-speed.controller.js';
 import { FileSystem, HttpClient } from "@effect/platform";
 
-const logger = pino({
-  level: process.env.LOG_LEVEL ?? 'info',
-});
+const isProd = process.env.NODE_ENV == 'production';
 
 
 const program = Effect.gen(function*() {
@@ -51,21 +48,21 @@ const program = Effect.gen(function*() {
     dataAdapter,
     chargingSpeedController,
     process.argv.includes('--dry-run'),
-    logger,
   );
+
+  yield* Effect.addFinalizer(() => app.stop().pipe(Effect.catchAll(err => Effect.log(err))));
 
   yield* app.start().pipe(
-    Effect.onInterrupt(() => app.stop().pipe(Effect.log)) //TODo: fix onInterrupt not triggering
+    Effect.catchAll(err => Effect.log(err).pipe(Effect.flatMap(() => app.stop()))),
+    Effect.catchAll(err => Effect.log(err)),
   );
-});
-
-const isProd = process.env.NODE_ENV == 'production';
-
-NodeRuntime.runMain(program.pipe(
-  Logger.withMinimumLogLevel(isProd ? LogLevel.Info : LogLevel.Debug),
+}).pipe(
   Effect.provide(NodeContext.layer),
   Effect.provide(NodeHttpClient.layer),
-));
+  Effect.scoped,
+  Logger.withMinimumLogLevel(isProd ? LogLevel.Info : LogLevel.Debug),
+);
+NodeRuntime.runMain(program);
 
 process.on('unhandledRejection', async (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
