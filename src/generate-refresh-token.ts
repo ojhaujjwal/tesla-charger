@@ -1,8 +1,9 @@
 import querystring from 'querystring';
-import { TeslaClient, TeslaTokenResponseSchema } from './tesla-client.js';
+import { TeslaClient } from './tesla-client/index.js';
 import { Effect, Schema } from 'effect';
 import { FileSystem, HttpClient } from '@effect/platform';
 import { NodeContext, NodeHttpClient, NodeRuntime } from '@effect/platform-node';
+import { TeslaTokenResponseSchema } from 'tesla-client/schema.js';
 
 const program = Effect.gen(function*() {
   const teslaClient = new TeslaClient(

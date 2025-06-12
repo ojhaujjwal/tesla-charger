@@ -1,12 +1,13 @@
 import type { ITeslaClient } from './tesla-client/index.js';
-import { type IDataAdapter } from './data-adapter/types.js';
-import type { ChargingSpeedController } from './charging-speed-controller/types.js';
-import { bufferPower } from './constants.js';
+import { DataNotAvailableError, SourceNotAvailableError, type IDataAdapter } from './data-adapter/types.js';
+import type { ChargingSpeedController, InadequateDataToDetermineSpeedError } from './charging-speed-controller/types.js';
 import { AbruptProductionDropError } from './errors/abrupt-production-drop.error.js';
 import type { IEventLogger } from './event-logger/types.js';
 import { EventLogger } from './event-logger/index.js';
-import { LoadPowerLowerThanExpectedChargingSpeedError } from './errors/load_power_lower_than_expected_charging_speed_error.js';
+import { NotChargingAccordingToExpectedSpeedError } from './errors/not-charging-according-to-expected-speed.error.js';
 import { Duration, Effect, Fiber, pipe, Schedule } from 'effect';
+import { type AuthenticationFailedError, type VehicleCommandFailedError } from 'tesla-client/errors.js';
+import { VehicleNotWakingUpError } from 'errors/vehicle-not-waking-up.error.js';
 
 type ChargingState = {
   running: boolean;
@@ -58,11 +59,21 @@ export class App {
     },
   ) { }
 
-  public start() {   
+  public start(): Effect.Effect<
+    void,
+    AuthenticationFailedError 
+    | DataNotAvailableError 
+    | SourceNotAvailableError
+    | NotChargingAccordingToExpectedSpeedError
+    | InadequateDataToDetermineSpeedError
+    | VehicleNotWakingUpError
+    | VehicleCommandFailedError
+  > {
     this.appStatus = AppStatus.Running;
     const deps = this;
 
     return Effect.gen(function*() {
+
       const fiber1 = yield* deps.teslaClient.setupAccessTokenAutoRefresh(60 * 60 * 2).pipe(Effect.fork);
 
       yield* Effect.sleep(1000);
@@ -216,7 +227,7 @@ export class App {
           voltage,
           expectedAmpere: deps.chargeState.ampere,
         });
-        yield* Effect.fail(new LoadPowerLowerThanExpectedChargingSpeedError());
+        yield* Effect.fail(new NotChargingAccordingToExpectedSpeedError());
       }
     })
   }
@@ -241,7 +252,7 @@ export class App {
             currentProductionAtStart,
             importingFromGrid,
           });
-          if (importingFromGrid > 0 || currentProduction < (currentProductionAtStart - bufferPower)) {
+          if (importingFromGrid > 0) {
             yield* Effect.fail(new AbruptProductionDropError({ initialProduction: currentProductionAtStart, currentProduction}));
           }
 
@@ -251,39 +262,56 @@ export class App {
     );
   }
 
-  private syncChargingRateBasedOnExcess() {
+  private syncChargingRateBasedOnExcess(): Effect.Effect<
+    void, 
+    DataNotAvailableError 
+    | SourceNotAvailableError 
+    | NotChargingAccordingToExpectedSpeedError 
+    | InadequateDataToDetermineSpeedError 
+    | VehicleCommandFailedError
+    | VehicleNotWakingUpError
+  > {
     const deps = this;
-    
-    return Effect.retry(
-      Effect.gen(function*() {
-        const ampere = yield* deps.chargingSpeedController.determineChargingSpeed(
-          deps.chargeState.running ? deps.chargeState.ampere : 0,
-        );
 
-        yield* Effect.logDebug('Charging speed determined.', {
-          current_speed: deps.chargeState.ampere,
-          determined_speed: ampere,
-        });
+    return Effect.gen(function*() {
+      const ampere = yield* deps.chargingSpeedController.determineChargingSpeed(
+        deps.chargeState.running ? deps.chargeState.ampere : 0,
+      );
 
-        yield* deps.syncAmpere(Math.min(32, ampere));
+      yield* Effect.logDebug('Charging speed determined.', {
+        current_speed: deps.chargeState.ampere,
+        determined_speed: ampere,
+      });
 
-        yield* Effect.sleep(deps.timingConfig.syncIntervalInMs);
+      yield* deps.syncAmpere(Math.min(32, ampere));
 
-        yield* deps.checkIfCorrectlyCharging();
-      }),
-      {
+      yield* Effect.sleep(deps.timingConfig.syncIntervalInMs);
+
+      yield* deps.checkIfCorrectlyCharging();
+    })
+    .pipe(
+      Effect.retry({
+        times: 2,
         while: (err) => {
-          if (err._tag === 'VehicleAsleepError') {
+          if (err._tag !== 'VehicleAsleepError') {
+            return false;
+          }
+
             return Effect.sleep(Duration.millis(this.timingConfig.vehicleAwakeningTimeInMs)).pipe(
               Effect.flatMap(
                 () => deps.teslaClient.wakeUpCar().pipe(Effect.map(() => true))
             ),
               Effect.catchAll((err) => Effect.log(err).pipe(Effect.map(() => false))),
             );
-          }
-
+        },
+      }),
+      Effect.catchTag('VehicleAsleepError', () => Effect.fail(new VehicleNotWakingUpError({wakeupAttempts: 2}))),
+      
+      Effect.retry({
+        times: 10,
+        while: (err) => {
           if (err._tag !== 'AbruptProductionDrop') {
-            return Effect.succeed(false);
+            return false;
           }
 
           return pipe(Effect.succeed(true), Effect.tap(() => Effect.log('AbruptProductionDropError', {
@@ -291,9 +319,9 @@ export class App {
             currentProduction: err.currentProduction,
           })));
         },
-        schedule: Schedule.exponential(Duration.millis(50), 2),
-        times: 5,
-      }
+      }),
+      
+      Effect.catchTag('AbruptProductionDrop', () => Effect.dieMessage('Unexpectedly got AbruptProductionDrop 10 times consecutively.')),
     );
   }
 
