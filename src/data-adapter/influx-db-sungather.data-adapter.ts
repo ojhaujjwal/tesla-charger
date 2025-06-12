@@ -1,31 +1,20 @@
-import { Duration, Effect } from "effect";
+import { Duration, Effect, Schema } from "effect";
 import { HttpClient } from "@effect/platform"
 import { type IDataAdapter, type Field, DataNotAvailableError, SourceNotAvailableError } from "./types.js";
 import { raw } from "@effect/platform/HttpBody";
 
-// Enhanced logging utility
-const logger = {
-  info: (message: string) => console.log(`[InfluxDB Adapter] ${message}`),
-  error: (message: string) => console.error(`[InfluxDB Adapter] ERROR: ${message}`),
-  warn: (message: string) => console.warn(`[InfluxDB Adapter] WARNING: ${message}`)
-};
-
-// Custom error for more detailed error handling
-class InfluxDataAdapterError extends Error {
-  constructor(message: string, public code?: string) {
-    super(message);
-    this.name = 'InfluxDataAdapterError';
-  }
-}
-
 type AuthContext = null;
 
-type InfluxField = 'phase_a_voltage'
-  | 'total_active_power'
-  | 'load_power'
-  | 'daily_import_from_grid'
-  | 'export_to_grid'
-  | 'import_from_grid';
+export const InfluxFieldSchema = Schema.Union(
+  Schema.Literal("phase_a_voltage"),
+  Schema.Literal("total_active_power"),
+  Schema.Literal("load_power"),
+  Schema.Literal("daily_import_from_grid"),
+  Schema.Literal("export_to_grid"),
+  Schema.Literal("import_from_grid")
+);
+
+export type InfluxField = Schema.Schema.Type<typeof InfluxFieldSchema>;
 
 const fieldMap: Record<Field, InfluxField> = {
   voltage: 'phase_a_voltage',
@@ -36,19 +25,17 @@ const fieldMap: Record<Field, InfluxField> = {
   import_from_grid: 'import_from_grid',
 }
 
-const parseCsv = (rows: string[], numberOfRows: number) => {
-  if (rows.length === 0) {
-    logger.error('No data rows found in CSV');
-    throw new InfluxDataAdapterError('No data found', 'NO_DATA');
-  }
-  
-  if (rows.length < 2) { 
-    logger.error('No data rows found in CSV');
-    throw new InfluxDataAdapterError('No data found', 'NO_DATA');
+const parseCsv = <F extends Field>(
+  rows: string[],
+  fields: readonly F[],
+): Effect.Effect<Record<InfluxField, number>, DataNotAvailableError> => Effect.gen(function* () {
+  if (rows.length === 0 || rows.length < 2) {
+    yield* Effect.logError('No data rows found in CSV');
+    yield* Effect.fail(new DataNotAvailableError());
   }
 
   const headers = rows[0].split(',');
-  const data = rows.slice(1, 1 + numberOfRows).map(row => {
+  const data = rows.slice(1, 1 + fields.length).map(row => {
     const values = row.split(',');
     return headers.reduce((acc, header, index) => {
       acc[header] = values[index];
@@ -56,15 +43,20 @@ const parseCsv = (rows: string[], numberOfRows: number) => {
     }, {} as Record<string, string>);
   });
 
-  return data.reduce((acc, row) => {
-    acc[row._field] = parseFloat(row._value);
-    return acc;
-  }, {} as Record<string, number>);
-}
+  const result = {} as Record<InfluxField, number>;
 
+  for (const row of data) {
+    const field = yield* Schema.decodeUnknown(InfluxFieldSchema)(row._field).pipe(
+      Effect.catchTag('ParseError', () => Effect.dieMessage(`Invalid field in CSV: ${row._field}`))
+    );
+    result[field as InfluxField] = parseFloat(row._value);
+  }
+
+  return result;
+});
 
 export class SunGatherInfluxDbDataAdapter implements IDataAdapter<AuthContext>  {
-  private readonly TIMEOUT_MS = 10000; // 10 seconds timeout
+  private readonly TIMEOUT_MS = 10_000;
 
   constructor(
     private influxUrl: string,
@@ -73,33 +65,12 @@ export class SunGatherInfluxDbDataAdapter implements IDataAdapter<AuthContext>  
     private bucket: string,
     private httpClient: HttpClient.HttpClient,
   ) {
-    logger.info(`Initializing InfluxDB Adapter for bucket: ${bucket}`);
+    Effect.runSync(Effect.logInfo(`Initializing InfluxDB Adapter for bucket: ${bucket}`));
   }
 
   async authenticate() {
-    logger.info('Authenticating with InfluxDB');
+    Effect.runSync(Effect.logInfo('Authenticating with InfluxDB'));
     return null;
-  }
-
-  private async fetchWithTimeout(url: string, options: RequestInit, timeout = this.TIMEOUT_MS): Promise<Response> {
-    const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), timeout);
-    
-    try {
-      const response = await fetch(url, {
-        ...options,
-        signal: controller.signal
-      });
-      clearTimeout(id);
-      return response;
-    } catch (error) {
-      clearTimeout(id);
-      if (error instanceof Error && error.name === 'AbortError') {
-        logger.error('Request timed out');
-        throw new InfluxDataAdapterError('Request timed out', 'TIMEOUT');
-      }
-      throw error;
-    }
   }
 
   public queryLatestValues<F extends Field>(fields: F[]): Effect.Effect<Record<F, number>, DataNotAvailableError | SourceNotAvailableError> {
@@ -136,23 +107,22 @@ export class SunGatherInfluxDbDataAdapter implements IDataAdapter<AuthContext>  
       const lines = (yield* response.text).trim().split('\n');
 
       if (lines.length < 2) { 
-        logger.warn('No data found in latest value query');
-        yield* Effect.fail(new DataNotAvailableError)
+        yield* Effect.logWarning('No data found in latest value query');
+        yield* Effect.fail(new DataNotAvailableError())
       }
 
-      const result = parseCsv(lines, fields.length);
+      const result = yield* parseCsv(lines, fields);
 
-      return fields.reduce((acc, field) => {
+      const mappedResult = {} as Record<Field, number>;
+      for (const field of fields) {
         const mappedField = fieldMap[field] ?? field;
         if (!(mappedField in result)) {
-          // todo: convert throw to Effect.fail
-          // return Effect.fail(new DataNotAvailableError())
-          throw new InfluxDataAdapterError(`No data found for field ${field}`, 'FIELD_NOT_FOUND');
+          yield* Effect.logError(`No data found for field ${field}`);
+          yield* Effect.fail(new DataNotAvailableError());
         }
-
-        acc[field] = result[mappedField];
-        return acc;
-      }, {} as Record<Field, number>);
+        mappedResult[field] = result[mappedField];
+      }
+      return mappedResult;
     }).pipe(
       Effect.timeout(Duration.millis(this.TIMEOUT_MS)),
       Effect.retry({ times: 2, while: (err) => err._tag === 'TimeoutException' }),
@@ -189,17 +159,17 @@ export class SunGatherInfluxDbDataAdapter implements IDataAdapter<AuthContext>  
       const lines = (yield* response.text).trim().split('\n');
 
       if (lines.length < 2) { 
-        logger.warn('No data found in last x minutes');
-        yield* Effect.fail(new DataNotAvailableError)
+        yield* Effect.logWarning('No data found in last x minutes');
+        yield* Effect.fail(new DataNotAvailableError())
       }
 
-      //return parseCsv(lines, fields.length) as Record<F, number>;
+      const result = yield* parseCsv(lines, [field]);
 
-      const result = parseCsv(lines, 1) as Record<string, number>;
+      if (!(mappedField in result)) {
+        yield* Effect.fail(new DataNotAvailableError());
+      }
 
-      return result[mappedField] 
-        ? result[mappedField]
-        : yield* Effect.fail(new DataNotAvailableError);
+      return result[mappedField];
     }).pipe(
       Effect.timeout(Duration.millis(this.TIMEOUT_MS)),
       Effect.retry({ times: 2, while: (err) => err._tag === 'TimeoutException' }),

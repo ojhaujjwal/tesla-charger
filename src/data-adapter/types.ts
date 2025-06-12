@@ -1,13 +1,17 @@
-import { Data, Effect } from "effect";
+import { Data, Effect, Schema } from "effect";
 
-export type Field =
-  | 'voltage'
-  | 'current_production'
-  | 'current_load'
-  | 'daily_import'
-  | 'export_to_grid'
-  | 'import_from_grid';
 
+// Define the Field schema
+export const FieldSchema = Schema.Union(
+  Schema.Literal("voltage"),
+  Schema.Literal("current_production"),
+  Schema.Literal("current_load"),
+  Schema.Literal("daily_import"),
+  Schema.Literal("export_to_grid"),
+  Schema.Literal("import_from_grid")
+);
+
+export type Field = Schema.Schema.Type<typeof FieldSchema>;
 
 export class DataNotAvailableError extends Data.TaggedError("DataNotAvailable") {
   public readonly message = 'No data found to determine the result.';
