@@ -84,6 +84,7 @@ export class App {
 
       const fiber2 = yield* Effect.repeat(
         deps.syncChargingRateBasedOnExcess().pipe(
+          Effect.withSpan('syncChargingRateBasedOnExcess'),
           Effect.map(() => deps.appStatus)
       ),
         {
@@ -283,9 +284,17 @@ export class App {
         determined_speed: ampere,
       });
 
-      yield* deps.syncAmpere(Math.min(32, ampere));
+      yield* deps.syncAmpere(Math.min(32, ampere)).pipe(
+        Effect.tap(() => Effect.annotateCurrentSpan({
+          chargeState: deps.chargeState,
+          expectedAmpere: ampere,
+        })),
+        Effect.withSpan('syncAmpere')
+      );
 
-      yield* Effect.sleep(deps.timingConfig.syncIntervalInMs);
+      yield* Effect.sleep(deps.timingConfig.syncIntervalInMs).pipe(
+        Effect.withSpan('syncAmpere.postWaiting')
+      );
 
       yield* deps.checkIfCorrectlyCharging();
     })

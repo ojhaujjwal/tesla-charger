@@ -162,6 +162,10 @@ export class TeslaClient implements ITeslaClient {
   private execTeslaControl(commandArgs: string[]): Effect.Effect<void, VehicleAsleepError | VehicleCommandFailedError, never> {    
     return pipe(
       this.runCommand('tesla-control', commandArgs),
+      Effect.tap(() => Effect.annotateCurrentSpan({
+        command: commandArgs,
+      })),
+      Effect.withSpan('tesla-command'),
       Effect.flatMap(({ exitCode, stderr }): Effect.Effect<void, ContextDeadlineExceededError | VehicleCommandFailedError | VehicleAsleepError> => {
         if (exitCode === 0) return Effect.void;
 
