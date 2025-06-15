@@ -1,9 +1,8 @@
-import { Duration, Effect, Schema } from "effect";
+import { Duration, Effect, Layer, Schema } from "effect";
 import { HttpClient } from "@effect/platform"
-import { type IDataAdapter, type Field, DataNotAvailableError, SourceNotAvailableError } from "./types.js";
+import { type IDataAdapter, type Field, DataNotAvailableError, SourceNotAvailableError, DataAdapter } from "./types.js";
 import { raw } from "@effect/platform/HttpBody";
-
-type AuthContext = null;
+import { AppConfig } from "../config.js";
 
 export const InfluxFieldSchema = Schema.Union(
   Schema.Literal("phase_a_voltage"),
@@ -55,7 +54,7 @@ const parseCsv = <F extends Field>(
   return result;
 });
 
-export class SunGatherInfluxDbDataAdapter implements IDataAdapter<AuthContext>  {
+export class SunGatherInfluxDbDataAdapter implements IDataAdapter {
   private readonly TIMEOUT_MS = 10_000;
 
   constructor(
@@ -179,3 +178,16 @@ export class SunGatherInfluxDbDataAdapter implements IDataAdapter<AuthContext>  
     );
   }
 }
+
+export const SunGatherInfluxDbDataAdapterLayer = Layer.effect(
+  DataAdapter,
+  Effect.gen(function* () {
+    return new SunGatherInfluxDbDataAdapter(
+      yield* AppConfig.influx.url,
+      yield* AppConfig.influx.token,
+      yield* AppConfig.influx.org,
+      yield* AppConfig.influx.bucket,
+      yield* HttpClient.HttpClient
+    );
+  })
+);

@@ -1,4 +1,4 @@
-import { Data, Effect, Schema } from "effect";
+import { Context, Data, Effect, Schema } from "effect";
 
 
 // Define the Field schema
@@ -20,8 +20,13 @@ export class SourceNotAvailableError extends Data.TaggedError("SourceNotAvailabl
   public readonly message = 'Could not connect to the Data Source. Check if the source is running.';
 }
 
-export type IDataAdapter<AuthContext> = {
-  authenticate: () => Promise<AuthContext>;
-  queryLatestValues<F extends Field>(fields: F[]): Effect.Effect<Record<F, number>, DataNotAvailableError | SourceNotAvailableError>;
-  getLowestValueInLastXMinutes: (field: Field, minutes: number) => Effect.Effect<number, DataNotAvailableError | SourceNotAvailableError>;
-};
+export class DataAdapter extends Context.Tag("DataAdapter")<
+   DataAdapter,
+  {
+    readonly queryLatestValues: <F extends Field>(fields: F[]) => Effect.Effect<Record<F, number>, DataNotAvailableError | SourceNotAvailableError>;
+    readonly getLowestValueInLastXMinutes: (field: Field, minutes: number) => Effect.Effect<number, DataNotAvailableError | SourceNotAvailableError>;
+  }>
+(){}
+
+
+export type IDataAdapter = Context.Tag.Service<typeof DataAdapter>;

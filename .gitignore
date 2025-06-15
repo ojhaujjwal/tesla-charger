@@ -9,3 +9,5 @@ node_modules
 
 /.access-token
 /token.json
+
+.vscode

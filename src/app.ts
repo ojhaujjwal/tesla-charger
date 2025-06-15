@@ -45,7 +45,7 @@ export class App {
 
   public constructor(
     private readonly teslaClient: ITeslaClient,
-    private readonly dataAdapter: IDataAdapter<unknown>,
+    private readonly dataAdapter: IDataAdapter,
     private readonly chargingSpeedController: ChargingSpeedController,
     private readonly isDryRun = false,
     private readonly eventLogger: IEventLogger = new EventLogger(),

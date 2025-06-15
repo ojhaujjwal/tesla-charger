@@ -1,6 +1,5 @@
 import { NodeContext, NodeHttpClient, NodeRuntime } from "@effect/platform-node"
 import { Effect, Logger, LogLevel } from "effect"
-import { SunGatherInfluxDbDataAdapter } from './data-adapter/influx-db-sungather.data-adapter.js';
 import { TeslaClient } from './tesla-client/index.js';
 import { App } from './app.js';
 import { ExcessSolarAggresiveController } from './charging-speed-controller/excess-solar-aggresive-controller.js';
@@ -11,6 +10,8 @@ import { FileSystem, HttpClient } from "@effect/platform";
 import { NodeSdk } from "@effect/opentelemetry"
 import { SentrySpanProcessor } from "@sentry/opentelemetry";
 import * as Sentry from "@sentry/node";
+import { DataAdapter } from "data-adapter/types.js";
+import { serviceLayers } from "layers.js";
 
 const isProd = process.env.NODE_ENV == 'production';
 
@@ -35,13 +36,7 @@ const program = Effect.gen(function*() {
     yield* HttpClient.HttpClient,
   );
 
-  const dataAdapter = new SunGatherInfluxDbDataAdapter(
-    process.env.INFLUX_URL as string,
-    process.env.INFLUX_TOKEN as string,
-    process.env.INFLUX_ORG as string,
-    process.env.INFLUX_BUCKET as string,
-    yield* HttpClient.HttpClient,
-  );
+  const dataAdapter = yield* DataAdapter;
 
   const chargingSpeedController = process.argv.includes('--fixed-lowest-speed')
   ? new FixedSpeedController(dataAdapter, { fixedSpeed: parseInt(process.env.FIXED_SPEED_AMPERE ?? '5') , bufferPower: 300 })
@@ -71,6 +66,7 @@ const program = Effect.gen(function*() {
     Effect.catchAll(err => Effect.log(err)),
   );
 }).pipe(
+  Effect.provide(serviceLayers),
   Effect.provide(NodeSdkLive),
   Effect.provide(NodeContext.layer),
   Effect.provide(NodeHttpClient.layer),
