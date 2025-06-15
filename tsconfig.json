@@ -23,7 +23,12 @@
     "noFallthroughCasesInSwitch": true,
     "forceConsistentCasingInFileNames": true,
     "moduleDetection": "force",
-    "noEmit": false
+    "noEmit": false,
+     "plugins": [
+      {
+        "name": "@effect/language-service"
+      }
+    ]
   },
   "include": ["src"],
   "exclude": ["node_modules"]

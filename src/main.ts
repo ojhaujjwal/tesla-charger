@@ -50,7 +50,7 @@ const program = Effect.gen(function*() {
     )
   );
 
-  Effect.log(`Starting app with controller: ${chargingSpeedController.constructor.name}`);
+  yield* Effect.log(`Starting app with controller: ${chargingSpeedController.constructor.name}`);
 
   const app = new App(
     teslaClient,
