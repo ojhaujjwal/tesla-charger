@@ -4,7 +4,7 @@ import { Effect } from "effect";
 
 export class ExcessSolarAggresiveController implements ChargingSpeedController {
   public constructor(
-    private readonly dataAdapter: IDataAdapter<unknown>,
+    private readonly dataAdapter: IDataAdapter,
     private readonly config: {
       bufferPower: number;
     }

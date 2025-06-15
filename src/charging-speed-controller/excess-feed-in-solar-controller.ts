@@ -4,7 +4,7 @@ import { InadequateDataToDetermineSpeedError, type ChargingSpeedController } fro
 
 export class ExcessFeedInSolarController implements ChargingSpeedController {
   public constructor(
-    private readonly dataAdapter: IDataAdapter<unknown>,
+    private readonly dataAdapter: IDataAdapter,
     private readonly config: {
       maxFeedInAllowed: number;
     }

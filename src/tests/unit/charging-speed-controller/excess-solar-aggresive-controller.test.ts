@@ -6,12 +6,11 @@ import { type IDataAdapter } from '../../../data-adapter/types.js';
 import { Effect } from 'effect';
 
 describe('ExcessSolarAggresiveController', () => {
-  let mockDataAdapter: MockedObject<IDataAdapter<unknown>>;
+  let mockDataAdapter: MockedObject<IDataAdapter>;
   let controller: ExcessSolarAggresiveController;
 
   beforeEach(() => {
     mockDataAdapter = {
-      authenticate: vi.fn(),
       queryLatestValues: vi.fn(),
       getLowestValueInLastXMinutes: vi.fn(),
     };
