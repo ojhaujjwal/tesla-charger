@@ -13,3 +13,11 @@ export const TeslaErrorResponseSchema = Schema.Struct({
 });
 
 export type TeslaErrorResponse = typeof TeslaErrorResponseSchema.Type
+
+export const TeslaCachedTokenSchema = Schema.Struct({
+  access_token: Schema.String,
+  refresh_token: Schema.String,
+});
+
+
+export type TeslaCachedToken = typeof TeslaCachedTokenSchema.Type;

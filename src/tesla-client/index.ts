@@ -3,7 +3,7 @@ import { Duration, Effect, pipe, Schedule, Schema, Stream, String } from 'effect
 import { Command, FileSystem, HttpClient } from "@effect/platform";
 import { NodeContext } from '@effect/platform-node';
 import { raw } from '@effect/platform/HttpBody';
-import { TeslaTokenResponseSchema, type TeslaTokenResponse } from './schema.js';
+import { TeslaCachedTokenSchema, TeslaTokenResponseSchema, type TeslaTokenResponse } from './schema.js';
 
 
 const OAUTH2_TOKEN_BASE_URL = 'https://fleet-auth.prd.vn.cloud.tesla.com/oauth2/v3/token';
@@ -44,8 +44,7 @@ export class TeslaClient implements ITeslaClient {
     return Effect.gen(function*() {
        const json = yield* fs.readFileString('token.json');
 
-       //todo: use effect schema
-       return JSON.parse(json) as { access_token: string; refresh_token: string };
+       return yield* Schema.decodeUnknown(TeslaCachedTokenSchema)(JSON.parse(json));
     }).pipe();
   }
   
@@ -110,10 +109,11 @@ export class TeslaClient implements ITeslaClient {
     const fs = this.fileSystem;
 
     return Effect.gen(function*() {
-      yield* fs.writeFileString('token.json', JSON.stringify({
+      const encoded = JSON.stringify(yield* Schema.encode(TeslaCachedTokenSchema)({
         access_token: accessToken,
-        refresh_token: refreshToken
-      }, null, 2));
+        refresh_token: refreshToken,
+      }), null, 2);
+      yield* fs.writeFileString('token.json', encoded);
 
       yield* fs.writeFileString('.access-token', accessToken);
     });
