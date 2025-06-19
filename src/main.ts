@@ -7,11 +7,11 @@ import { ConservativeController } from './charging-speed-controller/conservative
 import { ExcessFeedInSolarController } from './charging-speed-controller/excess-feed-in-solar-controller.js';
 import { FixedSpeedController } from './charging-speed-controller/fixed-speed.controller.js';
 import { FileSystem, HttpClient } from "@effect/platform";
-import { NodeSdk } from "@effect/opentelemetry"
+import { NodeSdk as EffectOpenTelemetryNodeSdk } from "@effect/opentelemetry"
 import { SentrySpanProcessor } from "@sentry/opentelemetry";
 import * as Sentry from "@sentry/node";
-import { DataAdapter } from "data-adapter/types.js";
-import { serviceLayers } from "layers.js";
+import { DataAdapter } from "./data-adapter/types.js";
+import { serviceLayers } from "./layers.js";
 
 const isProd = process.env.NODE_ENV == 'production';
 
@@ -19,13 +19,6 @@ Sentry.init({
   dsn: process.env.SENTRY_DSN as string,
   tracesSampleRate: 1.0,
 });
-
-
-const NodeSdkLive = NodeSdk.layer(() => ({
-  resource: { serviceName: "tesla-charger" },
-  spanProcessor: new SentrySpanProcessor()
-}))
-
 
 const program = Effect.gen(function*() {
   const teslaClient = new TeslaClient(
@@ -67,7 +60,12 @@ const program = Effect.gen(function*() {
   );
 }).pipe(
   Effect.provide(serviceLayers),
-  Effect.provide(NodeSdkLive),
+  Effect.provide(
+    EffectOpenTelemetryNodeSdk.layer(() => ({
+      resource: { serviceName: "tesla-charger" },
+      spanProcessor: new SentrySpanProcessor()
+    })),
+  ),
   Effect.provide(NodeContext.layer),
   Effect.provide(NodeHttpClient.layer),
   Effect.scoped,

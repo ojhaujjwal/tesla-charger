@@ -6,8 +6,9 @@ import type { IEventLogger } from './event-logger/types.js';
 import { EventLogger } from './event-logger/index.js';
 import { NotChargingAccordingToExpectedSpeedError } from './errors/not-charging-according-to-expected-speed.error.js';
 import { Duration, Effect, Fiber, pipe, Schedule } from 'effect';
-import { type AuthenticationFailedError, type VehicleCommandFailedError } from 'tesla-client/errors.js';
-import { VehicleNotWakingUpError } from 'errors/vehicle-not-waking-up.error.js';
+import { type AuthenticationFailedError, type VehicleCommandFailedError } from './tesla-client/errors.js';
+import { VehicleNotWakingUpError } from './errors/vehicle-not-waking-up.error.js';
+
 
 type ChargingState = {
   running: boolean;
@@ -84,6 +85,14 @@ export class App {
 
       const fiber2 = yield* Effect.repeat(
         deps.syncChargingRateBasedOnExcess().pipe(
+          // Effect.tap(() => {
+          //   const memoryMB = process.memoryUsage().heapUsed / 1024 / 1024;
+
+          //   return memoryGauge(Effect.succeed(memoryMB));
+          // }),
+          Effect.tap(() => Effect.annotateCurrentSpan({
+            memory_usage_mb: deps.memoryUsageMB(),
+          })),
           Effect.withSpan('syncChargingRateBasedOnExcess'),
           Effect.map(() => deps.appStatus)
       ),
@@ -94,6 +103,10 @@ export class App {
 
       yield* Fiber.zip(fiber1, fiber2).pipe(Fiber.join);
     });
+  }
+
+  private memoryUsageMB(): number {
+    return process.memoryUsage().heapUsed / 1024 / 1024;
   }
 
   public stop() {
@@ -131,8 +144,8 @@ export class App {
         return Effect.fail(err).pipe(
           Effect.tap(Effect.gen(function*() {
             const netValue = (yield* deps.dataAdapter.queryLatestValues(['daily_import'])).daily_import - deps.chargeState.dailyImportValueAtStart;
-            Effect.log(`Net daily import value for session: ${netValue} kWh`);
-            Effect.log(`Total cost for grid import for session: $${netValue * parseFloat(process.env.COST_PER_KWH || '0.30')}`);
+            yield* Effect.log(`Net daily import value for session: ${netValue} kWh`);
+            yield* Effect.log(`Total cost for grid import for session: $${netValue * parseFloat(process.env.COST_PER_KWH || '0.30')}`);
           }).pipe(
             Effect.catchAll(Effect.log)
           ))
@@ -228,7 +241,7 @@ export class App {
           voltage,
           expectedAmpere: deps.chargeState.ampere,
         });
-        yield* Effect.fail(new NotChargingAccordingToExpectedSpeedError());
+        //return yield* Effect.fail(new NotChargingAccordingToExpectedSpeedError());
       }
     })
   }
@@ -254,7 +267,7 @@ export class App {
             importingFromGrid,
           });
           if (importingFromGrid > 0) {
-            yield* Effect.fail(new AbruptProductionDropError({ initialProduction: currentProductionAtStart, currentProduction}));
+            return yield* Effect.fail(new AbruptProductionDropError({ initialProduction: currentProductionAtStart, currentProduction}));
           }
 
           return Effect.void;
