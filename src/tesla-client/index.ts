@@ -13,7 +13,8 @@ type CommandResult = Effect.Effect<void, VehicleAsleepError | VehicleCommandFail
 
 export type ITeslaClient = {
   authenticateFromAuthCodeGrant(authorizationCode: string): Effect.Effect<TeslaTokenResponse, unknown>;
-  setupAccessTokenAutoRefresh(timeoutInSeconds: number): Effect.Effect<Duration.Duration, AuthenticationFailedError>;
+  refreshAccessToken(): Effect.Effect<void, AuthenticationFailedError>;
+  setupAccessTokenAutoRefreshRecurring(timeoutInSeconds: number): Effect.Effect<Duration.Duration, AuthenticationFailedError>;
   startCharging(): CommandResult;
   stopCharging(): CommandResult;
   setAmpere(ampere: number): CommandResult;
@@ -69,12 +70,12 @@ export class TeslaClient implements ITeslaClient {
           })),
         }
       );
-      
+
       return yield* Schema.decodeUnknown(TeslaTokenResponseSchema)(JSON.parse(yield* response.text));
     });
   }
 
-  private refreshAccessToken() { 
+  private refreshAccessTokenFromTesla() { 
     const httpClient = this.httpClient;
     const clientId = this.clientId;
     const deps = this;
@@ -98,7 +99,7 @@ export class TeslaClient implements ITeslaClient {
       );
 
       if (response.status !== 200) {
-        yield* Effect.fail(new UnableToFetchAccessTokenError());
+        return yield* Effect.fail(new UnableToFetchAccessTokenError());
       }
 
       return yield* Schema.decodeUnknown(TeslaTokenResponseSchema)(JSON.parse(yield* response.text));
@@ -119,19 +120,24 @@ export class TeslaClient implements ITeslaClient {
     });
   }
 
-  public setupAccessTokenAutoRefresh(timeoutInSeconds: number) {
+  public setupAccessTokenAutoRefreshRecurring(timeoutInSeconds: number) {
+    return Effect.repeat(this.refreshAccessToken(), {
+      schedule: Schedule.duration(Duration.seconds(timeoutInSeconds)),
+    });
+  }
+
+  public refreshAccessToken() {
     const deps = this;
 
-    return Effect.repeat(Effect.gen(function*() {
-      const result = yield* deps.refreshAccessToken();
+    return Effect.gen(function*() {
+      const result = yield* deps.refreshAccessTokenFromTesla();
 
       yield* deps.saveTokens(result.access_token, result.refresh_token)
-    }), {
-      schedule: Schedule.duration(Duration.seconds(timeoutInSeconds)),
     }).pipe(
       Effect.catchAll((err) => Effect.fail(new AuthenticationFailedError({ previous: err }))),
     );
   }
+
 
   public startCharging() {    
     return this.execTeslaControl(['charging-start'])

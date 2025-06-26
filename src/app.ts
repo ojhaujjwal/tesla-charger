@@ -75,7 +75,9 @@ export class App {
 
     return Effect.gen(function*() {
 
-      const fiber1 = yield* deps.teslaClient.setupAccessTokenAutoRefresh(60 * 60 * 2).pipe(Effect.fork);
+      yield* deps.teslaClient.refreshAccessToken();
+
+      const fiber1 = yield* deps.teslaClient.setupAccessTokenAutoRefreshRecurring(60 * 60 * 2).pipe(Effect.fork);
 
       yield* Effect.sleep(1000);
 
