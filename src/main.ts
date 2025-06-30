@@ -12,6 +12,8 @@ import { SentrySpanProcessor } from "@sentry/opentelemetry";
 import * as Sentry from "@sentry/node";
 import { DataAdapter } from "./data-adapter/types.js";
 import { serviceLayers } from "./layers.js";
+import { BatchSpanProcessor } from "@opentelemetry/sdk-trace-base";
+import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http"
 
 const isProd = process.env.NODE_ENV == 'production';
 
@@ -63,7 +65,10 @@ const program = Effect.gen(function*() {
   Effect.provide(
     EffectOpenTelemetryNodeSdk.layer(() => ({
       resource: { serviceName: "tesla-charger" },
-      spanProcessor: new SentrySpanProcessor()
+      spanProcessor: [
+        new SentrySpanProcessor(),
+        new BatchSpanProcessor(new OTLPTraceExporter())
+      ]
     })),
   ),
   Effect.provide(NodeContext.layer),
