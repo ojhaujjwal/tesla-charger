@@ -2,7 +2,6 @@ import { NodeContext, NodeHttpClient, NodeRuntime } from "@effect/platform-node"
 import { Effect, Logger, LogLevel } from "effect"
 import { TeslaClient } from './tesla-client/index.js';
 import { App } from './app.js';
-import { ExcessSolarAggresiveController } from './charging-speed-controller/excess-solar-aggresive-controller.js';
 import { ConservativeController } from './charging-speed-controller/conservative-controller.js';
 import { ExcessFeedInSolarController } from './charging-speed-controller/excess-feed-in-solar-controller.js';
 import { FixedSpeedController } from './charging-speed-controller/fixed-speed.controller.js';
@@ -14,6 +13,7 @@ import { DataAdapter } from "./data-adapter/types.js";
 import { serviceLayers } from "./layers.js";
 import { BatchSpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http"
+import { ExcessSolarNonAggresiveController } from "charging-speed-controller/excess-solar-non-aggresive.controller.js";
 
 const isProd = process.env.NODE_ENV == 'production';
 
@@ -41,7 +41,9 @@ const program = Effect.gen(function*() {
     : (
       process.argv.includes('--excess-feed-in-solar')
         ? new ExcessFeedInSolarController(dataAdapter, { maxFeedInAllowed: parseInt(process.env.MAX_ALLOWED_FEED_IN_POWER ?? '5000') })
-        : new ExcessSolarAggresiveController(dataAdapter, { bufferPower: parseInt(process.env.EXCESS_SOLAR_BUFFER_POWER ?? '1000') })
+        : new ExcessSolarNonAggresiveController(
+          new ExcessFeedInSolarController(dataAdapter, { maxFeedInAllowed: parseInt(process.env.MAX_ALLOWED_FEED_IN_POWER ?? '5000') }),
+        )
     )
   );
 
