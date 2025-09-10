@@ -173,7 +173,7 @@ export class App {
     return Effect.gen(function* () {
       const { current_load: currentProductionAtStart } = yield* deps.dataAdapter.queryLatestValues(['current_load']);
 
-      const stopCharging = ampere < 5;
+      const stopCharging = ampere < 3;
 
       if (stopCharging && deps.chargeState.running) {
         yield* deps.stopCharging();
