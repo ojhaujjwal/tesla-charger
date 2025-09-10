@@ -7,6 +7,7 @@ export class ExcessSolarAggresiveController implements ChargingSpeedController {
     private readonly dataAdapter: IDataAdapter,
     private readonly config: {
       bufferPower: number;
+      multipleOf: number;
     }
   ) { }
 
@@ -33,8 +34,8 @@ export class ExcessSolarAggresiveController implements ChargingSpeedController {
           return 32;
         }
 
-        // round to nearest multiple of 3
-        return Math.max(0, Math.floor(excessSolar / voltage / 3) * 3);
+        // round to nearest multiple of parameter
+        return Math.max(0, Math.floor(excessSolar / voltage / deps.config.multipleOf) * deps.config.multipleOf);
       }.bind(this))
         .pipe(
           Effect.catchTags({

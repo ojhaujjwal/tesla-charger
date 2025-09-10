@@ -17,7 +17,8 @@ describe('ExcessSolarAggresiveController', () => {
 
     // Create controller with mock adapter and config
     controller = new ExcessSolarAggresiveController(mockDataAdapter, {
-      bufferPower: 100
+      bufferPower: 100,
+      multipleOf: 5,
     });
   });
 
