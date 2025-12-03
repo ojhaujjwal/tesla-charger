@@ -13,7 +13,6 @@ import { DataAdapter } from "./data-adapter/types.js";
 import { serviceLayers } from "./layers.js";
 import { BatchSpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http"
-import { ExcessSolarNonAggresiveController } from "./charging-speed-controller/excess-solar-non-aggresive.controller.js";
 import { ExcessSolarAggresiveController } from "./charging-speed-controller/excess-solar-aggresive-controller.js";
 
 const isProd = process.env.NODE_ENV == 'production';
@@ -42,9 +41,7 @@ const program = Effect.gen(function*() {
     : (
       process.argv.includes('--excess-feed-in-solar')
         ? new ExcessFeedInSolarController(dataAdapter, { maxFeedInAllowed: parseInt(process.env.MAX_ALLOWED_FEED_IN_POWER ?? '5000') })
-        : new ExcessSolarNonAggresiveController(
-          new ExcessSolarAggresiveController(dataAdapter, { bufferPower: parseInt(process.env.EXCESS_SOLAR_BUFFER_POWER ?? '1000'), multipleOf: 3 }),
-        )
+        : new ExcessSolarAggresiveController(dataAdapter, { bufferPower: parseInt(process.env.EXCESS_SOLAR_BUFFER_POWER ?? '1000'), multipleOf: 3 })
     )
   );
 
