@@ -189,7 +189,7 @@ export class TeslaClient implements ITeslaClient {
       // Retry logic for context deadline errors
       Effect.retry({
         schedule: Schedule.compose(
-          Schedule.recurs(3),  // Max 3 retries (4 total attempts)
+          Schedule.recurs(9),  // Max 9 retries (10 total attempts)
           Schedule.exponential(Duration.seconds(0.1), 1.5) // Backoff: 0.10s, 0.15s, 0.225s
         ),
         while: (error) => error._tag === "ContextDeadlineExceeded"
@@ -197,7 +197,7 @@ export class TeslaClient implements ITeslaClient {
 
       // Convert retry exhaustion to permanent error
       Effect.catchTag("ContextDeadlineExceeded", () =>
-        Effect.fail(new VehicleCommandFailedError({ message: "Command timed out after 4 attempts" }))
+        Effect.fail(new VehicleCommandFailedError({ message: "Command timed out after 10 attempts" }))
       ),
       Effect.catchTags({
         BadArgument: (error) => Effect.fail(
