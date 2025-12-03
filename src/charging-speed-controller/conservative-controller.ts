@@ -21,8 +21,13 @@ export class ConservativeController implements ChargingSpeedController {
         } = yield* deps.dataAdapter.queryLatestValues(['voltage', 'current_load']);
 
         const lowestSolarProduction = yield* deps.dataAdapter.getLowestValueInLastXMinutes('current_production', 30);
-    
-        return Math.floor((lowestSolarProduction - currentLoad - currentChargingSpeed * voltage - deps.config.bufferPower) / voltage);
+
+        yield* Effect.log('[ConservativeController] raw result:', { lowestSolarProduction, currentLoad, currentChargingSpeed, voltage });
+
+        const value = Math.floor((lowestSolarProduction - currentLoad + currentChargingSpeed * voltage - deps.config.bufferPower) / voltage);
+        yield* Effect.log('[ConservativeController] calculated value:', { value });
+
+        return value;
       }.bind(this))
         .pipe(
           Effect.catchTags({
