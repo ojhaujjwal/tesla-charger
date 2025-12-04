@@ -13,4 +13,13 @@ export const AppConfig = {
     org: EffectConfig.string("INFLUX_ORG"),
     bucket: EffectConfig.string("INFLUX_BUCKET"),
   },
+
+  alphaEssAPI: {
+    appId: EffectConfig.string("ALPHA_ESS_API_APP_ID"),
+    appSecret: EffectConfig.string("ALPHA_ESS_API_APP_SECRET"),
+    sysSn: EffectConfig.string("ALPHA_ESS_API_SYS_SN"),
+    baseUrl: EffectConfig.string("ALPHA_ESS_API_BASE_URL").pipe(
+      EffectConfig.withDefault("https://openapi.alphaess.com/")
+    ),
+  },
 };
