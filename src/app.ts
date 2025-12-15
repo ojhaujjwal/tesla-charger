@@ -171,7 +171,7 @@ export class App {
     const deps = this;
 
     return Effect.gen(function* () {
-      const { current_load: currentProductionAtStart } = yield* deps.dataAdapter.queryLatestValues(['current_load']);
+      const { current_production: currentProductionAtStart } = yield* deps.dataAdapter.queryLatestValues(['current_production']);
 
       const stopCharging = ampere < 3;
 
@@ -273,7 +273,7 @@ export class App {
           }
 
           return Effect.void;
-        }), Schedule.fixed(Duration.seconds(2)), // every 2 seonds
+        }), Schedule.fixed(Duration.seconds(4)), // every 4 seconds
       )
     );
   }
