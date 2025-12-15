@@ -35,7 +35,7 @@ export class ExcessSolarAggresiveController implements ChargingSpeedController {
         }
 
         // round to nearest multiple of parameter
-        return Math.max(0, Math.floor(excessSolar / voltage / deps.config.multipleOf) * deps.config.multipleOf);
+        return Math.max(0, Math.floor((excessSolar / voltage) / deps.config.multipleOf) * deps.config.multipleOf);
       }.bind(this))
         .pipe(
           Effect.catchTags({
