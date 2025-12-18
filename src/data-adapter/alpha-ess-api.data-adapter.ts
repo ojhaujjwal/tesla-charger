@@ -49,7 +49,7 @@ const PowerDataSchema = Schema.Struct({
   pgrid: Schema.Number,
   pload: Schema.Number,
   pgridDetail: PgridDetailSchema,
-});
+}).pipe(Schema.NullOr);
 
 const ApiResponseSchema = Schema.Struct({
   code: Schema.Number,
@@ -59,8 +59,7 @@ const ApiResponseSchema = Schema.Struct({
   extra: Schema.NullOr(Schema.Unknown),
 });
 
-
-type ApiResponse = Schema.Schema.Type<typeof ApiResponseSchema>;
+export type ApiResponse = Schema.Schema.Type<typeof ApiResponseSchema>;
 
 
 const generateSignature = (
@@ -75,7 +74,7 @@ const generateSignature = (
 
 const mapFieldToValue = (
     field: Field,
-    data: ApiResponse["data"]
+    data: NonNullable<ApiResponse["data"]>
   ): number => {
     switch (field) {
       case "voltage":
