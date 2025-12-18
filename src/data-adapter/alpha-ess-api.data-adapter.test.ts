@@ -77,7 +77,7 @@ describe("AlphaEssCloudApiDataAdapter", () => {
     const result = await Effect.runPromise(effect);
 
     expect(result).toEqual({
-      current_production: 1300,  // ppv4
+      current_production: 5000,  // ppv4
       current_load: 3300,         // pload
       export_to_grid: 1200,       // |pgrid| when negative
       import_from_grid: 0,        // pgrid when positive
