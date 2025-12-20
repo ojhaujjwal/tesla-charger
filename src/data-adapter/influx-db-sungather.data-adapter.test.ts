@@ -1,6 +1,6 @@
 import { Data, Effect, Exit } from "effect";
 import { SunGatherInfluxDbDataAdapter } from "./influx-db-sungather.data-adapter.js";
-import { type Field, DataNotAvailableError, SourceNotAvailableError } from "./types.js";
+import { DataNotAvailableError, SourceNotAvailableError } from "./types.js";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "@effect/platform";
 import { describe, it, expect } from "@effect/vitest";
 import { RequestError } from "@effect/platform/HttpClientError";
@@ -24,13 +24,13 @@ export class TestShouldFailError extends Data.Error {
 
 
 describe("SunGatherInfluxDbDataAdapter", () => {
-  it("should parse InfluxDB CSV and return correct values for requested fields", async () => {
+  it.effect("should parse InfluxDB CSV and return correct values for requested fields", () => Effect.gen(function*() {
     const mockResponseText = `
-,result,table,_start,_stop,_time,_value,_field,_measurement,inverter
-,_result,0,2025-06-12T09:45:12.17287821Z,2025-06-12T10:45:12.17287821Z,2025-06-12T10:45:03.724158402Z,0,export_to_grid,export_to_grid,SG10RS
-,_result,1,2025-06-12T09:45:12.17287821Z,2025-06-12T10:45:12.17287821Z,2025-06-12T10:45:03.724158402Z,254,import_from_grid,import_from_grid,SG10RS
-,_result,2,2025-06-12T09:45:12.17287821Z,2025-06-12T10:45:12.17287821Z,2025-06-12T10:45:03.724158402Z,238,phase_a_voltage,phase_a_voltage,SG10RS
-`.trim();
+      ,result,table,_start,_stop,_time,_value,_field,_measurement,inverter
+      ,_result,0,2025-06-12T09:45:12.17287821Z,2025-06-12T10:45:12.17287821Z,2025-06-12T10:45:03.724158402Z,0,export_to_grid,export_to_grid,SG10RS
+      ,_result,1,2025-06-12T09:45:12.17287821Z,2025-06-12T10:45:12.17287821Z,2025-06-12T10:45:03.724158402Z,254,import_from_grid,import_from_grid,SG10RS
+      ,_result,2,2025-06-12T09:45:12.17287821Z,2025-06-12T10:45:12.17287821Z,2025-06-12T10:45:03.724158402Z,238,phase_a_voltage,phase_a_voltage,SG10RS
+      `.trim();
 
     const mockHttpClient = makeMockHttpClient(mockResponseText);
 
@@ -42,17 +42,14 @@ describe("SunGatherInfluxDbDataAdapter", () => {
       mockHttpClient
     );
 
-    const fields: Field[] = ["export_to_grid", "import_from_grid", "voltage"];
-    const effect = adapter.queryLatestValues(fields);
-
-    const result = await Effect.runPromise(effect);
+    const result = yield* adapter.queryLatestValues(["export_to_grid", "import_from_grid", "voltage"]);
 
     expect(result).toEqual({
       export_to_grid: 0,
       import_from_grid: 254,
       voltage: 238,
     });
-  });
+  }));
 
   it.effect("should fail with DataNotAvailableError if no data rows", () => Effect.gen(function* () {
     const emptyResponse = ",result,table,_start,_stop,_time,_value,_field,_measurement,inverter";

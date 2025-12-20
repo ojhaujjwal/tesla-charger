@@ -1,6 +1,6 @@
-import { Effect, Exit } from "effect";
-import { AlphaEssCloudApiDataAdapter, type AlphaEssConfig, type ApiResponse } from "./alpha-ess-api.data-adapter.js";
-import { type Field, DataNotAvailableError, SourceNotAvailableError } from "./types.js";
+import { Effect, Exit, Layer } from "effect";
+import { AlphaEssCloudApiDataAdapter, AlphaEssCloudApiDataAdapterLayer, type AlphaEssConfig, type ApiResponse } from "./alpha-ess-api.data-adapter.js";
+import { DataAdapter, DataNotAvailableError, SourceNotAvailableError } from "./types.js";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "@effect/platform";
 import { describe, it, expect } from "@effect/vitest";
 import { RequestError } from "@effect/platform/HttpClientError";
@@ -14,10 +14,17 @@ const mockResponse = (req: HttpClientRequest.HttpClientRequest, body: string): H
 );
 
 // Custom HttpClient using HttpClient.make
-const makeMockHttpClient = (responseJson: unknown): HttpClient.HttpClient =>
+const makeMockHttpClient = (responseJson: ApiResponse): HttpClient.HttpClient =>
   HttpClient.make(
     (req) => Effect.succeed(mockResponse(req, JSON.stringify(responseJson)))
   );
+
+
+// Hacky way to set config for now
+// until I figure out how to do this properly in tests
+process.env.ALPHA_ESS_API_APP_ID = 'asdfasdf';
+process.env.ALPHA_ESS_API_APP_SECRET = 'asdfasfasdf';
+process.env.ALPHA_ESS_API_SYS_SN = 'asdfasdf';
 
 describe("AlphaEssCloudApiDataAdapter", () => {
   const mockConfig: AlphaEssConfig = {
@@ -27,117 +34,128 @@ describe("AlphaEssCloudApiDataAdapter", () => {
     baseUrl: "https://test.alphaess.com"
   };
 
-  it("should parse Alpha ESS API response and return correct values for requested fields", async () => {
-    const mockResponseJson: ApiResponse = {
-      code: 200,
-      msg: "Success",
-      expMsg: null,
-      data: {
-        ppv: 5000,
-        ppvDetail: {
-          ppv1: 1000,
-          ppv2: 1500,
-          ppv3: 1200,
-          ppv4: 1300,
-          pmeterDc: 5000
-        },
-        soc: 85,
-        pev: 0,
-        pevDetail: {
-          ev1Power: null,
-          ev2Power: null,
-          ev3Power: null,
-          ev4Power: null
-        },
-        prealL1: 800,
-        prealL2: 900,
-        prealL3: 850,
-        pbat: -500,
-        pgrid: -1200,
-        pload: 3300,
-        pgridDetail: {
-          pmeterL1: -400,
-          pmeterL2: -450,
-          pmeterL3: -350
-        }
-      },
-      extra: null
-    };
+  describe('should parse Alpha ESS API response and return correct values for requested fields', () => {
+  [
+      [
+        'when solar is just enough to power the house and charge the battery',
+        {
+          soc: 85,
+          ppv: 5000,
+          pload: 5000,
+          pbat: 0,
+          pgrid: 0,
+        } as const,
+        // expected
+        {
+          current_production: 5000,
+          current_load: 5000,
+          export_to_grid: 0,
+          import_from_grid: 0,
+        } as const,
+      ] as const,
+      [
+        'when solar is more than enough to power the house and charge the battery',
+        {
+          soc: 85,
+          ppv: 5000,
+          pload: 3000,
+          pbat: -2000,
+          pgrid: 0
+        } as const,
+        // expected
+        {
+          current_production: 5000,
+          current_load: 3000,
+          export_to_grid: 0,
+          import_from_grid: 0,
+        } as const
+      ] as const,
+      [
+        'when solar is more than enough to power the house and battery is fully charged and surprlus is being exported to grid',
+        {
+          soc: 100,
+          ppv: 5000,
+          pload: 2100,
+          pbat: 0,
+          pgrid: -2900
+        } as const,
+        // expected
+        {
+          current_production: 5000,
+          current_load: 2100,
+          export_to_grid: 2900,
+          import_from_grid: 0,
+        } as const
+      ] as const,
 
-    const mockHttpClient = makeMockHttpClient(mockResponseJson);
 
-    const adapter = new AlphaEssCloudApiDataAdapter(
-      mockConfig,
-      mockHttpClient
-    );
+      [
+        'when solar production and battery export is not enough to power the house ',
+        {
+          soc: 90,
+          ppv: 1200,
+          pload: 7000,
+          pbat: -5000,
+          pgrid: 800
+        } as const,
+        // expected
+        {
+          current_production: 1200,
+          current_load: 7000,
+          export_to_grid: 0,
+          import_from_grid: 800,
+        } as const
+      ] as const,
+    ].forEach(([caseTitle, rawData, expectedData]) => {
+      it.effect(caseTitle, () => (Effect.gen(function*() {
+      const adapter = yield* DataAdapter;
 
-    const fields: Field[] = ["current_production", "current_load", "export_to_grid", "import_from_grid", "voltage", 'daily_import'];
-    const effect = adapter.queryLatestValues(fields);
+      const result = yield* adapter.queryLatestValues(["current_production", "current_load", "export_to_grid", "import_from_grid", "voltage", 'daily_import']);
 
-    const result = await Effect.runPromise(effect);
-
-    expect(result).toEqual({
-      current_production: 5000,  // ppv4
-      current_load: 3300,         // pload
-      export_to_grid: 1200,       // |pgrid| when negative
-      import_from_grid: 0,        // pgrid when positive
-      voltage: 235,               // hardcoded value
-      daily_import: 0,  // Not supported, returns 0
-    });
-  });
-
-  it("should handle import from grid correctly when pgrid is positive", async () => {
-    const mockResponseJson = {
-      code: 200,
-      msg: "Success",
-      expMsg: null,
-      data: {
-        ppv: 2000,
-        ppvDetail: {
-          ppv1: 500,
-          ppv2: 600,
-          ppv3: 400,
-          ppv4: 500,
-          pmeterDc: 2000
-        },
-        soc: 50,
-        pev: 0,
-        pevDetail: {
-          ev1Power: null,
-          ev2Power: null,
-          ev3Power: null,
-          ev4Power: null
-        },
-        prealL1: 1000,
-        prealL2: 1100,
-        prealL3: 1050,
-        pbat: 500,
-        pgrid: 800,  // Positive = importing from grid
-        pload: 3500,
-        pgridDetail: {
-          pmeterL1: 300,
-          pmeterL2: 250,
-          pmeterL3: 250
-        }
-      },
-      extra: null
-    };
-
-    const mockHttpClient = makeMockHttpClient(mockResponseJson);
-
-    const adapter = new AlphaEssCloudApiDataAdapter(
-      mockConfig,
-      mockHttpClient
-    );
-
-    const fields: Field[] = ["export_to_grid", "import_from_grid"];
-    const effect = adapter.queryLatestValues(fields);
-
-    const result = await Effect.runPromise(effect);
-
-    expect(result).toEqual({
-      export_to_grid: 0,        // pgrid is positive, so no export
-      import_from_grid: 800,    // pgrid when positive
+      expect(result).toEqual({
+        voltage: 235,               // hardcoded value
+        daily_import: 0,  // Not supported, returns 0
+        ...expectedData,
+      });
+    }).pipe(
+      Effect.provide(AlphaEssCloudApiDataAdapterLayer),
+      Effect.provide(
+        Layer.succeed(
+          HttpClient.HttpClient,
+          makeMockHttpClient({
+            code: 200,
+            msg: "Success",
+            expMsg: null,
+            data: {
+              ppvDetail: {
+                ppv1: 0,
+                ppv2: 0,
+                ppv3: 0,
+                ppv4: 0,
+                pmeterDc: 5000
+              },
+              pev: 0,
+              pevDetail: {
+                ev1Power: null,
+                ev2Power: null,
+                ev3Power: null,
+                ev4Power: null
+              },
+              prealL1: 800,
+              prealL2: 900,
+              prealL3: 850,
+              pgridDetail: {
+                pmeterL1: -400,
+                pmeterL2: -450,
+                pmeterL3: -350
+              },
+              ...rawData,
+            },
+            extra: null
+          })
+        ),
+      ),
+    )));
     });
   });
 
@@ -170,7 +188,7 @@ describe("AlphaEssCloudApiDataAdapter", () => {
       extra: null
     };
 
-    const mockHttpClient = makeMockHttpClient(invalidResponse);
+    const mockHttpClient = makeMockHttpClient(invalidResponse as never);
 
     const adapter = new AlphaEssCloudApiDataAdapter(
       mockConfig,
@@ -202,7 +220,7 @@ describe("AlphaEssCloudApiDataAdapter", () => {
   }));
 
   it.effect("should fail with DataNotAvailableError when calling getLowestValueInLastXMinutes", () => Effect.gen(function* () {
-    const mockHttpClient = makeMockHttpClient({});
+    const mockHttpClient = makeMockHttpClient({} as never);
 
     const adapter = new AlphaEssCloudApiDataAdapter(
       mockConfig,

@@ -175,12 +175,14 @@ export class AlphaEssCloudApiDataAdapter implements IDataAdapter {
 export const AlphaEssCloudApiDataAdapterLayer = Layer.effect(
   DataAdapter,
   Effect.gen(function* () {
+    const config = AppConfig.alphaEssAPI;
+
     return new AlphaEssCloudApiDataAdapter(
       {
-        appId: yield* AppConfig.alphaEssAPI.appId,
-        appSecret: yield* AppConfig.alphaEssAPI.appSecret,
-        sysSn: yield* AppConfig.alphaEssAPI.sysSn,
-        baseUrl: yield* AppConfig.alphaEssAPI.baseUrl,
+        appId: yield* config.appId,
+        appSecret: yield* config.appSecret,
+        sysSn: yield* config.sysSn,
+        baseUrl: yield* config.baseUrl,
       },
       yield* HttpClient.HttpClient
     );
