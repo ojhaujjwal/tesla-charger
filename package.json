@@ -14,6 +14,7 @@
     "build": "tsc",
     "dev": "tsx  --env-file=.env src/main.ts",
     "lint": "eslint ./src ",
+    "lint:fix": "eslint ./src --fix",
     "start": "pm2 start ecosystem.config.cjs",
     "restart": "pm2 restart ecosystem.config.cjs",
     "stop": "pm2 stop ecosystem.config.cjs",
