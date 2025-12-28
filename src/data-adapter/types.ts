@@ -14,10 +14,10 @@ export const FieldSchema = Schema.Union(
 export type Field = Schema.Schema.Type<typeof FieldSchema>;
 
 export class DataNotAvailableError extends Data.TaggedError("DataNotAvailable") {
-  public readonly message = 'No data found to determine the result.';
+  public override readonly message = 'No data found to determine the result.';
 }
 export class SourceNotAvailableError extends Data.TaggedError("SourceNotAvailable") {
-  public readonly message = 'Could not connect to the Data Source. Check if the source is running.';
+  public override readonly message = 'Could not connect to the Data Source. Check if the source is running.';
 }
 
 export class DataAdapter extends Context.Tag("DataAdapter")<

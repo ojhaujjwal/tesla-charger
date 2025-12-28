@@ -19,7 +19,7 @@ const makeMockHttpClient = (responseText: string): HttpClient.HttpClient =>
   );
 
 export class TestShouldFailError extends Data.Error {
-  public readonly message = 'No data found to determine the result.';
+  public override readonly message = 'No data found to determine the result.';
 }
 
 

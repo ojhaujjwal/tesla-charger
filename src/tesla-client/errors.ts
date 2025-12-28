@@ -4,7 +4,7 @@ import type { HttpClientError } from '@effect/platform/HttpClientError';
 import { Data } from "effect";
 
 export class VehicleAsleepError extends Data.TaggedError('VehicleAsleepError') {
-  public message = 'Vehicle is asleep';
+  public override message = 'Vehicle is asleep';
 }
 
 // Internal retryable error (not exposed externally)
