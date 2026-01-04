@@ -5,7 +5,7 @@ import { App } from './app.js';
 import { ConservativeController } from './charging-speed-controller/conservative-controller.js';
 import { ExcessFeedInSolarController } from './charging-speed-controller/excess-feed-in-solar-controller.js';
 import { FixedSpeedController } from './charging-speed-controller/fixed-speed.controller.js';
-import { FileSystem, HttpClient } from "@effect/platform";
+import { CommandExecutor, FileSystem, HttpClient } from "@effect/platform";
 import { NodeSdk as EffectOpenTelemetryNodeSdk } from "@effect/opentelemetry"
 import { SentrySpanProcessor } from "@sentry/opentelemetry";
 import * as Sentry from "@sentry/node";
@@ -29,6 +29,7 @@ const program = Effect.gen(function*() {
     process.env.TESLA_OAUTH2_CLIENT_SECRET as string,
     yield* FileSystem.FileSystem,
     yield* HttpClient.HttpClient,
+    yield* CommandExecutor.CommandExecutor,
   );
 
   const dataAdapter = yield* DataAdapter;

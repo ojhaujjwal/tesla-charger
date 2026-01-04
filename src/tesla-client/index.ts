@@ -1,7 +1,6 @@
 import { AuthenticationFailedError, ContextDeadlineExceededError, UnableToFetchAccessTokenError, VehicleAsleepError, VehicleCommandFailedError } from './errors.js';
-import { Duration, Effect, pipe, Schedule, Schema, Stream, String } from 'effect';
-import { Command, FileSystem, HttpClient } from "@effect/platform";
-import { NodeContext } from '@effect/platform-node';
+import { Duration, Effect, Layer, pipe, Schedule, Schema, Stream, String } from 'effect';
+import { Command, CommandExecutor, FileSystem, HttpClient } from "@effect/platform";
 import { raw } from '@effect/platform/HttpBody';
 import { TeslaCachedTokenSchema, TeslaTokenResponseSchema, type TeslaTokenResponse } from './schema.js';
 
@@ -37,6 +36,7 @@ export class TeslaClient implements ITeslaClient {
     private clientSecret: string,
     private fileSystem: FileSystem.FileSystem,
     private httpClient: HttpClient.HttpClient,
+    private commandExecutor: CommandExecutor.CommandExecutor,
   ) { }
 
   private getTokens() {
@@ -211,6 +211,7 @@ export class TeslaClient implements ITeslaClient {
   }
 
   private runCommand(command: string, commandArgs: string[]) {
+    const deps = this;
     return Effect.gen(function* () {
       const process = yield* Command.start(Command.make(command, ...commandArgs));
       const [exitCode, stdout, stderr] = yield* Effect.all(
@@ -224,7 +225,9 @@ export class TeslaClient implements ITeslaClient {
       return { exitCode, stdout, stderr };
     }).pipe(
       Effect.scoped,
-      Effect.provide(NodeContext.layer),
+      Effect.provide(
+        Layer.succeed(CommandExecutor.CommandExecutor, deps.commandExecutor)
+      ),
     );
   }
 }
