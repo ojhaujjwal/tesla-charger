@@ -24,13 +24,14 @@ enum AppStatus {
   Stopped,
 }
 
-type TimingConfig = {
+export type TimingConfig = {
   syncIntervalInMs: number;
   vehicleAwakeningTimeInMs: number;
   inactivityTimeInSeconds: number;
   waitPerAmereInSeconds: number,
   extraWaitOnChargeStartInSeconds: number;
   extraWaitOnChargeStopInSeconds: number;
+  maxRuntimeHours?: number;
 };
 
 export class App {
@@ -44,26 +45,36 @@ export class App {
 
   private appStatus: AppStatus = AppStatus.Pending;
 
+  private tokenRefreshFiber?: Fiber.RuntimeFiber<void, AuthenticationFailedError>;
+  private mainSyncFiber?: Fiber.RuntimeFiber<
+    void,
+    AuthenticationFailedError
+    | DataNotAvailableError
+    | SourceNotAvailableError
+    | NotChargingAccordingToExpectedSpeedError
+    | InadequateDataToDetermineSpeedError
+    | VehicleNotWakingUpError
+    | VehicleCommandFailedError
+  >;
+  private runtimeMonitorFiber?: Fiber.RuntimeFiber<
+    void,
+    never
+  >;
+
   public constructor(
     private readonly teslaClient: ITeslaClient,
     private readonly dataAdapter: IDataAdapter,
     private readonly chargingSpeedController: ChargingSpeedController,
+    private readonly timingConfig: TimingConfig,
     private readonly isDryRun = false,
     private readonly eventLogger: IEventLogger = new EventLogger(),
-    private readonly timingConfig: TimingConfig = {
-      syncIntervalInMs: 5000,
-      vehicleAwakeningTimeInMs: 10 * 1000, // 10 seconds
-      inactivityTimeInSeconds: 15 * 60, // 15 minutes
-      waitPerAmereInSeconds: 2.2,
-      extraWaitOnChargeStartInSeconds: 10, // 10 seconds
-      extraWaitOnChargeStopInSeconds: 10, // 10 seconds
-    },
+
   ) { }
 
   public start(): Effect.Effect<
     void,
-    AuthenticationFailedError 
-    | DataNotAvailableError 
+    AuthenticationFailedError
+    | DataNotAvailableError
     | SourceNotAvailableError
     | NotChargingAccordingToExpectedSpeedError
     | InadequateDataToDetermineSpeedError
@@ -77,7 +88,10 @@ export class App {
 
       yield* deps.teslaClient.refreshAccessToken();
 
-      const fiber1 = yield* deps.teslaClient.setupAccessTokenAutoRefreshRecurring(60 * 60 * 2).pipe(Effect.fork);
+      // Fiber 1: Token refresh
+      deps.tokenRefreshFiber = yield* deps.teslaClient.setupAccessTokenAutoRefreshRecurring(60 * 60 * 2)
+        .pipe(Effect.flatMap(() => Effect.void))
+        .pipe(Effect.fork);
 
       yield* Effect.sleep(1000);
 
@@ -85,7 +99,8 @@ export class App {
         yield* deps.dataAdapter.queryLatestValues(['daily_import'])
       ).daily_import;
 
-      const fiber2 = yield* Effect.repeat(
+      // Fiber 2: Main sync loop
+      deps.mainSyncFiber = yield* Effect.repeat(
         deps.syncChargingRateBasedOnExcess().pipe(
           // Effect.tap(() => {
           //   const memoryMB = process.memoryUsage().heapUsed / 1024 / 1024;
@@ -101,9 +116,17 @@ export class App {
         {
           while: (appStatus) => appStatus === AppStatus.Running,
         }
-      ).pipe(Effect.fork);
+      ).pipe(Effect.flatMap(() => Effect.void)).pipe(Effect.fork);
 
-      yield* Fiber.zip(fiber1, fiber2).pipe(Fiber.join);
+      if (deps.timingConfig.maxRuntimeHours) {
+        deps.runtimeMonitorFiber = yield* deps.shutdownAfterMaxRuntimeHours().pipe(Effect.fork);
+      }
+
+      yield* Fiber.joinAll([
+        deps.tokenRefreshFiber,
+        ...(deps.mainSyncFiber ? [deps.mainSyncFiber] : []),
+        ...(deps.runtimeMonitorFiber ? [deps.runtimeMonitorFiber] : []),
+      ] as const);
     });
   }
 
@@ -111,13 +134,42 @@ export class App {
     return process.memoryUsage().heapUsed / 1024 / 1024;
   }
 
+  private shutdownAfterMaxRuntimeHours() {
+    const deps = this;
+    
+    return Effect.gen(function*() {
+      const maxHours = deps.timingConfig.maxRuntimeHours as number;
+      yield* Effect.sleep(Duration.hours(maxHours));
+      yield* deps.stop().pipe(Effect.orDie);
+    });
+  }
+
   public stop() {
     const deps = this;
 
     return Effect.gen(function*() {
-      yield* Effect.log('Stopping app', {
+      yield* Effect.log('Stopping app and interrupting all fibers', {
         ampereFluctuations: deps.chargeState.ampereFluctuations,
       });
+
+      // Set status first to stop the main loop
+      deps.appStatus = AppStatus.Stopped;
+
+      // Interrupt all fibers
+      if (deps.tokenRefreshFiber) {
+        yield* Effect.log('Interrupting token refresh fiber');
+        yield* Fiber.interrupt(deps.tokenRefreshFiber);
+      }
+
+      if (deps.mainSyncFiber) {
+        yield* Effect.log('Interrupting main sync fiber');
+        yield* Fiber.interrupt(deps.mainSyncFiber);
+      }
+
+      if (deps.runtimeMonitorFiber) {
+        yield* Effect.log('Interrupting runtime monitor fiber');
+        yield* Fiber.interrupt(deps.runtimeMonitorFiber);
+      }
 
       if (deps.chargeState.running) {
         yield* Effect.retry(
@@ -139,8 +191,6 @@ export class App {
           }
         );
       }
-
-      deps.appStatus = AppStatus.Stopped;
     }).pipe(
       Effect.catchAll((err) => {        
         return Effect.fail(err).pipe(
