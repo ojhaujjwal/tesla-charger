@@ -10,7 +10,9 @@ import { NodeSdk as EffectOpenTelemetryNodeSdk } from "@effect/opentelemetry"
 import { SentrySpanProcessor } from "@sentry/opentelemetry";
 import * as Sentry from "@sentry/node";
 import { DataAdapter } from "./data-adapter/types.js";
+import { EventLogger } from './event-logger/index.js';
 import { serviceLayers } from "./layers.js";
+import type { TimingConfig } from './app.js';
 import { BatchSpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http"
 import { ExcessSolarAggresiveController } from "./charging-speed-controller/excess-solar-aggresive-controller.js";
@@ -46,13 +48,30 @@ const program = Effect.gen(function*() {
     )
   );
 
+  // Parse max runtime hours
+  const maxRuntimeHours = process.argv.includes('--max-runtime-hours')
+    ? parseInt(process.argv[process.argv.indexOf('--max-runtime-hours') + 1])
+    : undefined;
+
   yield* Effect.log(`Starting app with controller: ${chargingSpeedController.constructor.name}`);
+
+  const timingConfig: TimingConfig = {
+    syncIntervalInMs: 5000,
+    vehicleAwakeningTimeInMs: 10 * 1000,
+    inactivityTimeInSeconds: 15 * 60,
+    waitPerAmereInSeconds: 2.2,
+    extraWaitOnChargeStartInSeconds: 10,
+    extraWaitOnChargeStopInSeconds: 10,
+    ...(maxRuntimeHours !== undefined && { maxRuntimeHours }),
+  };
 
   const app = new App(
     teslaClient,
     dataAdapter,
     chargingSpeedController,
+    timingConfig,
     process.argv.includes('--dry-run'),
+    new EventLogger(),    
   );
 
   yield* Effect.addFinalizer(() => app.stop().pipe(Effect.catchAll(err => Effect.log(err))));

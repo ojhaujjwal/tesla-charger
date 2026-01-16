@@ -64,6 +64,14 @@ describe('App', () => {
             teslaClientMock,
             dataAdapterMock,
             chargingSpeedControllerMock,
+            {
+                syncIntervalInMs: 5000,
+                vehicleAwakeningTimeInMs: 10 * 1000,
+                inactivityTimeInSeconds: 15 * 60,
+                waitPerAmereInSeconds: 2.2,
+                extraWaitOnChargeStartInSeconds: 10,
+                extraWaitOnChargeStopInSeconds: 10,
+            },
             false,
             eventLoggerMock
         );
