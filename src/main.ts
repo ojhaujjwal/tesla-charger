@@ -16,6 +16,7 @@ import type { TimingConfig } from './app.js';
 import { BatchSpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http"
 import { ExcessSolarAggresiveController } from "./charging-speed-controller/excess-solar-aggresive-controller.js";
+import { ExcessSolarNonAggresiveController } from "charging-speed-controller/excess-solar-non-aggresive.controller.js";
 
 const isProd = process.env.NODE_ENV == 'production';
 
@@ -24,7 +25,7 @@ Sentry.init({
   tracesSampleRate: 1.0,
 });
 
-const program = Effect.gen(function*() {
+const program = Effect.gen(function* () {
   const teslaClient = new TeslaClient(
     process.env.TESLA_APP_DOMAIN as string,
     process.env.TESLA_OAUTH2_CLIENT_ID as string,
@@ -37,16 +38,19 @@ const program = Effect.gen(function*() {
   const dataAdapter = yield* DataAdapter;
 
   const chargingSpeedController = process.argv.includes('--fixed-lowest-speed')
-  ? new FixedSpeedController(dataAdapter, { fixedSpeed: parseInt(process.env.FIXED_SPEED_AMPERE ?? '5') , bufferPower: 300 })
-  : (
-      process.argv.includes('--conservative')
-    ? new ConservativeController(dataAdapter)
+    ? new FixedSpeedController(dataAdapter, { fixedSpeed: parseInt(process.env.FIXED_SPEED_AMPERE ?? '5'), bufferPower: 300 })
     : (
-      process.argv.includes('--excess-feed-in-solar')
-        ? new ExcessFeedInSolarController(dataAdapter, { maxFeedInAllowed: parseInt(process.env.MAX_ALLOWED_FEED_IN_POWER ?? '5000') })
-        : new ExcessSolarAggresiveController(dataAdapter, { bufferPower: parseInt(process.env.EXCESS_SOLAR_BUFFER_POWER ?? '1000'), multipleOf: 3 })
-    )
-  );
+      process.argv.includes('--conservative')
+        ? new ConservativeController(dataAdapter)
+        : (
+          process.argv.includes('--excess-feed-in-solar')
+            ? new ExcessFeedInSolarController(dataAdapter, { maxFeedInAllowed: parseInt(process.env.MAX_ALLOWED_FEED_IN_POWER ?? '5000') })
+            : new ExcessSolarNonAggresiveController(
+              new ExcessSolarAggresiveController(dataAdapter, { bufferPower: parseInt(process.env.EXCESS_SOLAR_BUFFER_POWER ?? '1000'), multipleOf: 3 }),
+              dataAdapter
+            )
+        )
+    );
 
   // Parse max runtime hours
   const maxRuntimeHours = process.argv.includes('--max-runtime-hours')
@@ -71,7 +75,7 @@ const program = Effect.gen(function*() {
     chargingSpeedController,
     timingConfig,
     process.argv.includes('--dry-run'),
-    new EventLogger(),    
+    new EventLogger(),
   );
 
   yield* Effect.addFinalizer(() => app.stop().pipe(Effect.catchAll(err => Effect.log(err))));
