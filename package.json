@@ -20,7 +20,7 @@
     "stop": "pm2 stop ecosystem.config.cjs",
     "logs": "pm2 logs",
     "lint-staged": "lint-staged",
-    "prepare": "husky"
+    "prepare": "husky && effect-language-service patch"
   },
   "author": "",
   "license": "ISC",

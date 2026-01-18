@@ -1,5 +1,5 @@
 import { AuthenticationFailedError, ContextDeadlineExceededError, UnableToFetchAccessTokenError, VehicleAsleepError, VehicleCommandFailedError } from './errors.js';
-import { Duration, Effect, Layer, pipe, Schedule, Schema, Stream, String } from 'effect';
+import { Context, Duration, Effect, Layer, pipe, Schedule, Schema, Stream, String } from 'effect';
 import { Command, CommandExecutor, FileSystem, HttpClient } from "@effect/platform";
 import { raw } from '@effect/platform/HttpBody';
 import { TeslaCachedTokenSchema, TeslaTokenResponseSchema, type TeslaTokenResponse } from './schema.js';
@@ -10,15 +10,18 @@ const OAUTH2_TOKEN_BASE_URL = 'https://fleet-auth.prd.vn.cloud.tesla.com/oauth2/
 
 type CommandResult = Effect.Effect<void, VehicleAsleepError | VehicleCommandFailedError>;
 
-export type ITeslaClient = {
-  authenticateFromAuthCodeGrant(authorizationCode: string): Effect.Effect<TeslaTokenResponse, unknown>;
-  refreshAccessToken(): Effect.Effect<void, AuthenticationFailedError>;
-  setupAccessTokenAutoRefreshRecurring(timeoutInSeconds: number): Effect.Effect<Duration.Duration, AuthenticationFailedError>;
-  startCharging(): CommandResult;
-  stopCharging(): CommandResult;
-  setAmpere(ampere: number): CommandResult;
-  wakeUpCar(): Effect.Effect<void, VehicleCommandFailedError>;
+export type TeslaClient = {
+  readonly authenticateFromAuthCodeGrant: (authorizationCode: string) => Effect.Effect<TeslaTokenResponse, unknown>;
+  readonly refreshAccessToken: () => Effect.Effect<void, AuthenticationFailedError>;
+  readonly setupAccessTokenAutoRefreshRecurring: (timeoutInSeconds: number) => Effect.Effect<Duration.Duration, AuthenticationFailedError>;
+  readonly startCharging: () => CommandResult;
+  readonly stopCharging: () => CommandResult;
+  readonly setAmpere: (ampere: number) => CommandResult;
+  readonly wakeUpCar: () => Effect.Effect<void, VehicleCommandFailedError>;
+  readonly saveTokens: (accessToken: string, refreshToken: string) => Effect.Effect<void, unknown>;
 }
+
+export const TeslaClient = Context.GenericTag<TeslaClient>("@tesla-charger/TeslaClient");
 
 // Helper function to collect stream output as a string
 const runString = <E, R>(
@@ -27,72 +30,37 @@ const runString = <E, R>(
   stream.pipe(
     Stream.decodeText(),
     Stream.runFold(String.empty, String.concat)
-  )  
+  )
 
-export class TeslaClient implements ITeslaClient {
-  constructor(
-    private appDomain: string,
-    private clientId: string,
-    private clientSecret: string,
-    private fileSystem: FileSystem.FileSystem,
-    private httpClient: HttpClient.HttpClient,
-    private commandExecutor: CommandExecutor.CommandExecutor,
-  ) { }
+export const TeslaClientLayer = (config: {
+  readonly appDomain: string;
+  readonly clientId: string;
+  readonly clientSecret: string;
+}) => Layer.effect(
+  TeslaClient,
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const httpClient = yield* HttpClient.HttpClient;
+    const commandExecutor = yield* CommandExecutor.CommandExecutor;
 
-  private getTokens() {
-    const fs = this.fileSystem;
-
-    return Effect.gen(function*() {
-       const json = yield* fs.readFileString('token.json');
-
-       return yield* Schema.decodeUnknown(TeslaCachedTokenSchema)(JSON.parse(json));
-    }).pipe();
-  }
-  
-  public authenticateFromAuthCodeGrant(authorizationCode: string) {
-    const deps = this;
-    
-    return Effect.gen(function*() {
-      const response = yield* deps.httpClient.post(
-        OAUTH2_TOKEN_BASE_URL,
-        {
-          headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',  
-          },
-          body: raw(JSON.stringify({
-            grant_type: 'authorization_code',
-            client_id: deps.clientId,
-            client_secret: deps.clientSecret,
-            audience: 'https://fleet-api.prd.na.vn.cloud.tesla.com',
-            redirect_uri: `https://${deps.appDomain}/tesla-charger`,
-            code: authorizationCode,
-          })),
-        }
-      );
-
-      return yield* Schema.decodeUnknown(TeslaTokenResponseSchema)(JSON.parse(yield* response.text));
+    const getTokens = () => Effect.gen(function* () {
+      const json = yield* fs.readFileString('token.json');
+      return yield* Schema.decodeUnknown(TeslaCachedTokenSchema)(JSON.parse(json));
     });
-  }
 
-  private refreshAccessTokenFromTesla() { 
-    const httpClient = this.httpClient;
-    const clientId = this.clientId;
-    const deps = this;
-    
-    return Effect.gen(function*() {
-      const { refresh_token } = yield* deps.getTokens();
+    const refreshAccessTokenFromTesla = () => Effect.gen(function* () {
+      const { refresh_token } = yield* getTokens();
 
       const response = yield* httpClient.post(
         OAUTH2_TOKEN_BASE_URL,
         {
           headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',  
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
           },
           body: raw(JSON.stringify({
             grant_type: "refresh_token",
-            client_id: clientId,
+            client_id: config.clientId,
             refresh_token: refresh_token,
           })),
         }
@@ -104,70 +72,34 @@ export class TeslaClient implements ITeslaClient {
 
       return yield* Schema.decodeUnknown(TeslaTokenResponseSchema)(JSON.parse(yield* response.text));
     });
-  }
 
-  public saveTokens(accessToken: string, refreshToken: string) {
-    const fs = this.fileSystem;
-
-    return Effect.gen(function*() {
+    const saveTokens = (accessToken: string, refreshToken: string) => Effect.gen(function* () {
       const encoded = JSON.stringify(yield* Schema.encode(TeslaCachedTokenSchema)({
         access_token: accessToken,
         refresh_token: refreshToken,
       }), null, 2);
       yield* fs.writeFileString('token.json', encoded);
-
       yield* fs.writeFileString('.access-token', accessToken);
     });
-  }
 
-  public setupAccessTokenAutoRefreshRecurring(timeoutInSeconds: number) {
-    return Effect.repeat(this.refreshAccessToken(), {
-      schedule: Schedule.duration(Duration.seconds(timeoutInSeconds)),
-    });
-  }
-
-  public refreshAccessToken() {
-    const deps = this;
-
-    return Effect.gen(function*() {
-      const result = yield* deps.refreshAccessTokenFromTesla();
-
-      yield* deps.saveTokens(result.access_token, result.refresh_token)
-    }).pipe(
-      Effect.catchAll((err) => Effect.fail(new AuthenticationFailedError({ previous: err }))),
-    );
-  }
-
-
-  public startCharging() {    
-    return this.execTeslaControl(['charging-start'])
-      .pipe(
-        Effect.catchTag('VehicleCommandFailed', (err) => {
-          return err.stderr?.includes('car could not execute command: is_charging') ? Effect.void : Effect.fail(err);
-        })
+    const runCommand = (command: string, commandArgs: string[]) => Effect.gen(function* () {
+      const process = yield* Command.start(Command.make(command, ...commandArgs));
+      const [exitCode, stdout, stderr] = yield* Effect.all(
+        [
+          process.exitCode,
+          runString(process.stdout),
+          runString(process.stderr)
+        ],
+        { concurrency: 3 }
       );
-
-    //todo: assert that car is charging by calling API
-  }
-
-  public stopCharging(): CommandResult {
-    return this.execTeslaControl(['charging-stop']);
-    //todo: ignore if car is already not charging
-  }
-
-  public setAmpere(ampere: number): CommandResult {
-    return this.execTeslaControl(['charging-set-amps', `${ampere}`]);
-  }
-
-  public wakeUpCar(): Effect.Effect<void, VehicleCommandFailedError> {
-    return this.execTeslaControl(['wake']).pipe(
-      Effect.catchTag('VehicleAsleepError', () => Effect.fail(new VehicleCommandFailedError({ message: 'Vehicle is still asleep while issuing wakeup.'}))),
+      return { exitCode, stdout, stderr };
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(Layer.succeed(CommandExecutor.CommandExecutor, commandExecutor))
     );
-  }
 
-  private execTeslaControl(commandArgs: string[]): Effect.Effect<void, VehicleAsleepError | VehicleCommandFailedError, never> {    
-    return pipe(
-      this.runCommand('tesla-control', commandArgs),
+    const execTeslaControl = (commandArgs: string[]): Effect.Effect<void, VehicleAsleepError | VehicleCommandFailedError, never> => pipe(
+      runCommand('tesla-control', commandArgs),
       Effect.tap(() => Effect.annotateCurrentSpan({
         command: commandArgs,
       })),
@@ -185,17 +117,15 @@ export class TeslaClient implements ITeslaClient {
           new VehicleCommandFailedError({ message: `Command failed. Stderr: ${stderr}`, stderr })
         );
       }),
-      
-      // Retry logic for context deadline errors
+
       Effect.retry({
         schedule: Schedule.compose(
-          Schedule.recurs(9),  // Max 9 retries (10 total attempts)
-          Schedule.exponential(Duration.seconds(0.1), 1.5) // Backoff: 0.10s, 0.15s, 0.225s
+          Schedule.recurs(9),
+          Schedule.exponential(Duration.seconds(0.1), 1.5)
         ),
         while: (error) => error._tag === "ContextDeadlineExceeded"
       }),
 
-      // Convert retry exhaustion to permanent error
       Effect.catchTag("ContextDeadlineExceeded", () =>
         Effect.fail(new VehicleCommandFailedError({ message: "Command timed out after 10 attempts" }))
       ),
@@ -208,26 +138,51 @@ export class TeslaClient implements ITeslaClient {
         ),
       }),
     );
-  }
 
-  private runCommand(command: string, commandArgs: string[]) {
-    const deps = this;
-    return Effect.gen(function* () {
-      const process = yield* Command.start(Command.make(command, ...commandArgs));
-      const [exitCode, stdout, stderr] = yield* Effect.all(
-        [
-          process.exitCode,
-          runString(process.stdout),
-          runString(process.stderr)
-        ],
-        { concurrency: 3 }
-      );
-      return { exitCode, stdout, stderr };
+    const refreshAccessToken = () => Effect.gen(function* () {
+      const result = yield* refreshAccessTokenFromTesla();
+      yield* saveTokens(result.access_token, result.refresh_token)
     }).pipe(
-      Effect.scoped,
-      Effect.provide(
-        Layer.succeed(CommandExecutor.CommandExecutor, deps.commandExecutor)
-      ),
+      Effect.catchAll((err) => Effect.fail(new AuthenticationFailedError({ previous: err }))),
     );
-  }
-}
+
+    return {
+      authenticateFromAuthCodeGrant: (authorizationCode: string) => Effect.gen(function* () {
+        const response = yield* httpClient.post(
+          OAUTH2_TOKEN_BASE_URL,
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+            },
+            body: raw(JSON.stringify({
+              grant_type: 'authorization_code',
+              client_id: config.clientId,
+              client_secret: config.clientSecret,
+              audience: 'https://fleet-api.prd.na.vn.cloud.tesla.com',
+              redirect_uri: `https://${config.appDomain}/tesla-charger`,
+              code: authorizationCode,
+            })),
+          }
+        );
+
+        return yield* Schema.decodeUnknown(TeslaTokenResponseSchema)(JSON.parse(yield* response.text));
+      }),
+      refreshAccessToken,
+      setupAccessTokenAutoRefreshRecurring: (timeoutInSeconds: number) => Effect.repeat(refreshAccessToken(), {
+        schedule: Schedule.duration(Duration.seconds(timeoutInSeconds)),
+      }),
+      startCharging: () => execTeslaControl(['charging-start']).pipe(
+        Effect.catchTag('VehicleCommandFailed', (err) => {
+          return err.stderr?.includes('car could not execute command: is_charging') ? Effect.void : Effect.fail(err);
+        })
+      ),
+      stopCharging: () => execTeslaControl(['charging-stop']),
+      setAmpere: (ampere: number) => execTeslaControl(['charging-set-amps', `${ampere}`]),
+      wakeUpCar: () => execTeslaControl(['wake']).pipe(
+        Effect.catchTag('VehicleAsleepError', () => Effect.fail(new VehicleCommandFailedError({ message: 'Vehicle is still asleep while issuing wakeup.' }))),
+      ),
+      saveTokens,
+    };
+  })
+);
