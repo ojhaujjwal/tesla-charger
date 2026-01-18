@@ -1,6 +1,6 @@
-import { Effect } from "effect";
-import type { IDataAdapter } from "../data-adapter/types.js";
-import { InadequateDataToDetermineSpeedError, type ChargingSpeedController } from "./types.js";
+import { Effect, Layer } from "effect";
+import { DataAdapter, type IDataAdapter } from "../data-adapter/types.js";
+import { ChargingSpeedController, InadequateDataToDetermineSpeedError } from "./types.js";
 
 export class ConservativeController implements ChargingSpeedController {
 
@@ -15,25 +15,35 @@ export class ConservativeController implements ChargingSpeedController {
     const deps = this;
 
     return Effect.gen(function* () {
-        const {
-          voltage,
-          current_load: currentLoad,
-        } = yield* deps.dataAdapter.queryLatestValues(['voltage', 'current_load']);
+      const {
+        voltage,
+        current_load: currentLoad,
+      } = yield* deps.dataAdapter.queryLatestValues(['voltage', 'current_load']);
 
-        const lowestSolarProduction = yield* deps.dataAdapter.getLowestValueInLastXMinutes('current_production', 30);
+      const lowestSolarProduction = yield* deps.dataAdapter.getLowestValueInLastXMinutes('current_production', 30);
 
-        yield* Effect.log('[ConservativeController] raw result:', { lowestSolarProduction, currentLoad, currentChargingSpeed, voltage });
+      yield* Effect.log('[ConservativeController] raw result:', { lowestSolarProduction, currentLoad, currentChargingSpeed, voltage });
 
-        const value = Math.floor((lowestSolarProduction - currentLoad + currentChargingSpeed * voltage - deps.config.bufferPower) / voltage);
-        yield* Effect.log('[ConservativeController] calculated value:', { value });
+      const value = Math.floor((lowestSolarProduction - currentLoad + currentChargingSpeed * voltage - deps.config.bufferPower) / voltage);
+      yield* Effect.log('[ConservativeController] calculated value:', { value });
 
-        return value;
-      }.bind(this))
-        .pipe(
-          Effect.catchTags({
-            'DataNotAvailable': (err) => Effect.log(err).pipe(Effect.flatMap(() => Effect.fail(new InadequateDataToDetermineSpeedError()))),
-            'SourceNotAvailable': (err) => Effect.log(err).pipe(Effect.flatMap(() => Effect.fail(new InadequateDataToDetermineSpeedError()))),
-          })
-        );
+      return value;
+    }.bind(this))
+      .pipe(
+        Effect.catchTags({
+          'DataNotAvailable': (err) => Effect.log(err).pipe(Effect.flatMap(() => Effect.fail(new InadequateDataToDetermineSpeedError()))),
+          'SourceNotAvailable': (err) => Effect.log(err).pipe(Effect.flatMap(() => Effect.fail(new InadequateDataToDetermineSpeedError()))),
+        })
+      );
   }
 }
+
+export const ConservativeControllerLayer = (config: {
+  bufferPower?: number;
+} = {}) => Layer.effect(
+  ChargingSpeedController,
+  Effect.gen(function* () {
+    const dataAdapter = yield* DataAdapter;
+    return new ConservativeController(dataAdapter, { bufferPower: config.bufferPower ?? 100 });
+  })
+);

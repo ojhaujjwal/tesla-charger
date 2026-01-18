@@ -1,6 +1,6 @@
-import { Effect } from "effect";
-import { InadequateDataToDetermineSpeedError, type ChargingSpeedController } from "./types.js";
-import type { IDataAdapter } from "../data-adapter/types.js";
+import { Effect, Layer } from "effect";
+import { ChargingSpeedController, InadequateDataToDetermineSpeedError } from "./types.js";
+import { DataAdapter, type IDataAdapter } from "../data-adapter/types.js";
 
 /**
  * A decorator controller that stabilizes increases in charging speed.
@@ -77,3 +77,19 @@ export class ExcessSolarNonAggresiveController implements ChargingSpeedControlle
     );
   }
 }
+
+export const ExcessSolarNonAggresiveControllerLayer = (config: {
+  baseControllerLayer: Layer.Layer<ChargingSpeedController, never, DataAdapter>;
+  requiredConsistentReads?: number;
+}) => Layer.effect(
+  ChargingSpeedController,
+  Effect.gen(function* () {
+    const baseController = yield* Effect.provide(ChargingSpeedController, config.baseControllerLayer);
+    const dataAdapter = yield* DataAdapter;
+    return new ExcessSolarNonAggresiveController(
+      baseController,
+      dataAdapter,
+      { requiredConsistentReads: config.requiredConsistentReads ?? 3 }
+    );
+  })
+);
