@@ -6,7 +6,7 @@ import { FixedSpeedControllerLayer } from './charging-speed-controller/fixed-spe
 import { ConservativeControllerLayer } from './charging-speed-controller/conservative-controller.js';
 import { ExcessFeedInSolarControllerLayer } from './charging-speed-controller/excess-feed-in-solar-controller.js';
 import { ExcessSolarAggresiveControllerLayer } from './charging-speed-controller/excess-solar-aggresive-controller.js';
-import { ExcessSolarNonAggresiveControllerLayer } from 'charging-speed-controller/excess-solar-non-aggresive.controller.js';
+import { ExcessSolarNonAggresiveControllerLayer } from './charging-speed-controller/excess-solar-non-aggresive.controller.js';
 import { NodeSdk as EffectOpenTelemetryNodeSdk } from "@effect/opentelemetry"
 import { SentrySpanProcessor } from "@sentry/opentelemetry";
 import * as Sentry from "@sentry/node";

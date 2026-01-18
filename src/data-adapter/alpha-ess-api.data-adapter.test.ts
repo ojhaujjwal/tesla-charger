@@ -35,7 +35,7 @@ describe("AlphaEssCloudApiDataAdapter", () => {
   };
 
   describe('should parse Alpha ESS API response and return correct values for requested fields', () => {
-  [
+    [
       [
         'when solar is just enough to power the house and charge the battery',
         {
@@ -107,55 +107,57 @@ describe("AlphaEssCloudApiDataAdapter", () => {
         } as const
       ] as const,
     ].forEach(([caseTitle, rawData, expectedData]) => {
-      it.effect(caseTitle, () => (Effect.gen(function*() {
-      const adapter = yield* DataAdapter;
+      it.effect(caseTitle, () => (Effect.gen(function* () {
+        const adapter = yield* DataAdapter;
 
-      const result = yield* adapter.queryLatestValues(["current_production", "current_load", "export_to_grid", "import_from_grid", "voltage", 'daily_import']);
+        const result = yield* adapter.queryLatestValues(["current_production", "current_load", "export_to_grid", "import_from_grid", "voltage", 'daily_import']);
 
-      expect(result).toEqual({
-        voltage: 235,               // hardcoded value
-        daily_import: 0,  // Not supported, returns 0
-        ...expectedData,
-      });
-    }).pipe(
-      Effect.provide(AlphaEssCloudApiDataAdapterLayer),
-      Effect.provide(
-        Layer.succeed(
-          HttpClient.HttpClient,
-          makeMockHttpClient({
-            code: 200,
-            msg: "Success",
-            expMsg: null,
-            data: {
-              ppvDetail: {
-                ppv1: 0,
-                ppv2: 0,
-                ppv3: 0,
-                ppv4: 0,
-                pmeterDc: 5000
-              },
-              pev: 0,
-              pevDetail: {
-                ev1Power: null,
-                ev2Power: null,
-                ev3Power: null,
-                ev4Power: null
-              },
-              prealL1: 800,
-              prealL2: 900,
-              prealL3: 850,
-              pgridDetail: {
-                pmeterL1: -400,
-                pmeterL2: -450,
-                pmeterL3: -350
-              },
-              ...rawData,
-            },
-            extra: null
-          })
+        expect(result).toEqual({
+          voltage: 235,               // hardcoded value
+          daily_import: 0,  // Not supported, returns 0
+          ...expectedData,
+        });
+      }).pipe(
+        Effect.provide(
+          Layer.provide(
+            AlphaEssCloudApiDataAdapterLayer,
+            Layer.succeed(
+              HttpClient.HttpClient,
+              makeMockHttpClient({
+                code: 200,
+                msg: "Success",
+                expMsg: null,
+                data: {
+                  ppvDetail: {
+                    ppv1: 0,
+                    ppv2: 0,
+                    ppv3: 0,
+                    ppv4: 0,
+                    pmeterDc: 5000
+                  },
+                  pev: 0,
+                  pevDetail: {
+                    ev1Power: null,
+                    ev2Power: null,
+                    ev3Power: null,
+                    ev4Power: null
+                  },
+                  prealL1: 800,
+                  prealL2: 900,
+                  prealL3: 850,
+                  pgridDetail: {
+                    pmeterL1: -400,
+                    pmeterL2: -450,
+                    pmeterL3: -350
+                  },
+                  ...rawData,
+                },
+                extra: null
+              })
+            )
+          )
         ),
-      ),
-    )));
+      )));
     });
   });
 
@@ -196,11 +198,11 @@ describe("AlphaEssCloudApiDataAdapter", () => {
     );
 
     const result = yield* Effect.exit(adapter.queryLatestValues(["current_production"]));
-    
+
     // Should die with RuntimeException due to schema validation failure
     if (Exit.isFailure(result)) {
       expect(result.cause._tag).toBe("Die");
-    } else{
+    } else {
       throw new Error("Expected failure but got success");
     }
   }));

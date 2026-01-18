@@ -30,7 +30,7 @@ const parseCsv = <F extends Field>(
 ): Effect.Effect<Record<InfluxField, number>, DataNotAvailableError> => Effect.gen(function* () {
   if (rows.length === 0 || rows.length < 2) {
     yield* Effect.logError('No data rows found in CSV');
-    yield* Effect.fail(new DataNotAvailableError());
+    return yield* Effect.fail(new DataNotAvailableError());
   }
 
   const headers = rows[0].split(',');
@@ -79,7 +79,7 @@ export class SunGatherInfluxDbDataAdapter implements IDataAdapter {
     const filterExpression = fields
       .map(field => fieldMap[field] ?? field)
       .map(field => `r._field == "${field}"`).join(' or ');
-    
+
     const body = `
       from(bucket: "${this.bucket}")
             |> range(start: -1h)
@@ -92,22 +92,22 @@ export class SunGatherInfluxDbDataAdapter implements IDataAdapter {
     return Effect.gen(function* () {
 
       const response = yield* client.post(
-          url,
-          {
-            headers: {
-              'Content-Type': 'application/vnd.flux',
-              'Accept': 'application/csv',
-              'Authorization': `Token ${influxToken}`     
-            },
-            body: raw(body),
-          }
-        );
+        url,
+        {
+          headers: {
+            'Content-Type': 'application/vnd.flux',
+            'Accept': 'application/csv',
+            'Authorization': `Token ${influxToken}`
+          },
+          body: raw(body),
+        }
+      );
 
       const lines = (yield* response.text).trim().split('\n');
 
-      if (lines.length < 2) { 
+      if (lines.length < 2) {
         yield* Effect.logWarning('No data found in latest value query');
-        yield* Effect.fail(new DataNotAvailableError())
+        return yield* Effect.fail(new DataNotAvailableError())
       }
 
       const result = yield* parseCsv(lines, fields);
@@ -117,7 +117,7 @@ export class SunGatherInfluxDbDataAdapter implements IDataAdapter {
         const mappedField = fieldMap[field] ?? field;
         if (!(mappedField in result)) {
           yield* Effect.logError(`No data found for field ${field}`);
-          yield* Effect.fail(new DataNotAvailableError());
+          return yield* Effect.fail(new DataNotAvailableError());
         }
         mappedResult[field] = result[mappedField];
       }
@@ -128,7 +128,7 @@ export class SunGatherInfluxDbDataAdapter implements IDataAdapter {
       Effect.catchTag('TimeoutException', () => Effect.fail(new SourceNotAvailableError())),
       Effect.catchTag('RequestError', () => Effect.fail(new SourceNotAvailableError())),
       Effect.catchTag('ResponseError', () => Effect.fail(new SourceNotAvailableError())),
-    ); 
+    );
   }
 
   getLowestValueInLastXMinutes(field: Field, minutes: number) {
@@ -137,35 +137,35 @@ export class SunGatherInfluxDbDataAdapter implements IDataAdapter {
     const deps = this;
     const client = this.httpClient;
 
-    return Effect.gen(function*() {
+    return Effect.gen(function* () {
       const response = yield* client.post(
-          `${deps.influxUrl}/api/v2/query?org=${deps.org}&pretty=true`,
-          {
-            headers: {
-              'Content-Type': 'application/vnd.flux',
-              'Accept': 'application/csv',
-              'Authorization': `Token ${deps.influxToken}`     
-            },
-            body: raw(`
+        `${deps.influxUrl}/api/v2/query?org=${deps.org}&pretty=true`,
+        {
+          headers: {
+            'Content-Type': 'application/vnd.flux',
+            'Accept': 'application/csv',
+            'Authorization': `Token ${deps.influxToken}`
+          },
+          body: raw(`
               from(bucket: "${deps.bucket}")
                 |> range(start: -${minutes}m)
                 |> filter(fn: (r) => r._field == "${mappedField}")
                 |> min()
             `),
-          }
-        );
+        }
+      );
 
       const lines = (yield* response.text).trim().split('\n');
 
-      if (lines.length < 2) { 
+      if (lines.length < 2) {
         yield* Effect.logWarning('No data found in last x minutes');
-        yield* Effect.fail(new DataNotAvailableError())
+        return yield* Effect.fail(new DataNotAvailableError())
       }
 
       const result = yield* parseCsv(lines, [field]);
 
       if (!(mappedField in result)) {
-        yield* Effect.fail(new DataNotAvailableError());
+        return yield* Effect.fail(new DataNotAvailableError());
       }
 
       return result[mappedField];
