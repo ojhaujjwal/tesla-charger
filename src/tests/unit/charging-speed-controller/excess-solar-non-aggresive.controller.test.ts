@@ -1,15 +1,14 @@
 import { describe, it, expect, beforeEach } from "@effect/vitest";
 import { vi } from "vitest";
 import { type MockedObject } from "vitest";
-import { ExcessSolarNonAggresiveController } from '../../../charging-speed-controller/excess-solar-non-aggresive.controller.js';
-import { Effect } from "effect";
-import { type ChargingSpeedController } from '../../../charging-speed-controller/types.js';
-import { type IDataAdapter } from '../../../data-adapter/types.js';
+import { ExcessSolarNonAggresiveControllerLayer } from '../../../charging-speed-controller/excess-solar-non-aggresive.controller.js';
+import { Effect, Layer } from "effect";
+import { ChargingSpeedController } from '../../../charging-speed-controller/types.js';
+import { DataAdapter, type IDataAdapter } from '../../../data-adapter/types.js';
 
 describe('ExcessSolarNonAggresiveController', () => {
-  let mockBaseController: MockedObject<ChargingSpeedController>;
+  let mockBaseController: { determineChargingSpeed: MockedObject<ChargingSpeedController['Type']>['determineChargingSpeed'] };
   let mockDataAdapter: MockedObject<IDataAdapter>;
-  let controller: ExcessSolarNonAggresiveController;
 
   // Helper to create mock data adapter response with unique values to simulate fresh data
   let dataCounter = 0;
@@ -41,27 +40,41 @@ describe('ExcessSolarNonAggresiveController', () => {
     mockBaseController = {
       determineChargingSpeed: vi.fn(),
     };
+
     mockDataAdapter = {
       queryLatestValues: vi.fn(),
       getLowestValueInLastXMinutes: vi.fn(),
     };
-    controller = new ExcessSolarNonAggresiveController(
-      mockBaseController,
-      mockDataAdapter,
-      { requiredConsistentReads: 3 }
-    );
   });
+
+  const getTestLayer = (requiredConsistentReads = 3) => {
+    const baseControllerLayer = Layer.succeed(
+      ChargingSpeedController,
+      ChargingSpeedController.of(mockBaseController)
+    );
+
+    return ExcessSolarNonAggresiveControllerLayer({
+      baseControllerLayer,
+      requiredConsistentReads
+    }).pipe(
+      Layer.provideMerge(Layer.succeed(DataAdapter, mockDataAdapter))
+    );
+  };
 
   it.effect('should return 0 initially when first reading is 0', () => Effect.gen(function* () {
     mockBaseController.determineChargingSpeed.mockReturnValueOnce(Effect.succeed(0));
     mockDataAdapter.queryLatestValues.mockReturnValueOnce(freshData());
+
+    const controller = yield* ChargingSpeedController;
     expect((yield* controller.determineChargingSpeed(0))).toBe(0);
-  }));
+  }).pipe(Effect.provide(getTestLayer())));
 
   it.effect('should immediately decrease when solar drops', () => Effect.gen(function* () {
     // Build up to speed 15 with 3 fresh readings
     mockBaseController.determineChargingSpeed.mockReturnValueOnce(Effect.succeed(15));
     mockDataAdapter.queryLatestValues.mockReturnValueOnce(freshData());
+
+    const controller = yield* ChargingSpeedController;
     yield* controller.determineChargingSpeed(0);
 
     mockBaseController.determineChargingSpeed.mockReturnValueOnce(Effect.succeed(15));
@@ -78,12 +91,14 @@ describe('ExcessSolarNonAggresiveController', () => {
     mockDataAdapter.queryLatestValues.mockReturnValueOnce(staleData(300, 3000, 500)); // same as last (last fresh was counter 3: 300, 3000, 500)
     const result2 = yield* controller.determineChargingSpeed(15);
     expect(result2).toBe(8);
-  }));
+  }).pipe(Effect.provide(getTestLayer())));
 
   it.effect('should only increase after 3 consistent FRESH readings', () => Effect.gen(function* () {
     // First fresh reading: 10 - not enough history yet
     mockBaseController.determineChargingSpeed.mockReturnValueOnce(Effect.succeed(10));
     mockDataAdapter.queryLatestValues.mockReturnValueOnce(freshData());
+
+    const controller = yield* ChargingSpeedController;
     expect((yield* controller.determineChargingSpeed(0))).toBe(0);
 
     // Second fresh reading: 10 - still not enough
@@ -95,12 +110,14 @@ describe('ExcessSolarNonAggresiveController', () => {
     mockBaseController.determineChargingSpeed.mockReturnValueOnce(Effect.succeed(10));
     mockDataAdapter.queryLatestValues.mockReturnValueOnce(freshData());
     expect((yield* controller.determineChargingSpeed(0))).toBe(10);
-  }));
+  }).pipe(Effect.provide(getTestLayer())));
 
   it.effect('should NOT count stale data as additional readings', () => Effect.gen(function* () {
     // First fresh reading: 10
     mockBaseController.determineChargingSpeed.mockReturnValueOnce(Effect.succeed(10));
     mockDataAdapter.queryLatestValues.mockReturnValueOnce(staleData(1000, 2000, 500));
+
+    const controller = yield* ChargingSpeedController;
     expect((yield* controller.determineChargingSpeed(0))).toBe(0);
 
     // Stale reading (same data) - should NOT add to history
@@ -122,12 +139,14 @@ describe('ExcessSolarNonAggresiveController', () => {
     mockBaseController.determineChargingSpeed.mockReturnValueOnce(Effect.succeed(10));
     mockDataAdapter.queryLatestValues.mockReturnValueOnce(staleData(3000, 2000, 500)); // different!
     expect((yield* controller.determineChargingSpeed(0))).toBe(10);
-  }));
+  }).pipe(Effect.provide(getTestLayer())));
 
   it.effect('should not increase if readings fluctuate', () => Effect.gen(function* () {
     // Reading 1: 15
     mockBaseController.determineChargingSpeed.mockReturnValueOnce(Effect.succeed(15));
     mockDataAdapter.queryLatestValues.mockReturnValueOnce(freshData());
+
+    const controller = yield* ChargingSpeedController;
     yield* controller.determineChargingSpeed(0);
 
     // Reading 2: 20
@@ -139,12 +158,14 @@ describe('ExcessSolarNonAggresiveController', () => {
     mockBaseController.determineChargingSpeed.mockReturnValueOnce(Effect.succeed(25));
     mockDataAdapter.queryLatestValues.mockReturnValueOnce(freshData());
     expect((yield* controller.determineChargingSpeed(0))).toBe(0);
-  }));
+  }).pipe(Effect.provide(getTestLayer())));
 
   it.effect('should increase when all fresh readings support the new speed', () => Effect.gen(function* () {
     // Build consistent readings
     mockBaseController.determineChargingSpeed.mockReturnValueOnce(Effect.succeed(20));
     mockDataAdapter.queryLatestValues.mockReturnValueOnce(freshData());
+
+    const controller = yield* ChargingSpeedController;
     yield* controller.determineChargingSpeed(0);
 
     mockBaseController.determineChargingSpeed.mockReturnValueOnce(Effect.succeed(20));
@@ -168,5 +189,5 @@ describe('ExcessSolarNonAggresiveController', () => {
     mockBaseController.determineChargingSpeed.mockReturnValueOnce(Effect.succeed(25));
     mockDataAdapter.queryLatestValues.mockReturnValueOnce(freshData());
     expect((yield* controller.determineChargingSpeed(20))).toBe(25); // Now increase to 25
-  }));
+  }).pipe(Effect.provide(getTestLayer())));
 });

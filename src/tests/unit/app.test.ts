@@ -23,7 +23,7 @@ describe('App', () => {
         getLowestValueInLastXMinutes: vitest.fn(),
     };
 
-    const chargingSpeedControllerMock: MockedObject<ChargingSpeedController> = {
+    const chargingSpeedControllerMock: MockedObject<ChargingSpeedController['Type']> = {
         determineChargingSpeed: vitest.fn(),
     };
 

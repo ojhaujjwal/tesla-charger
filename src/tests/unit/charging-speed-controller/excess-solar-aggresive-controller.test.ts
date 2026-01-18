@@ -1,31 +1,32 @@
 import { describe, it, expect, beforeEach } from "@effect/vitest";
 import { vi } from 'vitest';
 import { type MockedObject } from 'vitest';
-import { ExcessSolarAggresiveController } from '../../../charging-speed-controller/excess-solar-aggresive-controller.js';
-import { type IDataAdapter } from '../../../data-adapter/types.js';
-import { Effect } from 'effect';
+import { ExcessSolarAggresiveControllerLayer } from '../../../charging-speed-controller/excess-solar-aggresive-controller.js';
+import { DataAdapter, type IDataAdapter } from '../../../data-adapter/types.js';
+import { Effect, Layer } from 'effect';
+import { ChargingSpeedController } from "../../../charging-speed-controller/types.js";
 
 describe('ExcessSolarAggresiveController', () => {
   let mockDataAdapter: MockedObject<IDataAdapter>;
-  let controller: ExcessSolarAggresiveController;
 
   beforeEach(() => {
     mockDataAdapter = {
       queryLatestValues: vi.fn(),
       getLowestValueInLastXMinutes: vi.fn(),
     };
-
-    // Create controller with mock adapter and config
-    controller = new ExcessSolarAggresiveController(mockDataAdapter, {
-      bufferPower: 100,
-      multipleOf: 5,
-    });
   });
 
+  const TestLayer = (config: { bufferPower: number; multipleOf: number } = { bufferPower: 100, multipleOf: 5 }) =>
+    ExcessSolarAggresiveControllerLayer(config).pipe(
+      Layer.provideMerge(
+        Layer.succeed(DataAdapter, mockDataAdapter)
+      )
+    );
+
   describe('determineChargingSpeed', () => {
-    it.effect('should limit charging speed to 32A', () => Effect.gen(function*() {
+    it.effect('should limit charging speed to 32A', () => Effect.gen(function* () {
       // Mock data to simulate high excess solar
-      mockDataAdapter.queryLatestValues.mockReturnValue(Effect.succeed({ 
+      mockDataAdapter.queryLatestValues.mockReturnValue(Effect.succeed({
         voltage: 230,
         current_production: 0,
         current_load: 0,
@@ -34,13 +35,16 @@ describe('ExcessSolarAggresiveController', () => {
         import_from_grid: 0
       }));
 
+      const controller = yield* ChargingSpeedController;
       const chargingSpeed = yield* controller.determineChargingSpeed(0);
       expect(chargingSpeed).toBe(32);
-    }));
+    }).pipe(
+      Effect.provide(TestLayer())
+    ));
 
-    it.effect('should round charging speed to nearest multiple of 5', () => Effect.gen(function*() {
+    it.effect('should round charging speed to nearest multiple of 5', () => Effect.gen(function* () {
       // Mock data to simulate moderate excess solar
-      mockDataAdapter.queryLatestValues.mockReturnValue(Effect.succeed({ 
+      mockDataAdapter.queryLatestValues.mockReturnValue(Effect.succeed({
         voltage: 230,
         current_production: 0,
         current_load: 0,
@@ -49,14 +53,17 @@ describe('ExcessSolarAggresiveController', () => {
         import_from_grid: 0
       }));
 
+      const controller = yield* ChargingSpeedController;
       const chargingSpeed = yield* controller.determineChargingSpeed(10);
       expect(chargingSpeed).toBeGreaterThan(0);
       expect(chargingSpeed % 5).toBe(0);
-    }));
+    }).pipe(
+      Effect.provide(TestLayer())
+    ));
 
-    it.effect('should return 0 when no excess solar is available after buffer', () => Effect.gen(function*() {
+    it.effect('should return 0 when no excess solar is available after buffer', () => Effect.gen(function* () {
       // Mock data to simulate minimal excess solar
-      mockDataAdapter.queryLatestValues.mockReturnValue(Effect.succeed({ 
+      mockDataAdapter.queryLatestValues.mockReturnValue(Effect.succeed({
         voltage: 230,
         current_production: 0,
         current_load: 0,
@@ -65,13 +72,16 @@ describe('ExcessSolarAggresiveController', () => {
         import_from_grid: 0
       }));
 
+      const controller = yield* ChargingSpeedController;
       const chargingSpeed = yield* controller.determineChargingSpeed(0);
       expect(chargingSpeed).toBe(0);
-    }));
+    }).pipe(
+      Effect.provide(TestLayer())
+    ));
 
-    it.effect('should return 0 when importing from grid', () => Effect.gen(function*() {
+    it.effect('should return 0 when importing from grid', () => Effect.gen(function* () {
       // Mock data to simulate importing from grid
-      mockDataAdapter.queryLatestValues.mockReturnValue(Effect.succeed({ 
+      mockDataAdapter.queryLatestValues.mockReturnValue(Effect.succeed({
         voltage: 230,
         current_production: 0,
         current_load: 0,
@@ -80,18 +90,21 @@ describe('ExcessSolarAggresiveController', () => {
         import_from_grid: 1230
       }));
 
+      const controller = yield* ChargingSpeedController;
       const chargingSpeed = yield* controller.determineChargingSpeed(0);
       expect(chargingSpeed).toBe(0);
-    }));
+    }).pipe(
+      Effect.provide(TestLayer())
+    ));
 
     it.effect.each([
       [1800, 5],
       [4600, 15],
       [4700, 20],
       [4800, 20],
-    ])('should calculate excess solar correctly with current charging speed', ([exportingToGrid, chargingSpeed]) => Effect.gen(function*() {
+    ])('should calculate excess solar correctly with current charging speed', ([exportingToGrid, chargingSpeed]) => Effect.gen(function* () {
       // Mock data to test excess solar calculation including current charging speed
-      mockDataAdapter.queryLatestValues.mockReturnValue(Effect.succeed({ 
+      mockDataAdapter.queryLatestValues.mockReturnValue(Effect.succeed({
         voltage: 230,
         current_production: 0,
         current_load: 0,
@@ -100,8 +113,11 @@ describe('ExcessSolarAggresiveController', () => {
         import_from_grid: 0,
       }));
 
+      const controller = yield* ChargingSpeedController;
       const resultingChargingSpeed = yield* controller.determineChargingSpeed(10);
       expect(resultingChargingSpeed).toEqual(10 + chargingSpeed);
-    }));
+    }).pipe(
+      Effect.provide(TestLayer())
+    ));
   });
 });
