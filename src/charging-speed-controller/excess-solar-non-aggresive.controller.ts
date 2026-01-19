@@ -58,8 +58,9 @@ export const ExcessSolarNonAggresiveControllerLayer = (config: {
         if (candidateSpeed > lastAppliedSpeed) {
           const hasEnoughFreshReads = readHistory.length >= requiredConsistentReads;
           const allReadingsSupportIncrease = readHistory.every(r => r.speed >= candidateSpeed);
+          const isFirstFreshRead = readHistory.length === 1;
 
-          if (hasEnoughFreshReads && allReadingsSupportIncrease) {
+          if ((hasEnoughFreshReads && allReadingsSupportIncrease) || isFirstFreshRead) {
             lastAppliedSpeed = candidateSpeed;
             return candidateSpeed;
           }

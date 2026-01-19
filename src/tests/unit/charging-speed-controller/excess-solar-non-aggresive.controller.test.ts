@@ -93,71 +93,84 @@ describe('ExcessSolarNonAggresiveController', () => {
     expect(result2).toBe(8);
   }).pipe(Effect.provide(getTestLayer())));
 
-  it.effect('should only increase after 3 consistent FRESH readings', () => Effect.gen(function* () {
-    // First fresh reading: 10 - not enough history yet
+  it.effect('should immediately start on first fresh reading but require consistency for further increases', () => Effect.gen(function* () {
+    // First fresh reading: 10 - should be applied immediately (startup)
     mockBaseController.determineChargingSpeed.mockReturnValueOnce(Effect.succeed(10));
     mockDataAdapter.queryLatestValues.mockReturnValueOnce(freshData());
 
     const controller = yield* ChargingSpeedController;
-    expect((yield* controller.determineChargingSpeed(0))).toBe(0);
+    expect((yield* controller.determineChargingSpeed(0))).toBe(10);
 
-    // Second fresh reading: 10 - still not enough
-    mockBaseController.determineChargingSpeed.mockReturnValueOnce(Effect.succeed(10));
-    mockDataAdapter.queryLatestValues.mockReturnValueOnce(freshData());
-    expect((yield* controller.determineChargingSpeed(0))).toBe(0);
-
-    // Third fresh reading: 10 - now we have 3 consistent readings, should increase
-    mockBaseController.determineChargingSpeed.mockReturnValueOnce(Effect.succeed(10));
+    // Second fresh reading: 20 - should NOT increase yet (need consistency)
+    mockBaseController.determineChargingSpeed.mockReturnValueOnce(Effect.succeed(20));
     mockDataAdapter.queryLatestValues.mockReturnValueOnce(freshData());
     expect((yield* controller.determineChargingSpeed(0))).toBe(10);
+
+    // Third fresh reading: 20 - still holding
+    mockBaseController.determineChargingSpeed.mockReturnValueOnce(Effect.succeed(20));
+    mockDataAdapter.queryLatestValues.mockReturnValueOnce(freshData());
+    expect((yield* controller.determineChargingSpeed(0))).toBe(10);
+
+    // Fourth fresh reading: 20 - now we have 3 consistent readings of 20 (history: [20, 20, 20] effectively or at least consistent enough)
+    // Wait, history window is 3. 
+    // 1: [10] -> 10 applied.
+    // 2: [10, 20] -> 10 applied.
+    // 3: [10, 20, 20] -> 10 applied.
+    // 4: [20, 20, 20] -> 20 applied.
+    mockBaseController.determineChargingSpeed.mockReturnValueOnce(Effect.succeed(20));
+    mockDataAdapter.queryLatestValues.mockReturnValueOnce(freshData());
+    expect((yield* controller.determineChargingSpeed(0))).toBe(20);
   }).pipe(Effect.provide(getTestLayer())));
 
   it.effect('should NOT count stale data as additional readings', () => Effect.gen(function* () {
-    // First fresh reading: 10
+    // First fresh reading: 10 - applied immediately now
     mockBaseController.determineChargingSpeed.mockReturnValueOnce(Effect.succeed(10));
     mockDataAdapter.queryLatestValues.mockReturnValueOnce(staleData(1000, 2000, 500));
 
     const controller = yield* ChargingSpeedController;
-    expect((yield* controller.determineChargingSpeed(0))).toBe(0);
+    expect((yield* controller.determineChargingSpeed(0))).toBe(10);
 
-    // Stale reading (same data) - should NOT add to history
+    // Stale reading (same data) - should NOT add to history, so defaults to lastApplied (10)
     mockBaseController.determineChargingSpeed.mockReturnValueOnce(Effect.succeed(10));
     mockDataAdapter.queryLatestValues.mockReturnValueOnce(staleData(1000, 2000, 500)); // same!
-    expect((yield* controller.determineChargingSpeed(0))).toBe(0);
+    expect((yield* controller.determineChargingSpeed(0))).toBe(10);
 
     // Another stale reading - still NOT added
     mockBaseController.determineChargingSpeed.mockReturnValueOnce(Effect.succeed(10));
     mockDataAdapter.queryLatestValues.mockReturnValueOnce(staleData(1000, 2000, 500)); // same!
-    expect((yield* controller.determineChargingSpeed(0))).toBe(0); // still 0, not 10!
+    expect((yield* controller.determineChargingSpeed(0))).toBe(10);
 
-    // Now fresh data - second reading
+    // Now fresh data - second reading (let's say 15 to test it doesn't jump)
+    // If we keep 10, it stays 10.
     mockBaseController.determineChargingSpeed.mockReturnValueOnce(Effect.succeed(10));
     mockDataAdapter.queryLatestValues.mockReturnValueOnce(staleData(2000, 2000, 500)); // different!
-    expect((yield* controller.determineChargingSpeed(0))).toBe(0); // still only 2 fresh reads
+    expect((yield* controller.determineChargingSpeed(0))).toBe(10);
 
-    // Third fresh reading - NOW should increase
+    // Third fresh reading - still 10
     mockBaseController.determineChargingSpeed.mockReturnValueOnce(Effect.succeed(10));
     mockDataAdapter.queryLatestValues.mockReturnValueOnce(staleData(3000, 2000, 500)); // different!
     expect((yield* controller.determineChargingSpeed(0))).toBe(10);
   }).pipe(Effect.provide(getTestLayer())));
 
   it.effect('should not increase if readings fluctuate', () => Effect.gen(function* () {
-    // Reading 1: 15
+    // Reading 1: 15 - Applied immediately
     mockBaseController.determineChargingSpeed.mockReturnValueOnce(Effect.succeed(15));
     mockDataAdapter.queryLatestValues.mockReturnValueOnce(freshData());
 
     const controller = yield* ChargingSpeedController;
-    yield* controller.determineChargingSpeed(0);
+    const result1 = yield* controller.determineChargingSpeed(0);
+    expect(result1).toBe(15);
 
-    // Reading 2: 20
+    // Reading 2: 20 - Rejected (inconsistent)
     mockBaseController.determineChargingSpeed.mockReturnValueOnce(Effect.succeed(20));
     mockDataAdapter.queryLatestValues.mockReturnValueOnce(freshData());
-    yield* controller.determineChargingSpeed(0);
+    const result2 = yield* controller.determineChargingSpeed(0);
+    expect(result2).toBe(15);
 
-    // Reading 3: 25 - history is [15, 20, 25], but not all >= 25
+    // Reading 3: 25 - rejected (history is [15, 20, 25])
     mockBaseController.determineChargingSpeed.mockReturnValueOnce(Effect.succeed(25));
     mockDataAdapter.queryLatestValues.mockReturnValueOnce(freshData());
-    expect((yield* controller.determineChargingSpeed(0))).toBe(0);
+    expect((yield* controller.determineChargingSpeed(0))).toBe(15);
   }).pipe(Effect.provide(getTestLayer())));
 
   it.effect('should increase when all fresh readings support the new speed', () => Effect.gen(function* () {
