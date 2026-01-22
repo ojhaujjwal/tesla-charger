@@ -36,6 +36,8 @@ export const TeslaClientLayer = (config: {
   readonly appDomain: string;
   readonly clientId: string;
   readonly clientSecret: string;
+  readonly tokenFilePath?: string;
+  readonly accessTokenFilePath?: string;
 }) => Layer.effect(
   TeslaClient,
   Effect.gen(function* () {
@@ -44,7 +46,7 @@ export const TeslaClientLayer = (config: {
     const commandExecutor = yield* CommandExecutor.CommandExecutor;
 
     const getTokens = () => Effect.gen(function* () {
-      const json = yield* fs.readFileString('token.json');
+      const json = yield* fs.readFileString(config.tokenFilePath || 'token.json');
       return yield* Schema.decodeUnknown(TeslaCachedTokenSchema)(JSON.parse(json));
     });
 
@@ -64,7 +66,18 @@ export const TeslaClientLayer = (config: {
             refresh_token: refresh_token,
           })),
         }
-      );
+      )
+        .pipe(
+          Effect.timeout(Duration.seconds(5)),
+          Effect.retry({
+            schedule: Schedule.compose(
+              Schedule.recurs(5),
+              Schedule.exponential(Duration.seconds(1), 2)
+            ),
+            while: (error) => error._tag === 'RequestError' || error._tag === 'TimeoutException',
+          }),
+          Effect.catchTag('TimeoutException', () => Effect.fail(new UnableToFetchAccessTokenError())),
+        );
 
       if (response.status !== 200) {
         return yield* Effect.fail(new UnableToFetchAccessTokenError());
@@ -78,8 +91,8 @@ export const TeslaClientLayer = (config: {
         access_token: accessToken,
         refresh_token: refreshToken,
       }), null, 2);
-      yield* fs.writeFileString('token.json', encoded);
-      yield* fs.writeFileString('.access-token', accessToken);
+      yield* fs.writeFileString(config.tokenFilePath || 'token.json', encoded);
+      yield* fs.writeFileString(config.accessTokenFilePath || '.access-token', accessToken);
     });
 
     const runCommand = (command: string, commandArgs: string[]) => Effect.gen(function* () {
@@ -141,9 +154,9 @@ export const TeslaClientLayer = (config: {
 
     const refreshAccessToken = () => Effect.gen(function* () {
       const result = yield* refreshAccessTokenFromTesla();
-      yield* saveTokens(result.access_token, result.refresh_token)
+      yield* saveTokens(result.access_token, result.refresh_token);
     }).pipe(
-      Effect.catchAll((err) => Effect.fail(new AuthenticationFailedError({ previous: err }))),
+      Effect.catchAll((err) => Effect.fail(new AuthenticationFailedError({ previous: err })))
     );
 
     return {
