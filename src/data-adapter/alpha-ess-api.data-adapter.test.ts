@@ -1,9 +1,9 @@
-import { Effect, Exit, Layer } from "effect";
+import { Duration, Effect, Exit, Fiber, Layer, TestClock } from "effect";
 import { AlphaEssCloudApiDataAdapter, AlphaEssCloudApiDataAdapterLayer, type AlphaEssConfig, type ApiResponse } from "./alpha-ess-api.data-adapter.js";
 import { DataAdapter, DataNotAvailableError, SourceNotAvailableError } from "./types.js";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "@effect/platform";
 import { describe, it, expect } from "@effect/vitest";
-import { RequestError } from "@effect/platform/HttpClientError";
+import { RequestError, ResponseError } from "@effect/platform/HttpClientError";
 
 // Helper to create a mock HttpResponse
 const mockResponse = (req: HttpClientRequest.HttpClientRequest, body: string): HttpClientResponse.HttpClientResponse => HttpClientResponse.fromWeb(
@@ -207,10 +207,36 @@ describe("AlphaEssCloudApiDataAdapter", () => {
     }
   }));
 
-  it.effect("should fail with SourceNotAvailableError if http client returns RequestError", () => Effect.gen(function* () {
-    const failingHttpClient: HttpClient.HttpClient = HttpClient.make((req) =>
-      Effect.fail(new RequestError({ reason: "Transport", request: req }))
+  it.effect("should retry on Transport RequestError and eventually fail with SourceNotAvailableError", () => Effect.gen(function* () {
+    let calls = 0;
+    const failingHttpClient: HttpClient.HttpClient = HttpClient.make((req) => {
+      calls++;
+      return Effect.fail(new RequestError({ reason: "Transport", request: req }));
+    });
+
+    const adapter = new AlphaEssCloudApiDataAdapter(
+      mockConfig,
+      failingHttpClient
     );
+
+    const fiber = yield* Effect.fork(adapter.queryLatestValues(["current_production"]));
+    yield* TestClock.adjust(Duration.seconds(70)); // Total retry time is ~62s
+    const result = yield* Fiber.await(fiber);
+
+    expect(result).toStrictEqual(Exit.fail(new SourceNotAvailableError()));
+    expect(calls).toBe(6);
+  }));
+
+  it.effect("should NOT retry on ResponseError (HTTP 4xx/5xx)", () => Effect.gen(function* () {
+    let calls = 0;
+    const failingHttpClient: HttpClient.HttpClient = HttpClient.make((req) => {
+      calls++;
+      return Effect.fail(new ResponseError({
+        reason: "StatusCode",
+        request: req,
+        response: HttpClientResponse.fromWeb(req, new Response(null, { status: 500 }))
+      }));
+    });
 
     const adapter = new AlphaEssCloudApiDataAdapter(
       mockConfig,
@@ -219,6 +245,24 @@ describe("AlphaEssCloudApiDataAdapter", () => {
 
     const result = yield* Effect.exit(adapter.queryLatestValues(["current_production"]));
     expect(result).toStrictEqual(Exit.fail(new SourceNotAvailableError()));
+    expect(calls).toBe(1);
+  }));
+
+  it.effect("should NOT retry on RequestError with reason 'InvalidUrl'", () => Effect.gen(function* () {
+    let calls = 0;
+    const failingHttpClient: HttpClient.HttpClient = HttpClient.make((req) => {
+      calls++;
+      return Effect.fail(new RequestError({ reason: "InvalidUrl", request: req }));
+    });
+
+    const adapter = new AlphaEssCloudApiDataAdapter(
+      mockConfig,
+      failingHttpClient
+    );
+
+    const result = yield* Effect.exit(adapter.queryLatestValues(["current_production"]));
+    expect(result).toStrictEqual(Exit.fail(new SourceNotAvailableError()));
+    expect(calls).toBe(1);
   }));
 
   it.effect("should fail with DataNotAvailableError when calling getLowestValueInLastXMinutes", () => Effect.gen(function* () {

@@ -73,46 +73,46 @@ const generateSignature = (
 }
 
 const mapFieldToValue = (
-    field: Field,
-    data: NonNullable<ApiResponse["data"]>
-  ): number => {
-    switch (field) {
-      case "voltage":
-        // Hardcoded value for voltage as API does not provide it
-        return 235;
-      
-      case "current_production":
-        return data.ppv;
-      
-      case "current_load":
-        return data.pload;
-      
-      case "daily_import":
-        // Not supported, return zero
-        return 0;
-      
-      case "export_to_grid":
-        // Export to grid is negative pgrid values
-        return data.pgrid < 0 ? Math.abs(data.pgrid) : 0;
-      
-      case "import_from_grid":
-        // Import from grid is positive pgrid values
-        return data.pgrid > 0 ? data.pgrid : 0;
-    }
-  };
+  field: Field,
+  data: NonNullable<ApiResponse["data"]>
+): number => {
+  switch (field) {
+    case "voltage":
+      // Hardcoded value for voltage as API does not provide it
+      return 235;
+
+    case "current_production":
+      return data.ppv;
+
+    case "current_load":
+      return data.pload;
+
+    case "daily_import":
+      // Not supported, return zero
+      return 0;
+
+    case "export_to_grid":
+      // Export to grid is negative pgrid values
+      return data.pgrid < 0 ? Math.abs(data.pgrid) : 0;
+
+    case "import_from_grid":
+      // Import from grid is positive pgrid values
+      return data.pgrid > 0 ? data.pgrid : 0;
+  }
+};
 
 export class AlphaEssCloudApiDataAdapter implements IDataAdapter {
   private readonly TIMEOUT_MS = 5_000;
-  
+
   constructor(
     private config: AlphaEssConfig,
     private httpClient: HttpClient.HttpClient,
   ) { }
-  
+
   public queryLatestValues<F extends Field>(fields: F[]): Effect.Effect<Record<F, number>, DataNotAvailableError | SourceNotAvailableError> {
     const config = this.config;
     const httpClient = this.httpClient;
-    
+
     return Effect.gen(function* () {
       const timestamp = Math.floor(Date.now() / 1000).toString();
       const signature = generateSignature(
@@ -130,7 +130,7 @@ export class AlphaEssCloudApiDataAdapter implements IDataAdapter {
         "Content-Type": "application/json",
       };
 
-      const response =  yield* httpClient.get(url, { headers  });
+      const response = yield* httpClient.get(url, { headers });
       const responseBody = yield* response.json;
 
       yield* Effect.logDebug("Alpha ESS API Response:", responseBody);
@@ -149,7 +149,7 @@ export class AlphaEssCloudApiDataAdapter implements IDataAdapter {
       for (const field of fields) {
         result[field] = mapFieldToValue(field, parsed.data);
       }
-      
+
       return result;
     }).pipe(
       Effect.timeout(Duration.millis(this.TIMEOUT_MS)),
@@ -158,7 +158,7 @@ export class AlphaEssCloudApiDataAdapter implements IDataAdapter {
           Schedule.recurs(5),  // Max 5 retries (6 total attempts)
           Schedule.exponential(Duration.seconds(2), 2) // Backoff: 2s, 4s, 8s, 16s, 32s
         ),
-        while: (err) => err._tag === 'TimeoutException' 
+        while: (err) => err._tag === 'TimeoutException' || (err._tag === "RequestError" && err.reason === "Transport")
       }),
       Effect.catchTag('TimeoutException', () => Effect.fail(new SourceNotAvailableError())),
       Effect.catchTag('RequestError', () => Effect.fail(new SourceNotAvailableError())),
