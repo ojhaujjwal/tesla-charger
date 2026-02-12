@@ -27,6 +27,7 @@ export const TeslaChargeStateResponseSchema = Schema.Struct({
     charge_state: Schema.Struct({
       battery_level: Schema.Number,
       charge_limit_soc: Schema.Number,
+      charge_energy_added: Schema.Number,
     }),
   }),
 });

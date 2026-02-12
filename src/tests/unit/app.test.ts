@@ -6,6 +6,7 @@ import { VehicleAsleepError } from "../../tesla-client/errors.js";
 import { DataAdapter, type IDataAdapter } from "../../data-adapter/types.js";
 import { ChargingSpeedController } from "../../charging-speed-controller/types.js";
 import { App, AppLayer, type TimingConfig } from "../../app.js";
+import type { IEventLogger } from "../../event-logger/types.js";
 
 describe('App', () => {
     const teslaClientMock: MockedObject<TeslaClient> = {
@@ -29,6 +30,12 @@ describe('App', () => {
         determineChargingSpeed: vitest.fn(),
     };
 
+    const eventLoggerMock: MockedObject<IEventLogger> = {
+        onSetAmpere: vitest.fn(),
+        onNoAmpereChange: vitest.fn(),
+        onSessionEnd: vitest.fn(),
+    };
+
     const TestTeslaClient = Layer.succeed(TeslaClient, teslaClientMock);
     const TestDataAdapter = Layer.succeed(DataAdapter, dataAdapterMock);
     const TestChargingSpeedController = Layer.succeed(ChargingSpeedController, chargingSpeedControllerMock);
@@ -48,6 +55,7 @@ describe('App', () => {
                 AppLayer({
                     timingConfig,
                     isDryRun: false,
+                    eventLogger: eventLoggerMock,
                 }).pipe(
                     Layer.provideMerge(TestChargingSpeedController),
                     Layer.provideMerge(TestTeslaClient),
@@ -66,12 +74,16 @@ describe('App', () => {
         teslaClientMock.stopCharging.mockReturnValue(Effect.void);
         teslaClientMock.setAmpere.mockReturnValue(Effect.void);
         teslaClientMock.wakeUpCar.mockReturnValue(Effect.void);
-        teslaClientMock.getChargeState.mockReturnValue(Effect.succeed({ batteryLevel: 50, chargeLimitSoc: 80 }));
+        teslaClientMock.getChargeState.mockReturnValue(Effect.succeed({ batteryLevel: 50, chargeLimitSoc: 80, chargeEnergyAdded: 0 }));
 
         dataAdapterMock.queryLatestValues.mockReturnValue(Effect.succeed({ voltage: 230, current_production: 5000, current_load: 0, daily_import: 0, export_to_grid: 5000, import_from_grid: 0 }));
         dataAdapterMock.getLowestValueInLastXMinutes.mockReturnValue(Effect.succeed(0));
 
         chargingSpeedControllerMock.determineChargingSpeed.mockReturnValue(Effect.succeed(10));
+
+        eventLoggerMock.onSetAmpere.mockReturnValue(Effect.void);
+        eventLoggerMock.onNoAmpereChange.mockReturnValue(Effect.void);
+        eventLoggerMock.onSessionEnd.mockReturnValue(Effect.void);
     });
 
     it.effect('should authenticate and set up auto-refresh', () => Effect.gen(function* () {
@@ -253,7 +265,7 @@ describe('App', () => {
 
     it.effect('should stop charging when battery level reaches charge limit', () => Effect.gen(function* () {
         // Mock charge state to return completed charge
-        teslaClientMock.getChargeState.mockReturnValue(Effect.succeed({ batteryLevel: 80, chargeLimitSoc: 80 }));
+        teslaClientMock.getChargeState.mockReturnValue(Effect.succeed({ batteryLevel: 80, chargeLimitSoc: 80, chargeEnergyAdded: 5.5 }));
 
         // Ensure charging is active - keep returning 10A so charging stays active
         chargingSpeedControllerMock.determineChargingSpeed.mockReturnValue(Effect.succeed(10));
@@ -308,6 +320,86 @@ describe('App', () => {
         
         // Should stop charging when complete
         expect(teslaClientMock.stopCharging).toHaveBeenCalled();
+
+        yield* Fiber.interrupt(fiber);
+    }).pipe(provideAppLayer));
+
+    it.effect('should call onSessionEnd with summary when stop() is called', () => Effect.gen(function* () {
+        // Setup charging speed to change multiple times to test ampereFluctuations
+        let iteration = 0;
+        chargingSpeedControllerMock.determineChargingSpeed.mockImplementation(() => {
+            iteration++;
+            if (iteration === 1) return Effect.succeed(6);
+            if (iteration === 2) return Effect.succeed(10);
+            if (iteration === 3) return Effect.succeed(15);
+            return Effect.succeed(15);
+        });
+
+        // Mock getChargeState for start() and stop()
+        let getChargeStateCallCount = 0;
+        teslaClientMock.getChargeState.mockImplementation(() => {
+            getChargeStateCallCount++;
+            if (getChargeStateCallCount === 1) {
+                // Initial call in start()
+                return Effect.succeed({ batteryLevel: 50, chargeLimitSoc: 80, chargeEnergyAdded: 0 });
+            }
+            // Final call in stop()
+            return Effect.succeed({ batteryLevel: 60, chargeLimitSoc: 80, chargeEnergyAdded: 5.5 });
+        });
+
+        // Mock queryLatestValues for start(), sync cycles, and stop()
+        let queryLatestValuesCallCount = 0;
+        dataAdapterMock.queryLatestValues.mockImplementation(() => {
+            queryLatestValuesCallCount++;
+            if (queryLatestValuesCallCount === 1) {
+                // Initial call in start() for daily_import
+                return Effect.succeed({ daily_import: 0, voltage: 230, current_production: 5000, current_load: 0, export_to_grid: 5000, import_from_grid: 0 });
+            }
+            // Calls during sync cycles for current_production
+            if (queryLatestValuesCallCount <= 5) {
+                return Effect.succeed({ current_production: 5000, voltage: 230, current_load: 0, daily_import: 0, export_to_grid: 5000, import_from_grid: 0 });
+            }
+            // Final call in stop() for daily_import and voltage
+            return Effect.succeed({ daily_import: 2.0, voltage: 230, current_production: 5000, current_load: 0, export_to_grid: 5000, import_from_grid: 0 });
+        });
+
+        const app = yield* App;
+        const fiber = yield* Effect.fork(app.start());
+
+        // Pass startup
+        yield* TestClock.adjust(Duration.seconds(1));
+
+        // First iteration: setAmpere(6) - 0 -> 6 = 1 fluctuation
+        yield* TestClock.adjust(Duration.seconds(30));
+        expect(teslaClientMock.setAmpere).toHaveBeenCalledWith(6);
+
+        // Second iteration: setAmpere(10) - 6 -> 10 = 1 fluctuation (total: 2)
+        yield* TestClock.adjust(Duration.seconds(30));
+        expect(teslaClientMock.setAmpere).toHaveBeenCalledWith(10);
+
+        // Third iteration: setAmpere(15) - 10 -> 15 = 1 fluctuation (total: 3)
+        yield* TestClock.adjust(Duration.seconds(30));
+        expect(teslaClientMock.setAmpere).toHaveBeenCalledWith(15);
+
+        // Fourth iteration: no change (15 == 15) - should NOT increment fluctuations
+        yield* TestClock.adjust(Duration.seconds(10));
+        expect(teslaClientMock.setAmpere).toHaveBeenCalledTimes(3); // Still 3 calls
+
+        // Stop the app
+        yield* app.stop();
+
+        // Verify onSessionEnd was called with expected summary including correct ampereFluctuations
+        expect(eventLoggerMock.onSessionEnd).toHaveBeenCalledTimes(1);
+        const summary = eventLoggerMock.onSessionEnd.mock.calls[0][0];
+        expect(summary).toMatchObject({
+            sessionDurationMs: expect.any(Number),
+            totalEnergyChargedKwh: 5.5, // 5.5 - 0
+            gridImportKwh: 2.0, // 2.0 - 0
+            solarEnergyUsedKwh: 3.5, // 5.5 - 2.0
+            averageChargingSpeedAmps: expect.any(Number),
+            ampereFluctuations: 3, // 0->6, 6->10, 10->15 = 3 fluctuations
+            gridImportCost: expect.any(Number),
+        });
 
         yield* Fiber.interrupt(fiber);
     }).pipe(provideAppLayer));

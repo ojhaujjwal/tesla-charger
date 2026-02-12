@@ -19,7 +19,7 @@ export type TeslaClient = {
   readonly stopCharging: () => CommandResult;
   readonly setAmpere: (ampere: number) => CommandResult;
   readonly wakeUpCar: () => Effect.Effect<void, VehicleCommandFailedError>;
-  readonly getChargeState: () => Effect.Effect<{ batteryLevel: number; chargeLimitSoc: number }, ChargeStateQueryFailedError>;
+  readonly getChargeState: () => Effect.Effect<{ batteryLevel: number; chargeLimitSoc: number; chargeEnergyAdded: number }, ChargeStateQueryFailedError>;
   readonly saveTokens: (accessToken: string, refreshToken: string) => Effect.Effect<void, unknown>;
 }
 
@@ -222,6 +222,7 @@ export const TeslaClientLayer = (config: {
       return {
         batteryLevel: parsed.response.charge_state.battery_level,
         chargeLimitSoc: parsed.response.charge_state.charge_limit_soc,
+        chargeEnergyAdded: parsed.response.charge_state.charge_energy_added,
       };
     });
 

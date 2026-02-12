@@ -2,7 +2,7 @@ import { TeslaClient } from './tesla-client/index.js';
 import { DataNotAvailableError, SourceNotAvailableError, DataAdapter } from './data-adapter/types.js';
 import { ChargingSpeedController, type InadequateDataToDetermineSpeedError } from './charging-speed-controller/types.js';
 import { AbruptProductionDropError } from './errors/abrupt-production-drop.error.js';
-import type { IEventLogger } from './event-logger/types.js';
+import type { IEventLogger, SessionSummary } from './event-logger/types.js';
 import { EventLogger } from './event-logger/index.js';
 import { NotChargingAccordingToExpectedSpeedError } from './errors/not-charging-according-to-expected-speed.error.js';
 import { Context, Duration, Effect, Fiber, Layer, pipe, Schedule } from 'effect';
@@ -16,6 +16,8 @@ type ChargingState = {
   ampereFluctuations: number;
   lastCommandAt: Date | null;
   dailyImportValueAtStart: number;
+  sessionStartedAt: Date | null;
+  chargeEnergyAddedAtStartKwh: number;
 };
 
 enum AppStatus {
@@ -69,6 +71,8 @@ export const AppLayer = (config: {
       ampereFluctuations: 0,
       lastCommandAt: null,
       dailyImportValueAtStart: 0,
+      sessionStartedAt: null,
+      chargeEnergyAddedAtStartKwh: 0,
     };
 
     let appStatus: AppStatus = AppStatus.Pending;
@@ -164,6 +168,7 @@ export const AppLayer = (config: {
 
       if (ampere !== chargeState.ampere) {
         const ampDifference = ampere - chargeState.ampere;
+        chargeState.ampereFluctuations++;
         yield* eventLogger.onSetAmpere(ampere);
         yield* setAmpere(ampere);
 
@@ -265,6 +270,43 @@ export const AppLayer = (config: {
       Effect.catchTag('AbruptProductionDrop', () => Effect.dieMessage('Unexpectedly got AbruptProductionDrop 10 times consecutively.')),
     );
 
+    const computeAndEmitSessionSummary = () => Effect.gen(function* () {
+      const sessionDurationMs = chargeState.sessionStartedAt
+        ? Date.now() - chargeState.sessionStartedAt.getTime()
+        : 0;
+
+      const finalChargeState = yield* teslaClient.getChargeState().pipe(
+        Effect.catchAll(() => Effect.succeed({ chargeEnergyAdded: chargeState.chargeEnergyAddedAtStartKwh }))
+      );
+
+      const finalDataValues = yield* dataAdapter.queryLatestValues(['daily_import', 'voltage']).pipe(
+        Effect.catchAll(() => Effect.succeed({ daily_import: chargeState.dailyImportValueAtStart, voltage: 230 }))
+      );
+
+      const totalEnergyChargedKwh = finalChargeState.chargeEnergyAdded - chargeState.chargeEnergyAddedAtStartKwh;
+      const gridImportKwh = finalDataValues.daily_import - chargeState.dailyImportValueAtStart;
+      const solarEnergyUsedKwh = Math.max(0, totalEnergyChargedKwh - gridImportKwh);
+      
+      const sessionDurationHours = sessionDurationMs / 3_600_000;
+      const averageChargingSpeedAmps = sessionDurationHours > 0 && finalDataValues.voltage > 0
+        ? (totalEnergyChargedKwh * 1000) / (finalDataValues.voltage * sessionDurationHours)
+        : 0;
+
+      const gridImportCost = gridImportKwh * parseFloat(process.env.COST_PER_KWH || '0.30');
+
+      const summary: SessionSummary = {
+        sessionDurationMs,
+        totalEnergyChargedKwh,
+        gridImportKwh,
+        solarEnergyUsedKwh,
+        averageChargingSpeedAmps,
+        ampereFluctuations: chargeState.ampereFluctuations,
+        gridImportCost,
+      };
+
+      yield* eventLogger.onSessionEnd(summary);
+    });
+
     const stop = () => Effect.gen(function* () {
       yield* Effect.log('Stopping app and interrupting all fibers', {
         ampereFluctuations: chargeState.ampereFluctuations,
@@ -305,14 +347,12 @@ export const AppLayer = (config: {
         yield* Effect.log('Interrupting runtime monitor fiber');
         yield* Fiber.interrupt(runtimeMonitorFiber);
       }
+
+      yield* computeAndEmitSessionSummary();
     }).pipe(
       Effect.catchAll((err) => {
         return Effect.fail(err).pipe(
-          Effect.tap(Effect.gen(function* () {
-            const netValue = (yield* dataAdapter.queryLatestValues(['daily_import'])).daily_import - chargeState.dailyImportValueAtStart;
-            yield* Effect.log(`Net daily import value for session: ${netValue} kWh`);
-            yield* Effect.log(`Total cost for grid import for session: $${netValue * parseFloat(process.env.COST_PER_KWH || '0.30')}`);
-          }).pipe(
+          Effect.tap(computeAndEmitSessionSummary().pipe(
             Effect.catchAll(Effect.log)
           ))
         );
@@ -340,6 +380,13 @@ export const AppLayer = (config: {
         chargeState.dailyImportValueAtStart = (
           yield* dataAdapter.queryLatestValues(['daily_import'])
         ).daily_import;
+
+        chargeState.sessionStartedAt = new Date();
+
+        chargeState.chargeEnergyAddedAtStartKwh = yield* teslaClient.getChargeState().pipe(
+          Effect.map((state) => state.chargeEnergyAdded),
+          Effect.catchAll(() => Effect.succeed(0))
+        );
 
         mainSyncFiber = yield* Effect.repeat(
           syncChargingRateBasedOnExcess().pipe(
