@@ -16,6 +16,7 @@ describe('App', () => {
         stopCharging: vitest.fn(),
         setAmpere: vitest.fn(),
         wakeUpCar: vitest.fn(),
+        getChargeState: vitest.fn(),
         saveTokens: vitest.fn(),
     };
 
@@ -65,6 +66,7 @@ describe('App', () => {
         teslaClientMock.stopCharging.mockReturnValue(Effect.void);
         teslaClientMock.setAmpere.mockReturnValue(Effect.void);
         teslaClientMock.wakeUpCar.mockReturnValue(Effect.void);
+        teslaClientMock.getChargeState.mockReturnValue(Effect.succeed({ batteryLevel: 50, chargeLimitSoc: 80 }));
 
         dataAdapterMock.queryLatestValues.mockReturnValue(Effect.succeed({ voltage: 230, current_production: 5000, current_load: 0, daily_import: 0, export_to_grid: 5000, import_from_grid: 0 }));
         dataAdapterMock.getLowestValueInLastXMinutes.mockReturnValue(Effect.succeed(0));
@@ -245,6 +247,67 @@ describe('App', () => {
 
         const status = yield* Fiber.status(fiber);
         expect(status._tag).not.toBe('Done'); // Still running
+
+        yield* Fiber.interrupt(fiber);
+    }).pipe(provideAppLayer));
+
+    it.effect('should stop charging when battery level reaches charge limit', () => Effect.gen(function* () {
+        // Mock charge state to return completed charge
+        teslaClientMock.getChargeState.mockReturnValue(Effect.succeed({ batteryLevel: 80, chargeLimitSoc: 80 }));
+
+        // Ensure charging is active - keep returning 10A so charging stays active
+        chargingSpeedControllerMock.determineChargingSpeed.mockReturnValue(Effect.succeed(10));
+        
+        // Return different values for different calls to queryLatestValues
+        let callCount = 0;
+        dataAdapterMock.queryLatestValues.mockImplementation(() => {
+            callCount++;
+            // First call: initial daily_import query
+            // Second call: syncAmpere queries current_production
+            // Third+ calls: checkIfCorrectlyCharging queries current_load and voltage
+            if (callCount <= 2) {
+                return Effect.succeed({ 
+                    voltage: 230, 
+                    current_production: 5000, 
+                    current_load: 0, 
+                    daily_import: 0, 
+                    export_to_grid: 5000, 
+                    import_from_grid: 0 
+                });
+            }
+            // Subsequent calls - charging state (for checkIfCorrectlyCharging)
+            // current_load = 10A * 230V = 2300W to simulate active charging
+            return Effect.succeed({ 
+                voltage: 230, 
+                current_production: 5000, 
+                current_load: 2300, // Simulate charging load (10A * 230V)
+                daily_import: 0, 
+                export_to_grid: 5000, 
+                import_from_grid: 0 
+            });
+        });
+
+        const app = yield* App;
+        const fiber = yield* Effect.fork(app.start());
+
+        // Pass startup sleep (1s)
+        yield* TestClock.adjust(Duration.seconds(1));
+
+        // First iteration: startCharging + setAmpere(10) + wait (~30s) + sync interval (5s)
+        // Total: ~35s for first iteration to complete, which includes checkIfCorrectlyCharging
+        yield* TestClock.adjust(Duration.seconds(40));
+        
+        expect(teslaClientMock.startCharging).toHaveBeenCalled();
+        expect(teslaClientMock.setAmpere).toHaveBeenCalledWith(10);
+        
+        // Should query charge state during checkIfCorrectlyCharging
+        expect(teslaClientMock.getChargeState).toHaveBeenCalled();
+        
+        // Wait a bit more to ensure stop() completes and stopChargingAction() is called
+        yield* TestClock.adjust(Duration.seconds(1));
+        
+        // Should stop charging when complete
+        expect(teslaClientMock.stopCharging).toHaveBeenCalled();
 
         yield* Fiber.interrupt(fiber);
     }).pipe(provideAppLayer));

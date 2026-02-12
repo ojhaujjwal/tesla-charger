@@ -10,5 +10,6 @@ export const createTeslaClientLayer = (config: {
     readonly appDomain: string;
     readonly clientId: string;
     readonly clientSecret: string;
+    readonly vin: string;
 }) => TeslaClientLayer(config);
 

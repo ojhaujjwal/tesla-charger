@@ -20,3 +20,8 @@ export class VehicleCommandFailedError extends Data.TaggedError("VehicleCommandF
   message: string;
   stderr?: string;
 }> {}
+
+export class ChargeStateQueryFailedError extends Data.TaggedError("ChargeStateQueryFailed")<{
+  message: string;
+  cause?: unknown;
+}> {}

@@ -1,11 +1,12 @@
-import { AuthenticationFailedError, ContextDeadlineExceededError, UnableToFetchAccessTokenError, VehicleAsleepError, VehicleCommandFailedError } from './errors.js';
+import { AuthenticationFailedError, ChargeStateQueryFailedError, ContextDeadlineExceededError, UnableToFetchAccessTokenError, VehicleAsleepError, VehicleCommandFailedError } from './errors.js';
 import { Context, Duration, Effect, Layer, pipe, Schedule, Schema, Stream, String } from 'effect';
 import { Command, CommandExecutor, FileSystem, HttpClient } from "@effect/platform";
 import { raw } from '@effect/platform/HttpBody';
-import { TeslaCachedTokenSchema, TeslaTokenResponseSchema, type TeslaTokenResponse } from './schema.js';
+import { TeslaCachedTokenSchema, TeslaTokenResponseSchema, TeslaChargeStateResponseSchema, type TeslaTokenResponse } from './schema.js';
 
 
 const OAUTH2_TOKEN_BASE_URL = 'https://fleet-auth.prd.vn.cloud.tesla.com/oauth2/v3/token';
+const FLEET_API_BASE_URL = 'https://fleet-api.prd.na.vn.cloud.tesla.com';
 
 
 type CommandResult = Effect.Effect<void, VehicleAsleepError | VehicleCommandFailedError>;
@@ -18,8 +19,11 @@ export type TeslaClient = {
   readonly stopCharging: () => CommandResult;
   readonly setAmpere: (ampere: number) => CommandResult;
   readonly wakeUpCar: () => Effect.Effect<void, VehicleCommandFailedError>;
+  readonly getChargeState: () => Effect.Effect<{ batteryLevel: number; chargeLimitSoc: number }, ChargeStateQueryFailedError>;
   readonly saveTokens: (accessToken: string, refreshToken: string) => Effect.Effect<void, unknown>;
 }
+
+export type ITeslaClient = TeslaClient;
 
 export const TeslaClient = Context.GenericTag<TeslaClient>("@tesla-charger/TeslaClient");
 
@@ -38,6 +42,7 @@ export const TeslaClientLayer = (config: {
   readonly clientSecret: string;
   readonly tokenFilePath?: string;
   readonly accessTokenFilePath?: string;
+  readonly vin: string;
 }) => Layer.effect(
   TeslaClient,
   Effect.gen(function* () {
@@ -159,6 +164,67 @@ export const TeslaClientLayer = (config: {
       Effect.catchAll((err) => Effect.fail(new AuthenticationFailedError({ previous: err })))
     );
 
+    const getChargeState = () => Effect.gen(function* () {
+      const { access_token } = yield* getTokens().pipe(
+        Effect.mapError((err) => new ChargeStateQueryFailedError({ 
+          message: `Failed to get access token: ${err._tag}`, 
+          cause: err 
+        }))
+      );
+      
+      const response = yield* httpClient.get(
+        `${FLEET_API_BASE_URL}/api/1/vehicles/${config.vin}/vehicle_data?endpoints=charge_state`,
+        {
+          headers: {
+            'Authorization': `Bearer ${access_token}`,
+            'Accept': 'application/json',
+          },
+        }
+      ).pipe(
+        Effect.timeout(Duration.seconds(10)),
+        Effect.mapError((err) => new ChargeStateQueryFailedError({ 
+          message: `Failed to query charge state: ${err._tag}`, 
+          cause: err 
+        }))
+      );
+
+      if (response.status !== 200) {
+        const errorText = yield* response.text.pipe(Effect.catchAll(() => Effect.succeed('Unknown error')));
+        return yield* Effect.fail(new ChargeStateQueryFailedError({ 
+          message: `Fleet API returned status ${response.status}: ${errorText}` 
+        }));
+      }
+
+      const responseBody = yield* response.text.pipe(
+        Effect.catchAll((err) => Effect.fail(new ChargeStateQueryFailedError({ 
+          message: `Failed to read response body: ${err._tag}`, 
+          cause: err 
+        })))
+      );
+
+      let parsedJson: unknown;
+      try {
+        parsedJson = JSON.parse(responseBody);
+      } catch (err) {
+        return yield* Effect.fail(new ChargeStateQueryFailedError({ 
+          message: `Failed to parse JSON response: ${err instanceof Error ? err.message : `${err}`}`, 
+          cause: err 
+        }));
+      }
+
+      const parsed = yield* Schema.decodeUnknown(TeslaChargeStateResponseSchema)(parsedJson).pipe(
+        Effect.mapError((err) => new ChargeStateQueryFailedError({ 
+          message: `Failed to decode charge state response: ${err._tag}`, 
+          cause: err 
+        }))
+      );
+
+      return {
+        batteryLevel: parsed.response.charge_state.battery_level,
+        chargeLimitSoc: parsed.response.charge_state.charge_limit_soc,
+      };
+    });
+
     return {
       authenticateFromAuthCodeGrant: (authorizationCode: string) => Effect.gen(function* () {
         const response = yield* httpClient.post(
@@ -195,6 +261,7 @@ export const TeslaClientLayer = (config: {
       wakeUpCar: () => execTeslaControl(['wake']).pipe(
         Effect.catchTag('VehicleAsleepError', () => Effect.fail(new VehicleCommandFailedError({ message: 'Vehicle is still asleep while issuing wakeup.' }))),
       ),
+      getChargeState,
       saveTokens,
     };
   })

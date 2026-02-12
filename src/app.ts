@@ -195,6 +195,25 @@ export const AppLayer = (config: {
           expectedAmpere: chargeState.ampere,
         });
       }
+
+      // Check if charging is complete by querying vehicle charge state
+      const chargeStateResult = yield* teslaClient.getChargeState().pipe(
+        Effect.catchAll((err) => {
+          // Log error but continue - this is best-effort check
+          return Effect.logDebug('Failed to query charge state, continuing', { error: err.message }).pipe(
+            Effect.map(() => null)
+          );
+        })
+      );
+
+      if (chargeStateResult && chargeStateResult.batteryLevel >= chargeStateResult.chargeLimitSoc) {
+        yield* Effect.log('Charge complete - battery level reached charge limit', {
+          batteryLevel: chargeStateResult.batteryLevel,
+          chargeLimitSoc: chargeStateResult.chargeLimitSoc,
+        });
+        // Trigger graceful shutdown
+        yield* stop();
+      }
     });
 
     const syncChargingRateBasedOnExcess = () => Effect.gen(function* () {
@@ -251,23 +270,7 @@ export const AppLayer = (config: {
         ampereFluctuations: chargeState.ampereFluctuations,
       });
 
-      appStatus = AppStatus.Stopped;
-
-      if (tokenRefreshFiber) {
-        yield* Effect.log('Interrupting token refresh fiber');
-        yield* Fiber.interrupt(tokenRefreshFiber);
-      }
-
-      if (mainSyncFiber) {
-        yield* Effect.log('Interrupting main sync fiber');
-        yield* Fiber.interrupt(mainSyncFiber);
-      }
-
-      if (runtimeMonitorFiber) {
-        yield* Effect.log('Interrupting runtime monitor fiber');
-        yield* Fiber.interrupt(runtimeMonitorFiber);
-      }
-
+      // Stop charging first if running, before interrupting fibers
       if (chargeState.running) {
         yield* Effect.retry(
           stopChargingAction(),
@@ -284,6 +287,23 @@ export const AppLayer = (config: {
             }
           }
         );
+      }
+
+      appStatus = AppStatus.Stopped;
+
+      if (tokenRefreshFiber) {
+        yield* Effect.log('Interrupting token refresh fiber');
+        yield* Fiber.interrupt(tokenRefreshFiber);
+      }
+
+      if (mainSyncFiber) {
+        yield* Effect.log('Interrupting main sync fiber');
+        yield* Fiber.interrupt(mainSyncFiber);
+      }
+
+      if (runtimeMonitorFiber) {
+        yield* Effect.log('Interrupting runtime monitor fiber');
+        yield* Fiber.interrupt(runtimeMonitorFiber);
       }
     }).pipe(
       Effect.catchAll((err) => {

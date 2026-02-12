@@ -21,3 +21,14 @@ export const TeslaCachedTokenSchema = Schema.Struct({
 
 
 export type TeslaCachedToken = typeof TeslaCachedTokenSchema.Type;
+
+export const TeslaChargeStateResponseSchema = Schema.Struct({
+  response: Schema.Struct({
+    charge_state: Schema.Struct({
+      battery_level: Schema.Number,
+      charge_limit_soc: Schema.Number,
+    }),
+  }),
+});
+
+export type TeslaChargeStateResponse = typeof TeslaChargeStateResponseSchema.Type;

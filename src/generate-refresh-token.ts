@@ -37,6 +37,7 @@ const MainLayer = TeslaClientLayer({
   appDomain: process.env.TESLA_APP_DOMAIN as string,
   clientId: process.env.TESLA_OAUTH2_CLIENT_ID as string,
   clientSecret: process.env.TESLA_OAUTH2_CLIENT_SECRET as string,
+  vin: process.env.TESLA_VIN as string,
 }).pipe(
   Layer.provide(NodeContext.layer),
   Layer.provide(NodeHttpClient.layer),
