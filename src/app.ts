@@ -245,6 +245,10 @@ export const AppLayer = (config: {
 
       yield* checkIfCorrectlyCharging();
     }).pipe(
+      Effect.tap(() => Effect.annotateCurrentSpan({
+        memory_usage_mb: memoryUsageMB(),
+      })),
+      Effect.withSpan('syncChargingRateBasedOnExcess'),
       Effect.retry({
         times: 2,
         while: (err) => {
@@ -390,10 +394,6 @@ export const AppLayer = (config: {
 
         mainSyncFiber = yield* Effect.repeat(
           syncChargingRateBasedOnExcess().pipe(
-            Effect.tap(() => Effect.annotateCurrentSpan({
-              memory_usage_mb: memoryUsageMB(),
-            })),
-            Effect.withSpan('syncChargingRateBasedOnExcess'),
             Effect.map(() => appStatus)
           ),
           { while: (status) => status === AppStatus.Running }
