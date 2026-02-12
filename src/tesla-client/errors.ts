@@ -13,7 +13,7 @@ export class ContextDeadlineExceededError extends Data.TaggedError("ContextDeadl
 export class UnableToFetchAccessTokenError extends Data.TaggedError("UnableToFetchAccessToken") {}
 
 export class AuthenticationFailedError extends Data.TaggedError("AuthenticationFailedError")<{
-  previous: HttpClientError | PlatformError | UnableToFetchAccessTokenError | ParseError,
+  cause: HttpClientError | PlatformError | UnableToFetchAccessTokenError | ParseError,
 }> {}
 
 export class VehicleCommandFailedError extends Data.TaggedError("VehicleCommandFailed")<{

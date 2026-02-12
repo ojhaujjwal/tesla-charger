@@ -161,7 +161,7 @@ export const TeslaClientLayer = (config: {
       const result = yield* refreshAccessTokenFromTesla();
       yield* saveTokens(result.access_token, result.refresh_token);
     }).pipe(
-      Effect.catchAll((err) => Effect.fail(new AuthenticationFailedError({ previous: err })))
+      Effect.catchAll((err) => Effect.fail(new AuthenticationFailedError({ cause: err })))
     );
 
     const getChargeState = () => Effect.gen(function* () {

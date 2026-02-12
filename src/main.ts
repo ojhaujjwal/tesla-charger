@@ -1,5 +1,5 @@
 import { NodeContext, NodeHttpClient, NodeRuntime } from "@effect/platform-node"
-import { Effect, Layer, Logger, LogLevel } from "effect"
+import { Cause, Chunk, Effect, Layer, Logger, LogLevel } from "effect"
 import { createTeslaClientLayer } from './layers.js';
 import { App, AppLayer, type TimingConfig } from './app.js';
 import { FixedSpeedControllerLayer } from './charging-speed-controller/fixed-speed.controller.js';
@@ -65,8 +65,13 @@ const program = Effect.gen(function* () {
   yield* Effect.addFinalizer(() => app.stop());
 
   yield* app.start().pipe(
-    Effect.catchAll(err => Effect.log(err).pipe(Effect.flatMap(() => app.stop()))),
-    Effect.catchAll(err => Effect.log(err)),
+    Effect.catchAll(err => Effect.log(err).pipe(
+      Effect.tap(() => Effect.sync(() => Sentry.captureException(err))),
+      Effect.flatMap(() => app.stop()),
+    )),
+    Effect.catchAll(err => Effect.log(err).pipe(
+      Effect.tap(() => Effect.sync(() => Sentry.captureException(err))),
+    )),
   );
 }).pipe(
   Effect.provide(
@@ -99,7 +104,15 @@ const program = Effect.gen(function* () {
   ),
   Effect.scoped,
   Logger.withMinimumLogLevel(isProd ? LogLevel.Info : LogLevel.Debug),
-  Effect.orDie
+  Effect.tapDefect((cause) => Effect.sync(() => {
+    const defects = Chunk.toReadonlyArray(Cause.defects(cause));
+    for (const defect of defects) {
+      Sentry.captureException(defect);
+    }
+    if (defects.length === 0) {
+      Sentry.captureException(new Error(Cause.pretty(cause)));
+    }
+  })),
 );
 
 // 3. Execution
@@ -107,6 +120,7 @@ NodeRuntime.runMain(program);
 
 process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-  process.exit(1);
+  Sentry.captureException(reason);
+  void Sentry.flush(2000).then(() => process.exit(1));
 });
 
