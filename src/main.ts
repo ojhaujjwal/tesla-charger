@@ -2,6 +2,7 @@ import { NodeContext, NodeHttpClient, NodeRuntime } from "@effect/platform-node"
 import { Cause, Chunk, Effect, Layer, Logger, LogLevel } from "effect"
 import { createTeslaClientLayer } from './layers.js';
 import { App, AppLayer, type TimingConfig } from './app.js';
+import { BatteryStateManagerLayer } from './battery-state-manager.js';
 import { FixedSpeedControllerLayer } from './charging-speed-controller/fixed-speed.controller.js';
 import { ConservativeControllerLayer } from './charging-speed-controller/conservative-controller.js';
 import { ExcessFeedInSolarControllerLayer } from './charging-speed-controller/excess-feed-in-solar-controller.js';
@@ -79,6 +80,7 @@ const program = Effect.gen(function* () {
       timingConfig,
       isDryRun: process.argv.includes('--dry-run'),
     }).pipe(
+      Layer.provideMerge(BatteryStateManagerLayer),
       Layer.provideMerge(createChargingSpeedControllerLayer()),
       Layer.provideMerge(serviceLayers),
       Layer.provideMerge(
