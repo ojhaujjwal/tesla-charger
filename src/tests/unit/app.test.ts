@@ -144,7 +144,7 @@ describe('App', () => {
         batteryStateManagerMock.start.mockImplementation((pubSub: PubSub.PubSub<TeslaChargerEvent>) =>
             Effect.gen(function* () {
                 const dequeue = yield* PubSub.subscribe(pubSub);
-                yield* Queue.take(dequeue).pipe(
+                return yield* Queue.take(dequeue).pipe(
                     Effect.tap((event) => Effect.sync(() => { receivedEvents.push(event); })),
                     Effect.forever,
                 );
@@ -181,7 +181,7 @@ describe('App', () => {
         batteryStateManagerMock.start.mockImplementation((pubSub: PubSub.PubSub<TeslaChargerEvent>) =>
             Effect.gen(function* () {
                 const dequeue = yield* PubSub.subscribe(pubSub);
-                yield* Queue.take(dequeue).pipe(
+                return yield* Queue.take(dequeue).pipe(
                     Effect.tap((event) => Effect.sync(() => { receivedEvents.push(event); })),
                     Effect.forever,
                 );
