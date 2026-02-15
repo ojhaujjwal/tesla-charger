@@ -1,6 +1,8 @@
 import { Context, Data, Effect } from "effect";
 
-export class InadequateDataToDetermineSpeedError extends Data.TaggedError("InadequateDataToDetermineSpeed") { }
+export class InadequateDataToDetermineSpeedError extends Data.TaggedError("InadequateDataToDetermineSpeed")<{
+  readonly cause?: unknown;
+}> { }
 
 
 export class ChargingSpeedController extends Context.Tag("@tesla-charger/ChargingSpeedController")<

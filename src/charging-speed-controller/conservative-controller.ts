@@ -27,8 +27,8 @@ export const ConservativeControllerLayer = (config: {
         return value;
       }).pipe(
         Effect.catchTags({
-          'DataNotAvailable': (err) => Effect.log(err).pipe(Effect.flatMap(() => Effect.fail(new InadequateDataToDetermineSpeedError()))),
-          'SourceNotAvailable': (err) => Effect.log(err).pipe(Effect.flatMap(() => Effect.fail(new InadequateDataToDetermineSpeedError()))),
+          'DataNotAvailable': (err) => Effect.fail(new InadequateDataToDetermineSpeedError({ cause: err })),
+          'SourceNotAvailable': (err) => Effect.fail(new InadequateDataToDetermineSpeedError({ cause: err })),
         })
       )
     };

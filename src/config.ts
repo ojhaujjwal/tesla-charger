@@ -22,4 +22,11 @@ export const AppConfig = {
       EffectConfig.withDefault("https://openapi.alphaess.com/")
     ),
   },
+
+  solcast: {
+    apiKey: EffectConfig.string("SOLCAST_API_KEY"),
+    latitude: EffectConfig.number("SOLCAST_LATITUDE"),
+    longitude: EffectConfig.number("SOLCAST_LONGITUDE"),
+    capacityKw: EffectConfig.number("SOLCAST_CAPACITY_KW"),
+  },
 };

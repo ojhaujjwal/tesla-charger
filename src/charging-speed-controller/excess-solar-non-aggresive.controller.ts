@@ -73,8 +73,8 @@ export const ExcessSolarNonAggresiveControllerLayer = (config: {
         return lastAppliedSpeed;
       }).pipe(
         Effect.catchTags({
-          'DataNotAvailable': () => Effect.fail(new InadequateDataToDetermineSpeedError()),
-          'SourceNotAvailable': () => Effect.fail(new InadequateDataToDetermineSpeedError()),
+          'DataNotAvailable': (err) => Effect.fail(new InadequateDataToDetermineSpeedError({ cause: err })),
+          'SourceNotAvailable': (err) => Effect.fail(new InadequateDataToDetermineSpeedError({ cause: err })),
         })
       )
     };

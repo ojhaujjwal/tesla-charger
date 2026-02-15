@@ -34,8 +34,8 @@ export const ExcessSolarAggresiveControllerLayer = (config: {
         return Math.max(0, Math.floor((excessSolar / voltage) / config.multipleOf) * config.multipleOf);
       }).pipe(
         Effect.catchTags({
-          'DataNotAvailable': (err) => Effect.log(err).pipe(Effect.flatMap(() => Effect.fail(new InadequateDataToDetermineSpeedError()))),
-          'SourceNotAvailable': (err) => Effect.log(err).pipe(Effect.flatMap(() => Effect.fail(new InadequateDataToDetermineSpeedError()))),
+          'DataNotAvailable': (err) => Effect.fail(new InadequateDataToDetermineSpeedError({ cause: err })),
+          'SourceNotAvailable': (err) => Effect.fail(new InadequateDataToDetermineSpeedError({ cause: err })),
         })
       )
     };

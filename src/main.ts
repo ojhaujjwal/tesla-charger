@@ -8,6 +8,8 @@ import { ConservativeControllerLayer } from './charging-speed-controller/conserv
 import { ExcessFeedInSolarControllerLayer } from './charging-speed-controller/excess-feed-in-solar-controller.js';
 import { ExcessSolarAggresiveControllerLayer } from './charging-speed-controller/excess-solar-aggresive-controller.js';
 import { ExcessSolarNonAggresiveControllerLayer } from './charging-speed-controller/excess-solar-non-aggresive.controller.js';
+import { WeatherAwareBufferControllerLayer } from './charging-speed-controller/weather-aware-buffer/index.js';
+import { SolcastForecastLayer } from './solar-forecast/solcast.adapter.js';
 import { NodeSdk as EffectOpenTelemetryNodeSdk } from "@effect/opentelemetry"
 import { SentrySpanProcessor } from "@sentry/opentelemetry";
 import * as Sentry from "@sentry/node";
@@ -51,6 +53,27 @@ const createChargingSpeedControllerLayer = () => {
       maxFeedInAllowed: parseInt(process.env.MAX_ALLOWED_FEED_IN_POWER ?? '5000')
     });
   }
+  if (process.argv.includes('--weather-aware')) {
+    return WeatherAwareBufferControllerLayer({
+      minBufferPower: parseInt(process.env.EXCESS_SOLAR_BUFFER_POWER ?? '500'),
+      bufferMultiplierMax: parseFloat(process.env.BUFFER_MULTIPLIER_MAX ?? '3'),
+      carBatteryCapacityKwh: parseFloat(process.env.CAR_BATTERY_CAPACITY_KWH ?? '60'),
+      peakSolarCapacityKw: parseFloat(process.env.SOLCAST_CAPACITY_KW ?? '9'),
+      latitude: parseFloat(process.env.SOLCAST_LATITUDE as string),
+      longitude: parseFloat(process.env.SOLCAST_LONGITUDE as string),
+      defaultDailyProductionKwh: parseFloat(process.env.DEFAULT_DAILY_PRODUCTION_KWH ?? '60'),
+      solarCutoffHour: parseInt(process.env.SOLAR_CUTOFF_HOUR ?? '18'),
+      multipleOf: 3,
+      ...(process.env.DEADLINE_HOUR && { deadlineHour: parseInt(process.env.DEADLINE_HOUR) }),
+    }).pipe(
+      Layer.provide(SolcastForecastLayer({
+        apiKey: process.env.SOLCAST_API_KEY as string,
+        latitude: parseFloat(process.env.SOLCAST_LATITUDE as string),
+        longitude: parseFloat(process.env.SOLCAST_LONGITUDE as string),
+        capacityKw: parseFloat(process.env.SOLCAST_CAPACITY_KW as string),
+      })),
+    );
+  }
   // Default: ExcessSolarNonAggresive wrapping ExcessSolarAggresive
   return ExcessSolarNonAggresiveControllerLayer({
     baseControllerLayer: ExcessSolarAggresiveControllerLayer({
@@ -80,8 +103,8 @@ const program = Effect.gen(function* () {
       timingConfig,
       isDryRun: process.argv.includes('--dry-run'),
     }).pipe(
-      Layer.provideMerge(BatteryStateManagerLayer),
       Layer.provideMerge(createChargingSpeedControllerLayer()),
+      Layer.provideMerge(BatteryStateManagerLayer),
       Layer.provideMerge(serviceLayers),
       Layer.provideMerge(
         createTeslaClientLayer({
