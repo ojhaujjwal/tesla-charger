@@ -56,7 +56,13 @@ export const TeslaClientLayer = (config: {
     });
 
     const refreshAccessTokenFromTesla = () => Effect.gen(function* () {
-      const { refresh_token } = yield* getTokens();
+      const { refresh_token } = yield* getTokens().pipe(
+        Effect.catchAll(
+          () => fs.readFileString('.access-token').pipe(
+            Effect.map((val) => ({ refresh_token: val }))
+          )
+        )
+      );
 
       const response = yield* httpClient.post(
         OAUTH2_TOKEN_BASE_URL,
@@ -166,12 +172,12 @@ export const TeslaClientLayer = (config: {
 
     const getChargeState = () => Effect.gen(function* () {
       const { access_token } = yield* getTokens().pipe(
-        Effect.mapError((err) => new ChargeStateQueryFailedError({ 
-          message: `Failed to get access token: ${err._tag}`, 
-          cause: err 
+        Effect.mapError((err) => new ChargeStateQueryFailedError({
+          message: `Failed to get access token: ${err._tag}`,
+          cause: err
         }))
       );
-      
+
       const response = yield* httpClient.get(
         `${FLEET_API_BASE_URL}/api/1/vehicles/${config.vin}/vehicle_data?endpoints=charge_state`,
         {
@@ -182,23 +188,23 @@ export const TeslaClientLayer = (config: {
         }
       ).pipe(
         Effect.timeout(Duration.seconds(10)),
-        Effect.mapError((err) => new ChargeStateQueryFailedError({ 
-          message: `Failed to query charge state: ${err._tag}`, 
-          cause: err 
+        Effect.mapError((err) => new ChargeStateQueryFailedError({
+          message: `Failed to query charge state: ${err._tag}`,
+          cause: err
         }))
       );
 
       if (response.status !== 200) {
         const errorText = yield* response.text.pipe(Effect.catchAll(() => Effect.succeed('Unknown error')));
-        return yield* Effect.fail(new ChargeStateQueryFailedError({ 
-          message: `Fleet API returned status ${response.status}: ${errorText}` 
+        return yield* Effect.fail(new ChargeStateQueryFailedError({
+          message: `Fleet API returned status ${response.status}: ${errorText}`
         }));
       }
 
       const responseBody = yield* response.text.pipe(
-        Effect.catchAll((err) => Effect.fail(new ChargeStateQueryFailedError({ 
-          message: `Failed to read response body: ${err._tag}`, 
-          cause: err 
+        Effect.catchAll((err) => Effect.fail(new ChargeStateQueryFailedError({
+          message: `Failed to read response body: ${err._tag}`,
+          cause: err
         })))
       );
 
@@ -206,16 +212,16 @@ export const TeslaClientLayer = (config: {
       try {
         parsedJson = JSON.parse(responseBody);
       } catch (err) {
-        return yield* Effect.fail(new ChargeStateQueryFailedError({ 
-          message: `Failed to parse JSON response: ${err instanceof Error ? err.message : `${err}`}`, 
-          cause: err 
+        return yield* Effect.fail(new ChargeStateQueryFailedError({
+          message: `Failed to parse JSON response: ${err instanceof Error ? err.message : `${err}`}`,
+          cause: err
         }));
       }
 
       const parsed = yield* Schema.decodeUnknown(TeslaChargeStateResponseSchema)(parsedJson).pipe(
-        Effect.mapError((err) => new ChargeStateQueryFailedError({ 
-          message: `Failed to decode charge state response: ${err._tag}`, 
-          cause: err 
+        Effect.mapError((err) => new ChargeStateQueryFailedError({
+          message: `Failed to decode charge state response: ${err._tag}`,
+          cause: err
         }))
       );
 
