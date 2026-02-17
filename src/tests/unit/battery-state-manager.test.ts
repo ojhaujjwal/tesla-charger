@@ -33,7 +33,7 @@ describe('BatteryStateManager', () => {
     );
   });
 
-  it.effect('should populate batteryState at startup from getChargeState', () =>
+  it.effect('should fetch battery state on first AmpereChanged event (deferred from startup)', () =>
     Effect.gen(function* () {
       teslaClientMock.getChargeState.mockReturnValue(
         Effect.succeed({ batteryLevel: 45, chargeLimitSoc: 80, chargeEnergyAdded: 1.2 })
@@ -43,10 +43,21 @@ describe('BatteryStateManager', () => {
       const pubSub = yield* PubSub.unbounded<TeslaChargerEvent>();
       const fiber = yield* batteryStateManager.start(pubSub).pipe(Effect.fork);
 
-      // Wait a bit for initial fetch
+      // Wait a bit — no fetch at startup
+      yield* TestClock.adjust(Duration.millis(100));
+      expect(teslaClientMock.getChargeState).not.toHaveBeenCalled();
+      expect(batteryStateManager.get()).toBeNull();
+
+      // Publish the first AmpereChanged event — should trigger fetch
+      // because batteryState is null (timeSinceLastQuery = Infinity)
+      yield* PubSub.publish(pubSub, {
+        _tag: 'AmpereChanged' as const,
+        previous: 0,
+        current: 10,
+      });
+
       yield* TestClock.adjust(Duration.millis(100));
 
-      // getChargeState should have been called once at startup
       expect(teslaClientMock.getChargeState).toHaveBeenCalledTimes(1);
 
       // Verify state was populated
@@ -60,7 +71,7 @@ describe('BatteryStateManager', () => {
     }).pipe(provideBatteryStateManagerLayer)
   );
 
-  it.effect('should handle TeslaClient failure gracefully at startup', () =>
+  it.effect('should handle TeslaClient failure gracefully on first fetch', () =>
     Effect.gen(function* () {
       teslaClientMock.getChargeState.mockReturnValue(
         Effect.fail(new ChargeStateQueryFailedError({ message: 'Vehicle is asleep' }))
@@ -70,11 +81,18 @@ describe('BatteryStateManager', () => {
       const pubSub = yield* PubSub.unbounded<TeslaChargerEvent>();
       const fiber = yield* batteryStateManager.start(pubSub).pipe(Effect.fork);
 
-      // Wait a bit for initial fetch attempt
       yield* TestClock.adjust(Duration.millis(100));
 
-      // getChargeState should have been called
-      expect(teslaClientMock.getChargeState).toHaveBeenCalled();
+      // Publish event to trigger first fetch
+      yield* PubSub.publish(pubSub, {
+        _tag: 'AmpereChanged' as const,
+        previous: 0,
+        current: 5,
+      });
+
+      yield* TestClock.adjust(Duration.millis(100));
+
+      expect(teslaClientMock.getChargeState).toHaveBeenCalledTimes(1);
 
       // State should be null (failed to fetch)
       const state = batteryStateManager.get();
@@ -91,18 +109,24 @@ describe('BatteryStateManager', () => {
       const pubSub = yield* PubSub.unbounded<TeslaChargerEvent>();
       const fiber = yield* batteryStateManager.start(pubSub).pipe(Effect.fork);
 
-      // Wait for initial fetch
       yield* TestClock.adjust(Duration.millis(100));
-      expect(teslaClientMock.getChargeState).toHaveBeenCalledTimes(1);
 
-      // Publish ampere changed event (within cooldown period)
       yield* PubSub.publish(pubSub, {
         _tag: 'AmpereChanged' as const,
         previous: 0,
         current: 10,
       });
 
-      // Wait a bit
+      yield* TestClock.adjust(Duration.millis(100));
+      expect(teslaClientMock.getChargeState).toHaveBeenCalledTimes(1);
+
+      // Second AmpereChanged within cooldown period
+      yield* PubSub.publish(pubSub, {
+        _tag: 'AmpereChanged' as const,
+        previous: 10,
+        current: 15,
+      });
+
       yield* TestClock.adjust(Duration.millis(100));
 
       // getChargeState should still only have been called once (no refresh)
@@ -129,14 +153,22 @@ describe('BatteryStateManager', () => {
       const pubSub = yield* PubSub.unbounded<TeslaChargerEvent>();
       const fiber = yield* batteryStateManager.start(pubSub).pipe(Effect.fork);
 
-      // Wait for initial fetch
+      yield* TestClock.adjust(Duration.millis(100));
+
+      // First AmpereChanged triggers the initial fetch
+      yield* PubSub.publish(pubSub, {
+        _tag: 'AmpereChanged' as const,
+        previous: 0,
+        current: 10,
+      });
+
       yield* TestClock.adjust(Duration.millis(100));
       expect(teslaClientMock.getChargeState).toHaveBeenCalledTimes(1);
 
       // Advance past cooldown (10 minutes)
       yield* TestClock.adjust(Duration.minutes(11));
 
-      // Publish ampere changed event
+      // Second AmpereChanged after cooldown — should trigger refresh
       yield* PubSub.publish(pubSub, {
         _tag: 'AmpereChanged' as const,
         previous: 10,
@@ -146,7 +178,7 @@ describe('BatteryStateManager', () => {
       // Wait a bit for refresh
       yield* TestClock.adjust(Duration.millis(100));
 
-      // getChargeState should now have been called twice: startup + refresh
+      // getChargeState should now have been called twice: first event + refresh
       expect(teslaClientMock.getChargeState).toHaveBeenCalledTimes(2);
 
       // Verify state was updated
@@ -174,7 +206,15 @@ describe('BatteryStateManager', () => {
       const pubSub = yield* PubSub.unbounded<TeslaChargerEvent>();
       const fiber = yield* batteryStateManager.start(pubSub).pipe(Effect.fork);
 
-      // Wait for initial fetch
+      yield* TestClock.adjust(Duration.millis(100));
+
+      // First AmpereChanged triggers the initial fetch
+      yield* PubSub.publish(pubSub, {
+        _tag: 'AmpereChanged' as const,
+        previous: 0,
+        current: 10,
+      });
+
       yield* TestClock.adjust(Duration.millis(100));
       const initialState = batteryStateManager.get();
       expect(initialState?.batteryLevel).toBe(50);
@@ -192,7 +232,7 @@ describe('BatteryStateManager', () => {
       // Wait a bit for refresh attempt
       yield* TestClock.adjust(Duration.millis(100));
 
-      // getChargeState called twice (startup + failed refresh attempt)
+      // getChargeState called twice (first event + failed refresh attempt)
       expect(teslaClientMock.getChargeState).toHaveBeenCalledTimes(2);
 
       // State should still be the old value (refresh failed)
@@ -210,9 +250,11 @@ describe('BatteryStateManager', () => {
       const pubSub = yield* PubSub.unbounded<TeslaChargerEvent>();
       const fiber = yield* batteryStateManager.start(pubSub).pipe(Effect.fork);
 
-      // Wait for initial fetch
+      // Wait a bit
       yield* TestClock.adjust(Duration.millis(100));
-      expect(teslaClientMock.getChargeState).toHaveBeenCalledTimes(1);
+
+      // No calls at startup
+      expect(teslaClientMock.getChargeState).not.toHaveBeenCalled();
 
       // Shut down the PubSub — interrupts the subscriber
       yield* PubSub.shutdown(pubSub);

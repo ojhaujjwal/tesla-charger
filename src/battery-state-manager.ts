@@ -46,8 +46,9 @@ export const BatteryStateManagerLayer = Layer.effect(
 
     const start = (pubSub: PubSub.PubSub<TeslaChargerEvent>) =>
       Effect.gen(function* () {
-        // Initial fetch
-        yield* fetchAndStoreBatteryState();
+        // No initial fetch — the car may still be asleep at startup.
+        // The first AmpereChanged event will trigger a fetch (since batteryState
+        // is null, timeSinceLastQuery is Infinity and exceeds the cooldown).
 
         // Subscribe to events and process them
         const subscription = yield* PubSub.subscribe(pubSub);
