@@ -107,7 +107,7 @@ export const TeslaClientLayer = (config: {
     });
 
     const runCommand = (command: string, commandArgs: string[]) => Effect.gen(function* () {
-      const process = yield* Command.start(Command.make(command, '-ble', ...commandArgs));
+      const process = yield* Command.start(Command.make(command, ...commandArgs));
       const [exitCode, stdout, stderr] = yield* Effect.all(
         [
           process.exitCode,
