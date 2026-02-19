@@ -9,5 +9,6 @@ node_modules
 
 /.access-token
 /token.json
+/.solcast-cache.json
 
 .vscode

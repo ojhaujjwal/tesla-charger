@@ -8,7 +8,7 @@ export const simulateCharge = (
   config: WeatherAwareBufferConfig,
   forecast: {
     readonly periods: readonly {
-      readonly pv_power_rooftop: number;
+      readonly pv_estimate: number;
       readonly period_end: string;
     }[];
   },
@@ -81,7 +81,7 @@ export const simulateCharge = (
     });
 
     // Calculate confidence
-    const confidence = periodConfidence(period.pv_power_rooftop, expectedCap);
+    const confidence = periodConfidence(period.pv_estimate, expectedCap);
 
     // Calculate effective buffer (higher when confidence is low)
     const effectiveBufferW =
@@ -90,7 +90,7 @@ export const simulateCharge = (
         (config.bufferMultiplierMax - 1) * (1 - confidence));
 
     // Calculate available power for car
-    const productionW = period.pv_power_rooftop * 1000;
+    const productionW = period.pv_estimate * 1000;
     const availableForCarW = productionW - effectiveBufferW;
 
     // If we have enough power and remaining need, use this slot

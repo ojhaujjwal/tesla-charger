@@ -37,25 +37,29 @@ const CACHE_FILE_PATH = ".solcast-cache.json";
 describe("SolcastForecastAdapter", () => {
   const mockConfig = {
     apiKey: "test-api-key",
-    latitude: -33.8567,
-    longitude: 151.2152,
-    capacityKw: 10,
+    rooftopResourceId: "test-rooftop-id",
   };
 
   const mockSolcastResponse = {
     forecasts: [
       {
-        pv_power_rooftop: 2.5,
+        pv_estimate: 2.5,
+        pv_estimate10: 2.5,
+        pv_estimate90: 2.5,
         period_end: "2026-02-14T10:00:00Z",
         period: "PT30M",
       },
       {
-        pv_power_rooftop: 3.0,
+        pv_estimate: 3.0,
+        pv_estimate10: 3.0,
+        pv_estimate90: 3.0,
         period_end: "2026-02-14T10:30:00Z",
         period: "PT30M",
       },
       {
-        pv_power_rooftop: 3.5,
+        pv_estimate: 3.5,
+        pv_estimate10: 3.5,
+        pv_estimate90: 3.5,
         period_end: "2026-02-14T11:00:00Z",
         period: "PT30M",
       },
@@ -65,17 +69,23 @@ describe("SolcastForecastAdapter", () => {
   const differentCacheResponse = {
     forecasts: [
       {
-        pv_power_rooftop: 1.0, // Different value to distinguish from API
+        pv_estimate: 1.0,
+        pv_estimate10: 1.0,
+        pv_estimate90: 1.0,
         period_end: "2026-02-14T10:00:00Z",
         period: "PT30M",
       },
       {
-        pv_power_rooftop: 1.5,
+        pv_estimate: 1.5,
+        pv_estimate10: 1.5,
+        pv_estimate90: 1.5,
         period_end: "2026-02-14T10:30:00Z",
         period: "PT30M",
       },
       {
-        pv_power_rooftop: 2.0,
+        pv_estimate: 2.0,
+        pv_estimate10: 2.0,
+        pv_estimate90: 2.0,
         period_end: "2026-02-14T11:00:00Z",
         period: "PT30M",
       },
@@ -123,7 +133,9 @@ describe("SolcastForecastAdapter", () => {
 
         expect(result.periods).toHaveLength(3);
         expect(result.periods[0]).toEqual({
-          pv_power_rooftop: 2.5,
+          pv_estimate: 2.5,
+          pv_estimate10: 2.5,
+          pv_estimate90: 2.5,
           period_end: "2026-02-14T10:00:00Z",
           period: "PT30M",
         });
@@ -178,7 +190,7 @@ describe("SolcastForecastAdapter", () => {
 
           // Should return cached data (different from API)
           expect(result.periods).toHaveLength(3);
-          expect(result.periods[0].pv_power_rooftop).toBe(1.0); // Cache value, not API value
+          expect(result.periods[0].pv_estimate).toBe(1.0); // Cache value, not API value
           // API should NOT have been called
           expect(callTracker.count).toBe(0);
         }).pipe(
@@ -210,7 +222,7 @@ describe("SolcastForecastAdapter", () => {
 
           // Should return cached data (different from API)
           expect(result.periods).toHaveLength(3);
-          expect(result.periods[0].pv_power_rooftop).toBe(1.0); // Cache value, not API value
+          expect(result.periods[0].pv_estimate).toBe(1.0); // Cache value, not API value
           // API should have been called (attempted) but failed with 429
           expect(callTracker.count).toBe(1);
         }).pipe(
@@ -242,7 +254,7 @@ describe("SolcastForecastAdapter", () => {
 
           // Should fetch fresh data from API (not use old cache)
           expect(result.periods).toHaveLength(3);
-          expect(result.periods[0].pv_power_rooftop).toBe(2.5); // API value, not cache value (1.0)
+          expect(result.periods[0].pv_estimate).toBe(2.5); // API value, not cache value (1.0)
           // API should have been called to fetch fresh data
           expect(callTracker.count).toBe(1);
         }).pipe(

@@ -25,8 +25,6 @@ export const AppConfig = {
 
   solcast: {
     apiKey: EffectConfig.string("SOLCAST_API_KEY"),
-    latitude: EffectConfig.number("SOLCAST_LATITUDE"),
-    longitude: EffectConfig.number("SOLCAST_LONGITUDE"),
-    capacityKw: EffectConfig.number("SOLCAST_CAPACITY_KW"),
+    rooftopResourceId: EffectConfig.string("SOLCAST_ROOFTOP_RESOURCE_ID"),
   },
 };

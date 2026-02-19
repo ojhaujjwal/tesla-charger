@@ -9,7 +9,9 @@ import {
 
 // Schema for Solcast API response
 const SolarForecastPeriodSchema = Schema.Struct({
-  pv_power_rooftop: Schema.Number,
+  pv_estimate: Schema.Number,
+  pv_estimate10: Schema.Number,
+  pv_estimate90: Schema.Number,
   period_end: Schema.String,
   period: Schema.String,
 });
@@ -32,9 +34,7 @@ const MAX_CACHE_AGE_DAYS = 2;
 
 export type SolcastConfig = {
   readonly apiKey: string;
-  readonly latitude: number;
-  readonly longitude: number;
-  readonly capacityKw: number;
+  readonly rooftopResourceId: string;
 };
 
 export const SolcastForecastLayer = (
@@ -77,14 +77,8 @@ export const SolcastForecastLayer = (
           }
 
           const url = new URL(
-            "https://api.solcast.com.au/data/forecast/rooftop_pv_power"
+            `https://api.solcast.com.au/rooftop_sites/${config.rooftopResourceId}/forecasts`
           );
-          url.searchParams.set("latitude", config.latitude.toString());
-          url.searchParams.set("longitude", config.longitude.toString());
-          url.searchParams.set("hours", "24");
-          url.searchParams.set("period", "PT30M");
-          url.searchParams.set("output_parameters", "pv_power_rooftop");
-          url.searchParams.set("capacity", config.capacityKw.toString());
           url.searchParams.set("format", "json");
 
           const response = yield* httpClient.get(url.toString(), {

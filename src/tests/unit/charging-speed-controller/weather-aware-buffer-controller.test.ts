@@ -233,11 +233,15 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
       const forecast = {
         periods: [
           {
-            pv_power_rooftop: 8.0, // High production
+            pv_estimate: 8.0, // High production
+            pv_estimate10: 8.0,
+            pv_estimate90: 8.0,
             period_end: "2024-01-15T12:30:00Z",
           },
           {
-            pv_power_rooftop: 8.5,
+            pv_estimate: 8.5,
+            pv_estimate10: 8.5,
+            pv_estimate90: 8.5,
             period_end: "2024-01-15T13:00:00Z",
           },
         ],
@@ -258,11 +262,15 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
       const forecast = {
         periods: [
           {
-            pv_power_rooftop: 1.0, // Low production (cloudy)
+            pv_estimate: 1.0, // Low production (cloudy)
+            pv_estimate10: 1.0,
+            pv_estimate90: 1.0,
             period_end: "2024-01-15T12:30:00Z",
           },
           {
-            pv_power_rooftop: 1.5,
+            pv_estimate: 1.5,
+            pv_estimate10: 1.5,
+            pv_estimate90: 1.5,
             period_end: "2024-01-15T13:00:00Z",
           },
         ],
@@ -283,7 +291,9 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
       const forecast = {
         periods: [
           {
-            pv_power_rooftop: 8.0,
+            pv_estimate: 8.0,
+            pv_estimate10: 8.0,
+            pv_estimate90: 8.0,
             period_end: "2024-01-15T19:00:00Z", // After cutoff (18:00)
           },
         ],
@@ -378,7 +388,9 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
           Effect.succeed({
             periods: [
               {
-                pv_power_rooftop: 8.0, // High production
+                pv_estimate: 8.0, // High production
+                pv_estimate10: 8.0,
+                pv_estimate90: 8.0,
                 period_end: "2024-01-15T12:30:00Z",
                 period: "PT30M",
               },
@@ -420,7 +432,9 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
           Effect.succeed({
             periods: [
               {
-                pv_power_rooftop: 1.0, // Low production (cloudy)
+                pv_estimate: 1.0, // Low production (cloudy)
+                pv_estimate10: 1.0,
+                pv_estimate90: 1.0,
                 period_end: "2024-01-15T12:30:00Z",
                 period: "PT30M",
               },
@@ -462,7 +476,9 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
           Effect.succeed({
             periods: [
               {
-                pv_power_rooftop: 2.0, // Moderate production
+                pv_estimate: 2.0, // Moderate production
+                pv_estimate10: 2.0,
+                pv_estimate90: 2.0,
                 period_end: "2024-01-15T12:30:00Z",
                 period: "PT30M",
               },
@@ -509,7 +525,9 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
           Effect.succeed({
             periods: [
               {
-                pv_power_rooftop: 8.0,
+                pv_estimate: 8.0,
+                pv_estimate10: 8.0,
+                pv_estimate90: 8.0,
                 period_end: "2024-01-15T12:30:00Z",
                 period: "PT30M",
               },

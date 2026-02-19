@@ -108,7 +108,7 @@ export const WeatherAwareBufferControllerLayer = (
               });
 
               const confidence = periodConfidence(
-                currentPeriod.pv_power_rooftop,
+                currentPeriod.pv_estimate,
                 expectedCap
               );
 

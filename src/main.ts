@@ -68,9 +68,7 @@ const createChargingSpeedControllerLayer = () => {
     }).pipe(
       Layer.provide(SolcastForecastLayer({
         apiKey: process.env.SOLCAST_API_KEY as string,
-        latitude: parseFloat(process.env.SOLCAST_LATITUDE as string),
-        longitude: parseFloat(process.env.SOLCAST_LONGITUDE as string),
-        capacityKw: parseFloat(process.env.SOLCAST_CAPACITY_KW as string),
+        rooftopResourceId: process.env.SOLCAST_ROOFTOP_RESOURCE_ID as string,
       })),
     );
   }
