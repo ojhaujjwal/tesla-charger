@@ -10,7 +10,8 @@ export const InfluxFieldSchema = Schema.Union(
   Schema.Literal("load_power"),
   Schema.Literal("daily_import_from_grid"),
   Schema.Literal("export_to_grid"),
-  Schema.Literal("import_from_grid")
+  Schema.Literal("import_from_grid"),
+  Schema.Literal("battery_power")
 );
 
 export type InfluxField = Schema.Schema.Type<typeof InfluxFieldSchema>;
@@ -22,6 +23,7 @@ const fieldMap: Record<Field, InfluxField> = {
   daily_import: 'daily_import_from_grid',
   export_to_grid: 'export_to_grid',
   import_from_grid: 'import_from_grid',
+  battery_power: 'battery_power',
 }
 
 const parseCsv = <F extends Field>(
@@ -116,6 +118,10 @@ export class SunGatherInfluxDbDataAdapter implements IDataAdapter {
       for (const field of fields) {
         const mappedField = fieldMap[field] ?? field;
         if (!(mappedField in result)) {
+          if (field === 'battery_power') {
+            mappedResult[field] = 0;
+            continue;
+          }
           yield* Effect.logError(`No data found for field ${field}`);
           return yield* Effect.fail(new DataNotAvailableError());
         }

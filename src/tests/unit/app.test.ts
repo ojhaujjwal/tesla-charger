@@ -87,7 +87,7 @@ describe('App', () => {
         teslaClientMock.wakeUpCar.mockReturnValue(Effect.void);
         teslaClientMock.getChargeState.mockReturnValue(Effect.succeed({ batteryLevel: 50, chargeLimitSoc: 80, chargeEnergyAdded: 0 }));
 
-        dataAdapterMock.queryLatestValues.mockReturnValue(Effect.succeed({ voltage: 230, current_production: 5000, current_load: 0, daily_import: 0, export_to_grid: 5000, import_from_grid: 0 }));
+        dataAdapterMock.queryLatestValues.mockReturnValue(Effect.succeed({ voltage: 230, current_production: 5000, current_load: 0, daily_import: 0, export_to_grid: 5000, import_from_grid: 0, battery_power: 0 }));
         dataAdapterMock.getLowestValueInLastXMinutes.mockReturnValue(Effect.succeed(0));
 
         chargingSpeedControllerMock.determineChargingSpeed.mockReturnValue(Effect.succeed(10));
@@ -281,8 +281,8 @@ describe('App', () => {
 
         // Dynamic Data Adapter Mock
         let simulateGridImport = false;
-        const goodResponse = { current_production: 5000, import_from_grid: 0, voltage: 230, current_load: 0, daily_import: 0, export_to_grid: 0 };
-        const badResponse = { current_production: 1000, import_from_grid: 500, daily_import: 200, voltage: 230, current_load: 0, export_to_grid: 0 }; // Import!
+        const goodResponse = { current_production: 5000, import_from_grid: 0, voltage: 230, current_load: 0, daily_import: 0, export_to_grid: 0, battery_power: 0 };
+        const badResponse = { current_production: 1000, import_from_grid: 500, daily_import: 200, voltage: 230, current_load: 0, export_to_grid: 0, battery_power: 0 }; // Import!
 
         dataAdapterMock.queryLatestValues.mockImplementation(() => {
             if (simulateGridImport) {
@@ -353,6 +353,67 @@ describe('App', () => {
         yield* Fiber.interrupt(fiber);
     }).pipe(provideAppLayer));
 
+    it.effect('should handle AbruptProductionDropError when importing from battery', () => Effect.gen(function* () {
+        // Setup scenarios:
+        // 1. Initial stable state (6A)
+        // 2. Increase to 10A -> triggers watch
+        // 3. During watch (wait phase), battery import detected (battery_power > 0) -> AbruptProductionDropError
+        // 4. Retry -> 8A based on the latest data
+
+        let iteration = 0;
+        chargingSpeedControllerMock.determineChargingSpeed.mockImplementation(() => {
+            iteration++;
+            if (iteration <= 2) return Effect.succeed(6);
+            if (iteration == 3) return Effect.succeed(10);
+            return Effect.succeed(8);
+        });
+
+        // Dynamic Data Adapter Mock
+        let simulateBatteryImport = false;
+        const goodResponse = { current_production: 5000, import_from_grid: 0, voltage: 230, current_load: 0, daily_import: 0, export_to_grid: 0, battery_power: 0 };
+        const batteryImportResponse = { current_production: 1000, import_from_grid: 0, daily_import: 200, voltage: 230, current_load: 0, export_to_grid: 0, battery_power: 5000 }; // Battery importing!
+
+        dataAdapterMock.queryLatestValues.mockImplementation(() => {
+            if (simulateBatteryImport) {
+                return Effect.succeed(batteryImportResponse);
+            }
+            return Effect.succeed(goodResponse);
+        });
+
+        const app = yield* App;
+        const fiber = yield* Effect.fork(app.start());
+
+        // Pass startup (1s)
+        yield* TestClock.adjust(Duration.seconds(2));
+
+        // Advance to catch Loop 3 (10A)
+        yield* TestClock.adjust(Duration.seconds(32));
+
+        expect(teslaClientMock.setAmpere).toHaveBeenCalledTimes(2);
+        expect(teslaClientMock.setAmpere).toHaveBeenLastCalledWith(10);
+
+        // Turn on battery import
+        simulateBatteryImport = true;
+
+        // Advance 5s. Watcher triggers AbruptDrop due to battery import.
+        yield* TestClock.adjust(Duration.seconds(5));
+
+        // Simulate recovery
+        simulateBatteryImport = false;
+
+        // Advance enough for Retry + New Loop
+        yield* TestClock.adjust(Duration.seconds(10));
+
+        expect(chargingSpeedControllerMock.determineChargingSpeed).toHaveBeenCalledTimes(4); // 6, 6, 10, 8
+        expect(teslaClientMock.setAmpere).toHaveBeenCalledTimes(3); // 6, 10, 8
+        expect(teslaClientMock.setAmpere).toHaveBeenLastCalledWith(8);
+
+        const status = yield* Fiber.status(fiber);
+        expect(status._tag).not.toBe('Done'); // Still running
+
+        yield* Fiber.interrupt(fiber);
+    }).pipe(provideAppLayer));
+
     it.effect('should stop charging when battery level reaches charge limit', () => Effect.gen(function* () {
         // Mock battery state manager to return completed charge
         batteryState = {
@@ -378,7 +439,8 @@ describe('App', () => {
                     current_load: 0, 
                     daily_import: 0, 
                     export_to_grid: 5000, 
-                    import_from_grid: 0 
+                    import_from_grid: 0,
+                    battery_power: 0 
                 });
             }
             // Subsequent calls - charging state (for checkIfCorrectlyCharging)
@@ -389,7 +451,8 @@ describe('App', () => {
                 current_load: 2300, // Simulate charging load (10A * 230V)
                 daily_import: 0, 
                 export_to_grid: 5000, 
-                import_from_grid: 0 
+                import_from_grid: 0,
+                battery_power: 0 
             });
         });
 
@@ -444,14 +507,14 @@ describe('App', () => {
             queryLatestValuesCallCount++;
             if (queryLatestValuesCallCount === 1) {
                 // Initial call in start() for daily_import
-                return Effect.succeed({ daily_import: 0, voltage: 230, current_production: 5000, current_load: 0, export_to_grid: 5000, import_from_grid: 0 });
+                return Effect.succeed({ daily_import: 0, voltage: 230, current_production: 5000, current_load: 0, export_to_grid: 5000, import_from_grid: 0, battery_power: 0 });
             }
             // Calls during sync cycles for current_production
             if (queryLatestValuesCallCount <= 5) {
-                return Effect.succeed({ current_production: 5000, voltage: 230, current_load: 0, daily_import: 0, export_to_grid: 5000, import_from_grid: 0 });
+                return Effect.succeed({ current_production: 5000, voltage: 230, current_load: 0, daily_import: 0, export_to_grid: 5000, import_from_grid: 0, battery_power: 0 });
             }
             // Final call in stop() for daily_import and voltage
-            return Effect.succeed({ daily_import: 2.0, voltage: 230, current_production: 5000, current_load: 0, export_to_grid: 5000, import_from_grid: 0 });
+            return Effect.succeed({ daily_import: 2.0, voltage: 230, current_production: 5000, current_load: 0, export_to_grid: 5000, import_from_grid: 0, battery_power: 0 });
         });
 
         const app = yield* App;

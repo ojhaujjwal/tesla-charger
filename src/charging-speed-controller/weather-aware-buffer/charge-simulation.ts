@@ -16,7 +16,8 @@ export const simulateCharge = (
     readonly batteryLevel: number;
     readonly chargeLimitSoc: number;
   } | null,
-  now: Date
+  now: Date,
+  batteryExportWatts = 0
 ): SimulationResult => {
   if (!batteryState) {
     return {
@@ -90,8 +91,9 @@ export const simulateCharge = (
         (config.bufferMultiplierMax - 1) * (1 - confidence));
 
     // Calculate available power for car
+    // Include battery export (when battery is charging, it provides extra power)
     const productionW = period.pv_estimate * 1000;
-    const availableForCarW = productionW - effectiveBufferW;
+    const availableForCarW = productionW - effectiveBufferW + batteryExportWatts;
 
     // If we have enough power and remaining need, use this slot
     if (availableForCarW > minChargingThresholdW && remainingNeed > 0) {

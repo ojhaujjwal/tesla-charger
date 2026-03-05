@@ -9,6 +9,8 @@ import { ExcessFeedInSolarControllerLayer } from './charging-speed-controller/ex
 import { ExcessSolarAggresiveControllerLayer } from './charging-speed-controller/excess-solar-aggresive-controller.js';
 import { ExcessSolarNonAggresiveControllerLayer } from './charging-speed-controller/excess-solar-non-aggresive.controller.js';
 import { WeatherAwareBufferControllerLayer } from './charging-speed-controller/weather-aware-buffer/index.js';
+import { BatteryAwareChargingSpeedControllerLayer } from './charging-speed-controller/battery-aware-controller.js';
+import { ChargingSpeedController } from './charging-speed-controller/types.js';
 import { SolcastForecastLayer } from './solar-forecast/solcast.adapter.js';
 import { NodeSdk as EffectOpenTelemetryNodeSdk } from "@effect/opentelemetry"
 import { SentrySpanProcessor } from "@sentry/opentelemetry";
@@ -54,7 +56,7 @@ const createChargingSpeedControllerLayer = () => {
     });
   }
   if (process.argv.includes('--weather-aware')) {
-    return WeatherAwareBufferControllerLayer({
+    const weatherAwareLayer = WeatherAwareBufferControllerLayer({
       minBufferPower: parseInt(process.env.EXCESS_SOLAR_BUFFER_POWER ?? '500'),
       bufferMultiplierMax: parseFloat(process.env.BUFFER_MULTIPLIER_MAX ?? '3'),
       carBatteryCapacityKwh: parseFloat(process.env.CAR_BATTERY_CAPACITY_KWH ?? '60'),
@@ -70,6 +72,9 @@ const createChargingSpeedControllerLayer = () => {
         apiKey: process.env.SOLCAST_API_KEY as string,
         rooftopResourceId: process.env.SOLCAST_ROOFTOP_RESOURCE_ID as string,
       })),
+    );
+    return BatteryAwareChargingSpeedControllerLayer(
+      weatherAwareLayer as Layer.Layer<ChargingSpeedController>
     );
   }
   // Default: ExcessSolarNonAggresive wrapping ExcessSolarAggresive

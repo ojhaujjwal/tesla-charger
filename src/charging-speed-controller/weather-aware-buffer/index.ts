@@ -60,10 +60,18 @@ export const WeatherAwareBufferControllerLayer = (
             // Get battery state
             const batteryState = batteryStateManager.get();
 
+            // Get battery power for export calculation
+            const {
+              battery_power: batteryPower,
+            } = yield* dataAdapter.queryLatestValues(['battery_power']);
+
+            // Calculate battery export (positive value when battery is charging)
+            const batteryExportWatts = batteryPower < 0 ? Math.abs(batteryPower) : 0;
+
             // Run simulation if forecast or battery state changed
             const forecastHash = JSON.stringify(forecast.periods.map((p) => p.period_end));
             const batteryHash = batteryState
-              ? `${batteryState.batteryLevel}-${batteryState.chargeLimitSoc}`
+              ? `${batteryState.batteryLevel}-${batteryState.chargeLimitSoc}-${batteryExportWatts}`
               : undefined;
             const currentHash = `${forecastHash}-${batteryHash}`;
 
@@ -72,7 +80,8 @@ export const WeatherAwareBufferControllerLayer = (
                 config,
                 forecast,
                 batteryState,
-                now
+                now,
+                batteryExportWatts
               );
               lastForecastHash = currentHash;
 
@@ -141,7 +150,9 @@ export const WeatherAwareBufferControllerLayer = (
               "import_from_grid",
             ]);
 
-            const netExport = exportingToGrid - importingFromGrid;
+            // Battery is discharging (importing) - wrapper handles this by returning 0
+            // But we still need to include battery export (when battery_power < 0) in excess
+            const netExport = exportingToGrid - importingFromGrid + batteryExportWatts;
             const excessSolar =
               netExport - finalBuffer + currentChargingSpeed * voltage;
 

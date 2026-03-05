@@ -365,10 +365,11 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
             voltage: 230,
             export_to_grid: 2000,
             import_from_grid: 0,
-            current_production: 0,
-            current_load: 0,
-            daily_import: 0,
-          })
+          current_production: 0,
+          current_load: 0,
+          daily_import: 0,
+          battery_power: 0,
+        })
         );
 
         const controller = yield* ChargingSpeedController;
@@ -407,10 +408,11 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
             voltage: 230,
             export_to_grid: 5000,
             import_from_grid: 0,
-            current_production: 0,
-            current_load: 0,
-            daily_import: 0,
-          })
+          current_production: 0,
+          current_load: 0,
+          daily_import: 0,
+          battery_power: 0,
+        })
         );
 
         yield* TestClock.adjust(Duration.seconds(1));
@@ -451,10 +453,11 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
             voltage: 230,
             export_to_grid: 5000,
             import_from_grid: 0,
-            current_production: 0,
-            current_load: 0,
-            daily_import: 0,
-          })
+          current_production: 0,
+          current_load: 0,
+          daily_import: 0,
+          battery_power: 0,
+        })
         );
 
         yield* TestClock.adjust(Duration.seconds(1));
@@ -495,10 +498,11 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
             voltage: 230,
             export_to_grid: 5000,
             import_from_grid: 0,
-            current_production: 0,
-            current_load: 0,
-            daily_import: 0,
-          })
+          current_production: 0,
+          current_load: 0,
+          daily_import: 0,
+          battery_power: 0,
+        })
         );
 
         yield* TestClock.adjust(Duration.seconds(1));
@@ -545,10 +549,11 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
             voltage: 230,
             export_to_grid: 10000,
             import_from_grid: 0,
-            current_production: 0,
-            current_load: 0,
-            daily_import: 0,
-          })
+          current_production: 0,
+          current_load: 0,
+          daily_import: 0,
+          battery_power: 0,
+        })
         );
 
         yield* TestClock.adjust(Duration.seconds(1));

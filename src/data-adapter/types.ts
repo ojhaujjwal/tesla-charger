@@ -8,7 +8,8 @@ export const FieldSchema = Schema.Union(
   Schema.Literal("current_load"),
   Schema.Literal("daily_import"),
   Schema.Literal("export_to_grid"),
-  Schema.Literal("import_from_grid")
+  Schema.Literal("import_from_grid"),
+  Schema.Literal("battery_power")
 );
 
 export type Field = Schema.Schema.Type<typeof FieldSchema>;

@@ -32,7 +32,8 @@ describe('ExcessSolarAggresiveController', () => {
         current_load: 0,
         daily_import: 0,
         export_to_grid: 10000,
-        import_from_grid: 0
+        import_from_grid: 0,
+        battery_power: 0
       }));
 
       const controller = yield* ChargingSpeedController;
@@ -50,7 +51,8 @@ describe('ExcessSolarAggresiveController', () => {
         current_load: 0,
         daily_import: 0,
         export_to_grid: 2000,
-        import_from_grid: 0
+        import_from_grid: 0,
+        battery_power: 0
       }));
 
       const controller = yield* ChargingSpeedController;
@@ -69,7 +71,8 @@ describe('ExcessSolarAggresiveController', () => {
         current_load: 0,
         daily_import: 0,
         export_to_grid: 50,
-        import_from_grid: 0
+        import_from_grid: 0,
+        battery_power: 0
       }));
 
       const controller = yield* ChargingSpeedController;
@@ -87,7 +90,8 @@ describe('ExcessSolarAggresiveController', () => {
         current_load: 0,
         daily_import: 0,
         export_to_grid: 0,
-        import_from_grid: 1230
+        import_from_grid: 1230,
+        battery_power: 0
       }));
 
       const controller = yield* ChargingSpeedController;
@@ -111,6 +115,7 @@ describe('ExcessSolarAggresiveController', () => {
         daily_import: 0,
         export_to_grid: exportingToGrid,
         import_from_grid: 0,
+        battery_power: 0
       }));
 
       const controller = yield* ChargingSpeedController;

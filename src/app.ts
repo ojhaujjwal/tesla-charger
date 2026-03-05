@@ -100,15 +100,17 @@ export const AppLayer = (config: {
       Effect.repeat(Effect.gen(function* () {
         const {
           current_production: currentProduction,
-          import_from_grid: importingFromGrid
-        } = yield* dataAdapter.queryLatestValues(['current_production', 'import_from_grid']);
+          import_from_grid: importingFromGrid,
+          battery_power: batteryPower
+        } = yield* dataAdapter.queryLatestValues(['current_production', 'import_from_grid', 'battery_power']);
 
         yield* Effect.logDebug('watching for sudden drop in production', {
           currentProduction,
           currentProductionAtStart,
           importingFromGrid,
+          batteryPower,
         });
-        if (importingFromGrid > 0) {
+        if (importingFromGrid > 0 || batteryPower > 0) {
           return yield* Effect.fail(new AbruptProductionDropError({ initialProduction: currentProductionAtStart, currentProduction }));
         }
 
