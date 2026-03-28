@@ -63,3 +63,27 @@ In theory, you could easily use this without SunGather and for any inverters as 
 ```sh
 npm run dev
 ```
+
+
+## Testing AlphaESS API locally using curl
+```
+TIMESTAMP=$(date +%s)
+AlphaAppId="xxxxxx"
+AlphaAppSecret="xxxx"
+SysterSn=xxxxx
+
+TOSIGN=$(echo -n "$AlphaAppId$AlphaAppSecret$TIMESTAMP")
+
+SIGN=$(echo -n "$AlphaAppId$AlphaAppSecret$TIMESTAMP" | sha512sum |  awk '{print $1}')
+
+curl https://openapi.alphaess.com/api/getLastPowerData?sysSn=SysterSn \
+   -H "appId: $AlphaAppId" \
+   -H "timeStamp: $TIMESTAMP" \
+   -H "sign: $SIGN" | jq .
+
+
+curl https://openapi.alphaess.com/api/getEssList \
+   -H "appId: $AlphaAppId" \
+   -H "timeStamp: $TIMESTAMP" \
+   -H "sign: $SIGN"
+````
