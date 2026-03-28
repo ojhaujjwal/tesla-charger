@@ -87,7 +87,7 @@ describe('App', () => {
         teslaClientMock.wakeUpCar.mockReturnValue(Effect.void);
         teslaClientMock.getChargeState.mockReturnValue(Effect.succeed({ batteryLevel: 50, chargeLimitSoc: 80, chargeEnergyAdded: 0 }));
 
-        dataAdapterMock.queryLatestValues.mockReturnValue(Effect.succeed({ voltage: 230, current_production: 5000, current_load: 0, daily_import: 0, export_to_grid: 5000, import_from_grid: 0 }));
+        dataAdapterMock.queryLatestValues.mockReturnValue(Effect.succeed({ voltage: 230, current_production: 5000, current_load: 0, daily_import: 0, export_to_grid: 5000, import_from_grid: 0, battery_power: 0 }));
         dataAdapterMock.getLowestValueInLastXMinutes.mockReturnValue(Effect.succeed(0));
 
         chargingSpeedControllerMock.determineChargingSpeed.mockReturnValue(Effect.succeed(10));
@@ -281,8 +281,8 @@ describe('App', () => {
 
         // Dynamic Data Adapter Mock
         let simulateGridImport = false;
-        const goodResponse = { current_production: 5000, import_from_grid: 0, voltage: 230, current_load: 0, daily_import: 0, export_to_grid: 0 };
-        const badResponse = { current_production: 1000, import_from_grid: 500, daily_import: 200, voltage: 230, current_load: 0, export_to_grid: 0 }; // Import!
+        const goodResponse = { current_production: 5000, import_from_grid: 0, voltage: 230, current_load: 0, daily_import: 0, export_to_grid: 0, battery_power: 0 };
+        const badResponse = { current_production: 1000, import_from_grid: 500, daily_import: 200, voltage: 230, current_load: 0, export_to_grid: 0, battery_power: 0 }; // Import!
 
         dataAdapterMock.queryLatestValues.mockImplementation(() => {
             if (simulateGridImport) {
@@ -378,7 +378,8 @@ describe('App', () => {
                     current_load: 0, 
                     daily_import: 0, 
                     export_to_grid: 5000, 
-                    import_from_grid: 0 
+                    import_from_grid: 0,
+                    battery_power: 0
                 });
             }
             // Subsequent calls - charging state (for checkIfCorrectlyCharging)
@@ -389,7 +390,8 @@ describe('App', () => {
                 current_load: 2300, // Simulate charging load (10A * 230V)
                 daily_import: 0, 
                 export_to_grid: 5000, 
-                import_from_grid: 0 
+                import_from_grid: 0,
+                battery_power: 0
             });
         });
 
@@ -444,14 +446,14 @@ describe('App', () => {
             queryLatestValuesCallCount++;
             if (queryLatestValuesCallCount === 1) {
                 // Initial call in start() for daily_import
-                return Effect.succeed({ daily_import: 0, voltage: 230, current_production: 5000, current_load: 0, export_to_grid: 5000, import_from_grid: 0 });
+                return Effect.succeed({ daily_import: 0, voltage: 230, current_production: 5000, current_load: 0, export_to_grid: 5000, import_from_grid: 0, battery_power: 0 });
             }
             // Calls during sync cycles for current_production
             if (queryLatestValuesCallCount <= 5) {
-                return Effect.succeed({ current_production: 5000, voltage: 230, current_load: 0, daily_import: 0, export_to_grid: 5000, import_from_grid: 0 });
+                return Effect.succeed({ current_production: 5000, voltage: 230, current_load: 0, daily_import: 0, export_to_grid: 5000, import_from_grid: 0, battery_power: 0 });
             }
             // Final call in stop() for daily_import and voltage
-            return Effect.succeed({ daily_import: 2.0, voltage: 230, current_production: 5000, current_load: 0, export_to_grid: 5000, import_from_grid: 0 });
+            return Effect.succeed({ daily_import: 2.0, voltage: 230, current_production: 5000, current_load: 0, export_to_grid: 5000, import_from_grid: 0, battery_power: 0 });
         });
 
         const app = yield* App;

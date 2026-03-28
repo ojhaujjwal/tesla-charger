@@ -98,6 +98,10 @@ const mapFieldToValue = (
     case "import_from_grid":
       // Import from grid is positive pgrid values
       return data.pgrid > 0 ? data.pgrid : 0;
+
+    case "battery_power":
+      // Battery power: negative = charging, positive = discharging
+      return data.pbat;
   }
 };
 

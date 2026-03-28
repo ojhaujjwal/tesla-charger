@@ -368,6 +368,7 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
             current_production: 0,
             current_load: 0,
             daily_import: 0,
+            battery_power: 0,
           })
         );
 
@@ -410,6 +411,7 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
             current_production: 0,
             current_load: 0,
             daily_import: 0,
+            battery_power: 0,
           })
         );
 
@@ -454,6 +456,7 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
             current_production: 0,
             current_load: 0,
             daily_import: 0,
+            battery_power: 0,
           })
         );
 
@@ -498,6 +501,7 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
             current_production: 0,
             current_load: 0,
             daily_import: 0,
+            battery_power: 0,
           })
         );
 
@@ -548,6 +552,7 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
             current_production: 0,
             current_load: 0,
             daily_import: 0,
+            battery_power: 0,
           })
         );
 

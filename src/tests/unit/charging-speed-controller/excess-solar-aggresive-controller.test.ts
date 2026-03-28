@@ -32,7 +32,8 @@ describe('ExcessSolarAggresiveController', () => {
         current_load: 0,
         daily_import: 0,
         export_to_grid: 10000,
-        import_from_grid: 0
+        import_from_grid: 0,
+        battery_power: 0
       }));
 
       const controller = yield* ChargingSpeedController;
@@ -50,7 +51,8 @@ describe('ExcessSolarAggresiveController', () => {
         current_load: 0,
         daily_import: 0,
         export_to_grid: 2000,
-        import_from_grid: 0
+        import_from_grid: 0,
+        battery_power: 0
       }));
 
       const controller = yield* ChargingSpeedController;
@@ -69,7 +71,8 @@ describe('ExcessSolarAggresiveController', () => {
         current_load: 0,
         daily_import: 0,
         export_to_grid: 50,
-        import_from_grid: 0
+        import_from_grid: 0,
+        battery_power: 0
       }));
 
       const controller = yield* ChargingSpeedController;
@@ -87,7 +90,8 @@ describe('ExcessSolarAggresiveController', () => {
         current_load: 0,
         daily_import: 0,
         export_to_grid: 0,
-        import_from_grid: 1230
+        import_from_grid: 1230,
+        battery_power: 0
       }));
 
       const controller = yield* ChargingSpeedController;
@@ -111,6 +115,7 @@ describe('ExcessSolarAggresiveController', () => {
         daily_import: 0,
         export_to_grid: exportingToGrid,
         import_from_grid: 0,
+        battery_power: 0,
       }));
 
       const controller = yield* ChargingSpeedController;
@@ -118,6 +123,70 @@ describe('ExcessSolarAggresiveController', () => {
       expect(resultingChargingSpeed).toEqual(10 + chargingSpeed);
     }).pipe(
       Effect.provide(TestLayer())
+    ));
+
+    it.effect('should include battery charging power in excess calculation when battery is charging', () => Effect.gen(function* () {
+      // Battery charging at 1650W, no grid export
+      // excessSolar = 1650 + 0 - 100 (buffer) + 0 = 1550W
+      // 1550 / 230 = 6.7A -> rounded to 5A (multipleOf=5)
+      mockDataAdapter.queryLatestValues.mockReturnValue(Effect.succeed({
+        voltage: 230,
+        current_production: 0,
+        current_load: 0,
+        daily_import: 0,
+        export_to_grid: 0,
+        import_from_grid: 0,
+        battery_power: -1650  // Battery charging
+      }));
+
+      const controller = yield* ChargingSpeedController;
+      const chargingSpeed = yield* controller.determineChargingSpeed(0);
+      expect(chargingSpeed).toBe(5);
+    }).pipe(
+      Effect.provide(TestLayer({ bufferPower: 100, multipleOf: 5 }))
+    ));
+
+    it.effect('should combine battery charging power and grid export for total excess', () => Effect.gen(function* () {
+      // Battery charging at 1650W + grid export 1000W = 2650W excess
+      // excessSolar = 1650 + 1000 - 100 (buffer) + 0 = 2550W
+      // 2550 / 230 = 11A -> rounded to 10A (multipleOf=5)
+      mockDataAdapter.queryLatestValues.mockReturnValue(Effect.succeed({
+        voltage: 230,
+        current_production: 0,
+        current_load: 0,
+        daily_import: 0,
+        export_to_grid: 1000,
+        import_from_grid: 0,
+        battery_power: -1650  // Battery charging
+      }));
+
+      const controller = yield* ChargingSpeedController;
+      const chargingSpeed = yield* controller.determineChargingSpeed(0);
+      expect(chargingSpeed).toBe(10);
+    }).pipe(
+      Effect.provide(TestLayer({ bufferPower: 100, multipleOf: 5 }))
+    ));
+
+    it.effect('should use only grid export when battery is not charging (discharging)', () => Effect.gen(function* () {
+      // Battery discharging at 500W (providing power), grid export 2000W
+      // Should use only grid export (netExport = 2000 - 0 = 2000W)
+      // excessSolar = 2000 - 100 (buffer) = 1900W
+      // 1900 / 230 = 8.2A -> rounded to 5A (multipleOf=5)
+      mockDataAdapter.queryLatestValues.mockReturnValue(Effect.succeed({
+        voltage: 230,
+        current_production: 0,
+        current_load: 0,
+        daily_import: 0,
+        export_to_grid: 2000,
+        import_from_grid: 0,
+        battery_power: 500  // Battery discharging
+      }));
+
+      const controller = yield* ChargingSpeedController;
+      const chargingSpeed = yield* controller.determineChargingSpeed(0);
+      expect(chargingSpeed).toBe(5);
+    }).pipe(
+      Effect.provide(TestLayer({ bufferPower: 100, multipleOf: 5 }))
     ));
   });
 });

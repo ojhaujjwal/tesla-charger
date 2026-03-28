@@ -14,16 +14,21 @@ export const ExcessSolarAggresiveControllerLayer = (config: {
       determineChargingSpeed: (currentChargingSpeed: number) => Effect.gen(function* () {
         const {
           voltage,
-          export_to_grid: exportingToGrid,
-          import_from_grid: importingFromGrid
-        } = yield* dataAdapter.queryLatestValues(['voltage', 'export_to_grid', 'import_from_grid']);
+          battery_power,
+          export_to_grid,
+          import_from_grid
+        } = yield* dataAdapter.queryLatestValues(['voltage', 'battery_power', 'export_to_grid', 'import_from_grid']);
 
-        const netExport = exportingToGrid - importingFromGrid;
+        const netExport = export_to_grid - import_from_grid;
+        const isBatteryCharging = battery_power < 0;
 
-        const excessSolar = netExport - config.bufferPower + (currentChargingSpeed * voltage);
+        const excessSolar = isBatteryCharging
+          ? Math.abs(battery_power) + netExport - config.bufferPower + (currentChargingSpeed * voltage)
+          //TODO: subsctract battery import -- home battery shouldn't charge car
+          : netExport - config.bufferPower + (currentChargingSpeed * voltage);
 
         if (excessSolar > 0) {
-          yield* Effect.log('[ExcessSolarAggresiveController] raw result:', { excessSolar, netExport });
+          yield* Effect.log('[ExcessSolarAggresiveController] raw result:', { excessSolar, netExport, batteryPower: battery_power, isBatteryCharging });
         }
 
         if ((excessSolar / voltage) >= 32) {

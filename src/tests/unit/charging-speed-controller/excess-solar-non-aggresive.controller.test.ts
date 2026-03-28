@@ -20,7 +20,8 @@ describe('ExcessSolarNonAggresiveController', () => {
       current_load: 500,
       voltage: 240,
       daily_import: 0,
-      import_from_grid: 0
+      import_from_grid: 0,
+      battery_power: 0
     });
   };
 
@@ -31,7 +32,8 @@ describe('ExcessSolarNonAggresiveController', () => {
       current_load: currentLoad,
       voltage: 240,
       daily_import: 0,
-      import_from_grid: 0
+      import_from_grid: 0,
+      battery_power: 0
     });
   };
 

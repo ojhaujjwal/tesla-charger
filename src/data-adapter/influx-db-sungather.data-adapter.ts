@@ -10,7 +10,8 @@ export const InfluxFieldSchema = Schema.Union(
   Schema.Literal("load_power"),
   Schema.Literal("daily_import_from_grid"),
   Schema.Literal("export_to_grid"),
-  Schema.Literal("import_from_grid")
+  Schema.Literal("import_from_grid"),
+  Schema.Literal("battery_power")
 );
 
 export type InfluxField = Schema.Schema.Type<typeof InfluxFieldSchema>;
@@ -22,6 +23,7 @@ const fieldMap: Record<Field, InfluxField> = {
   daily_import: 'daily_import_from_grid',
   export_to_grid: 'export_to_grid',
   import_from_grid: 'import_from_grid',
+  battery_power: 'battery_power',
 }
 
 const parseCsv = <F extends Field>(
