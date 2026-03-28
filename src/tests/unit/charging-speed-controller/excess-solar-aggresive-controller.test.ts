@@ -188,5 +188,51 @@ describe('ExcessSolarAggresiveController', () => {
     }).pipe(
       Effect.provide(TestLayer({ bufferPower: 100, multipleOf: 5 }))
     ));
+
+    it.effect('should subtract battery discharge when demand exceeds solar production', () => Effect.gen(function* () {
+      // Battery discharging at 2000W to meet high demand, importing 500W from grid
+      // This means demand > solar, battery is helping cover the deficit
+      // netExport = 0 - 500 = -500W (importing)
+      // excessSolar = -500 - 2000 - 100 (buffer) + 0 = -2600W
+      // Should return 0A as there's no excess
+      mockDataAdapter.queryLatestValues.mockReturnValue(Effect.succeed({
+        voltage: 230,
+        current_production: 0,
+        current_load: 0,
+        daily_import: 0,
+        export_to_grid: 0,
+        import_from_grid: 500,
+        battery_power: 2000  // Battery discharging to meet demand
+      }));
+
+      const controller = yield* ChargingSpeedController;
+      const chargingSpeed = yield* controller.determineChargingSpeed(0);
+      expect(chargingSpeed).toBe(0);
+    }).pipe(
+      Effect.provide(TestLayer({ bufferPower: 100, multipleOf: 5 }))
+    ));
+
+    it.effect('should correctly calculate excess when battery discharges with solar surplus', () => Effect.gen(function* () {
+      // Battery discharging at 1000W, exporting 1500W to grid
+      // This means solar > demand, battery discharge is NOT needed for home
+      // netExport = 1500 - 0 = 1500W
+      // excessSolar = 1500 - 1000 - 100 (buffer) + 0 = 400W
+      // 400 / 230 = 1.7A -> rounded to 0A (multipleOf=5)
+      mockDataAdapter.queryLatestValues.mockReturnValue(Effect.succeed({
+        voltage: 230,
+        current_production: 0,
+        current_load: 0,
+        daily_import: 0,
+        export_to_grid: 1500,
+        import_from_grid: 0,
+        battery_power: 1000  // Battery discharging
+      }));
+
+      const controller = yield* ChargingSpeedController;
+      const chargingSpeed = yield* controller.determineChargingSpeed(0);
+      expect(chargingSpeed).toBe(0);
+    }).pipe(
+      Effect.provide(TestLayer({ bufferPower: 100, multipleOf: 5 }))
+    ));
   });
 });

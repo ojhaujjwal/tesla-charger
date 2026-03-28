@@ -12,3 +12,6 @@ node_modules
 /.solcast-cache.json
 
 .vscode
+
+.ralph-auto
+progress-auto.txt
