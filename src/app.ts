@@ -376,7 +376,7 @@ export const AppLayer = (config: {
     });
 
     return {
-      start: () => Effect.gen(function* () {
+      start: Effect.fn("start")(function* () {
         appStatus = AppStatus.Running;
         yield* teslaClient.refreshAccessToken();
 

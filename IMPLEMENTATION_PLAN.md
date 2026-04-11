@@ -2,7 +2,7 @@
 
 ## Active Tasks
 
-- [ ] **Task 1**: Convert `src/app.ts` functions (6 functions) to `Effect.fn` pattern
+- [x] **Task 1**: Convert `src/app.ts` functions (6 functions) to `Effect.fn` pattern
 - [ ] **Task 2**: Convert `src/tesla-client/index.ts` functions (4 functions) to `Effect.fn` pattern
 - [ ] **Task 3**: Verify all tests pass and no regressions
 
@@ -10,7 +10,7 @@
 
 ### Critical Pattern Details
 
-**The conversion pattern requires TWO closing parentheses:**
+**The conversion pattern:**
 
 ```typescript
 // Before:
@@ -21,27 +21,42 @@ const myFunction = () => Effect.gen(function* () {
 // After:
 const myFunction = Effect.fn("myFunction")(function* () {
   // implementation  
-}));  // ← TWO closing parens: one for generator, one for Effect.fn
+});
 ```
 
-**Call sites must remove `()`:**
-- Before: `myFunction()` 
-- After: `myFunction`
+**Call sites remain unchanged** (they still need `()` since `Effect.fn` returns a function):
 
-**With `.pipe()`:**
-- Before: `myFunction().pipe(Effect.withSpan("name"))`
-- After: `myFunction.pipe(Effect.withSpan("name"))`
+```typescript
+// Before: myFunction()
+myFunction()
+```
+
+**Note:** The spec incorrectly stated call sites should remove `()`. However, `Effect.fn("name")(generator)` returns a FUNCTION (not an Effect directly), so call sites must KEEP the `()`.
+
+**For functions with `.pipe()`:**
+
+```typescript
+// Before:
+const myFunction = () => Effect.gen(function* () {
+  // implementation
+}).pipe(pipeable1, pipeable2);
+
+// After:
+const myFunction = Effect.fn("myFunction", pipeable1, pipeable2)(function* () {
+  // implementation
+});
+```
 
 ### Task 1 Details
 
-Convert these 6 functions in `src/app.ts`:
+Converted these 6 functions in `src/app.ts`:
 
-1. `checkIfCorrectlyCharging` (line 203)
-2. `syncChargingRateBasedOnExcess` (line 229)
-3. `computeAndEmitSessionSummary` (line 282)
-4. `stop` (line 319)
-5. `shutdownAfterMaxRuntimeHours` (line 372)
-6. `start` property (line379)
+1. `checkIfCorrectlyCharging` - converted (no pipe)
+2. `syncChargingRateBasedOnExcess` - converted (with multiple pipeables)
+3. `computeAndEmitSessionSummary` - converted (no pipe)
+4. `stop` - converted (with pipeables: tap, orDie)
+5. `shutdownAfterMaxRuntimeHours` - converted (no pipe)
+6. `start` property - converted (no pipe)
 
 ### Task 2 Details
 
