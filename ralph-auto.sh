@@ -307,7 +307,7 @@ commit_changes() {
 
     log "INFO" "Committing changes..."
 
-    git add src/ specs/
+    git add src/ specs/ IMPLEMENTATION_PLAN.md 2>/dev/null || true
     git add -u
 
     if git diff --cached --quiet; then
@@ -341,6 +341,7 @@ build_prompt() {
     local ci_errors=""
     local progress_content=""
     local focus_section=""
+    local implementation_plan=""
 
     if [ -f "$OUTPUT_DIR/ci_errors.txt" ]; then
         ci_errors="## Previous Iteration Errors
@@ -351,8 +352,20 @@ Read the error details from: \`$OUTPUT_DIR/ci_errors.txt\`
 "
     fi
 
+    if [ -f "IMPLEMENTATION_PLAN.md" ]; then
+        implementation_plan="## Implementation Plan (Current Progress)
+
+\`\`\`markdown
+$(cat IMPLEMENTATION_PLAN.md)
+\`\`\`
+
+**Read IMPLEMENTATION_PLAN.md at the start of each iteration to know what work has been done and what to do next.**
+
+"
+    fi
+
     if [ -f "$PROGRESS_FILE" ]; then
-        progress_content="## Progress So Far
+        progress_content="## Progress Log
 
 \`\`\`
 $(cat "$PROGRESS_FILE")
@@ -380,6 +393,7 @@ Work exclusively on this task. When the task is complete, signal TASK_COMPLETE. 
     prompt="${prompt//\{\{CI_ERRORS\}\}/$ci_errors}"
     prompt="${prompt//\{\{PROGRESS\}\}/$progress_content}"
     prompt="${prompt//\{\{FOCUS\}\}/$focus_section}"
+    prompt="${prompt//\{\{IMPLEMENTATION_PLAN\}\}/$implementation_plan}"
 
     echo "$prompt"
 }
