@@ -32,7 +32,7 @@ const parseCsv = <F extends Field>(
 ): Effect.Effect<Record<InfluxField, number>, DataNotAvailableError> => Effect.gen(function* () {
   if (rows.length === 0 || rows.length < 2) {
     yield* Effect.logError('No data rows found in CSV');
-    return yield* Effect.fail(new DataNotAvailableError());
+    return yield* new DataNotAvailableError();
   }
 
   const headers = rows[0].split(',');
@@ -109,7 +109,7 @@ export class SunGatherInfluxDbDataAdapter implements IDataAdapter {
 
       if (lines.length < 2) {
         yield* Effect.logWarning('No data found in latest value query');
-        return yield* Effect.fail(new DataNotAvailableError())
+        return yield* new DataNotAvailableError();
       }
 
       const result = yield* parseCsv(lines, fields);
@@ -119,7 +119,7 @@ export class SunGatherInfluxDbDataAdapter implements IDataAdapter {
         const mappedField = fieldMap[field] ?? field;
         if (!(mappedField in result)) {
           yield* Effect.logError(`No data found for field ${field}`);
-          return yield* Effect.fail(new DataNotAvailableError());
+          return yield* new DataNotAvailableError();
         }
         mappedResult[field] = result[mappedField];
       }
@@ -161,13 +161,13 @@ export class SunGatherInfluxDbDataAdapter implements IDataAdapter {
 
       if (lines.length < 2) {
         yield* Effect.logWarning('No data found in last x minutes');
-        return yield* Effect.fail(new DataNotAvailableError())
+        return yield* new DataNotAvailableError();
       }
 
       const result = yield* parseCsv(lines, [field]);
 
       if (!(mappedField in result)) {
-        return yield* Effect.fail(new DataNotAvailableError());
+        return yield* new DataNotAvailableError();
       }
 
       return result[mappedField];

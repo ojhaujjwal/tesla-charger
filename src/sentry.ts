@@ -1,4 +1,4 @@
-import { Effect, Layer, Logger } from "effect";
+import { Cause, Effect, Layer, Logger } from "effect";
 import * as Sentry from "@sentry/effect/server";
 import * as SentryCore from "@sentry/core";
 import { getDefaultCurrentScope, getDefaultIsolationScope } from "@sentry/core";
@@ -37,13 +37,17 @@ export const SentryLive = Layer.mergeAll(
   Logger.replace(Logger.defaultLogger, CombinedLogger),
 );
 
+class SentryFlushFailedError extends Cause.RuntimeException {}
+
+class SentryFlushTimeoutError extends Cause.RuntimeException {}
+
 // Periodic flush fiber
 export const SentryFlushFiber = Effect.gen(function* () {
   while (true) {
     yield* Effect.sleep(10000);
     yield* Effect.tryPromise({
       try: () => SentryCore.flush(5000),
-      catch: () => new Error('Sentry flush failed'),
+      catch: (e) => new SentryFlushFailedError(`Sentry flush failed: ${e}`),
     });
   }
 });
@@ -52,7 +56,7 @@ export const SentryFlushFiber = Effect.gen(function* () {
 export const flushSentry = () =>
   Effect.tryPromise({
     try: () => SentryCore.flush(5000),
-    catch: () => new Error('Sentry flush timed out'),
+    catch: (e) => new SentryFlushTimeoutError(`Sentry flush timed out: ${e}`),
   });
 
 // Helper to capture exceptions in Effect

@@ -52,7 +52,7 @@ export const TeslaClientLayer = (config: {
 
     const getTokens = () => Effect.gen(function* () {
       const json = yield* fs.readFileString(config.tokenFilePath || 'token.json');
-      return yield* Schema.decodeUnknown(TeslaCachedTokenSchema)(JSON.parse(json));
+      return yield* Schema.decodeUnknown(TeslaCachedTokenSchema)(json);
     });
 
     const refreshAccessTokenFromTesla = () => Effect.gen(function* () {
@@ -91,17 +91,17 @@ export const TeslaClientLayer = (config: {
         );
 
       if (response.status !== 200) {
-        return yield* Effect.fail(new UnableToFetchAccessTokenError());
+        return yield* new UnableToFetchAccessTokenError();
       }
 
-      return yield* Schema.decodeUnknown(TeslaTokenResponseSchema)(JSON.parse(yield* response.text));
+      return yield* Schema.decodeUnknown(TeslaTokenResponseSchema)(yield* response.text);
     });
 
     const saveTokens = (accessToken: string, refreshToken: string) => Effect.gen(function* () {
-      const encoded = JSON.stringify(yield* Schema.encode(TeslaCachedTokenSchema)({
+      const encoded = JSON.stringify({
         access_token: accessToken,
         refresh_token: refreshToken,
-      }), null, 2);
+      });
       yield* fs.writeFileString(config.tokenFilePath || 'token.json', encoded);
       yield* fs.writeFileString(config.accessTokenFilePath || '.access-token', accessToken);
     });
@@ -167,7 +167,7 @@ export const TeslaClientLayer = (config: {
       const result = yield* refreshAccessTokenFromTesla();
       yield* saveTokens(result.access_token, result.refresh_token);
     }).pipe(
-      Effect.catchAll((err) => Effect.fail(new AuthenticationFailedError({ cause: err })))
+      Effect.mapError((err) => new AuthenticationFailedError({ cause: err }))
     );
 
     const getChargeState = () => Effect.gen(function* () {
@@ -196,29 +196,19 @@ export const TeslaClientLayer = (config: {
 
       if (response.status !== 200) {
         const errorText = yield* response.text.pipe(Effect.catchAll(() => Effect.succeed('Unknown error')));
-        return yield* Effect.fail(new ChargeStateQueryFailedError({
+        return yield* new ChargeStateQueryFailedError({
           message: `Fleet API returned status ${response.status}: ${errorText}`
-        }));
+        });
       }
 
       const responseBody = yield* response.text.pipe(
-        Effect.catchAll((err) => Effect.fail(new ChargeStateQueryFailedError({
+        Effect.mapError((err) => new ChargeStateQueryFailedError({
           message: `Failed to read response body: ${err._tag}`,
           cause: err
-        })))
+        }))
       );
 
-      let parsedJson: unknown;
-      try {
-        parsedJson = JSON.parse(responseBody);
-      } catch (err) {
-        return yield* Effect.fail(new ChargeStateQueryFailedError({
-          message: `Failed to parse JSON response: ${err instanceof Error ? err.message : `${err}`}`,
-          cause: err
-        }));
-      }
-
-      const parsed = yield* Schema.decodeUnknown(TeslaChargeStateResponseSchema)(parsedJson).pipe(
+      const parsed = yield* Schema.decodeUnknown(TeslaChargeStateResponseSchema)(responseBody).pipe(
         Effect.mapError((err) => new ChargeStateQueryFailedError({
           message: `Failed to decode charge state response: ${err._tag}`,
           cause: err
@@ -252,7 +242,7 @@ export const TeslaClientLayer = (config: {
           }
         );
 
-        return yield* Schema.decodeUnknown(TeslaTokenResponseSchema)(JSON.parse(yield* response.text));
+        return yield* Schema.decodeUnknown(TeslaTokenResponseSchema)(yield* response.text);
       }),
       refreshAccessToken,
       setupAccessTokenAutoRefreshRecurring: (timeoutInSeconds: number) => Effect.repeat(refreshAccessToken(), {

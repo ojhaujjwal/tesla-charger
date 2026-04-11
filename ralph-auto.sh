@@ -6,6 +6,7 @@
 # Usage: ./ralph-auto.sh <focus prompt> [options]
 #
 # Options:
+#   --model <model>          AI model to use (default: opencode-go/minimax-m2.7)
 #   --e2e                    Run E2E tests as part of CI checks (slower but more thorough)
 #   --skip-checks            Skip all CI checks (typecheck, lint, build, tests)
 #   --max-iterations <n>     Stop after n iterations (default: unlimited)
@@ -27,9 +28,19 @@ RUN_E2E=false
 SKIP_CHECKS=false
 FOCUS_PROMPT=""
 MAX_ITERATIONS=0
+MODEL="opencode-go/minimax-m2.7"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
+        --model)
+            if [[ -n "$2" ]]; then
+                MODEL="$2"
+                shift 2
+            else
+                echo "Error: --model requires a model name"
+                exit 1
+            fi
+            ;;
         --e2e)
             RUN_E2E=true
             shift
@@ -53,6 +64,7 @@ while [[ $# -gt 0 ]]; do
             echo "A focus prompt is REQUIRED. The agent will only do what you ask."
             echo ""
             echo "Options:"
+            echo "  --model <model>          AI model to use (default: opencode-go/minimax-m2.7)"
             echo "  --e2e                    Run E2E tests as part of CI checks"
             echo "  --skip-checks            Skip all CI checks (typecheck, lint, build, tests)"
             echo "  --max-iterations <n>     Stop after n iterations (default: unlimited)"
@@ -63,6 +75,7 @@ while [[ $# -gt 0 ]]; do
             echo "  ./ralph-auto.sh \"Implement exchange rate sync\" --max-iterations 5"
             echo "  ./ralph-auto.sh \"Add E2E tests\" --e2e"
             echo "  ./ralph-auto.sh \"Quick fix\" --skip-checks"
+            echo "  ./ralph-auto.sh \"Complex task\" --model opencode-go/glm-5.1"
             exit 0
             ;;
         -*)
@@ -405,11 +418,11 @@ run_iteration() {
     log "INFO" "Prompt: $prompt_lines lines, CI errors: $has_ci_errors"
     log "INFO" "Prompt file: $prompt_file"
 
-    log "INFO" "Running opencode agent..."
+    log "INFO" "Running opencode agent (model: $MODEL)..."
     echo ""
 
     local agent_exit_code=0
-    if opencode run -- "$(cat "$prompt_file")" 2>&1 | tee "$output_file"; then
+    if opencode run -m "$MODEL" -- "$(cat "$prompt_file")" 2>&1 | tee "$output_file"; then
         echo ""
         log "SUCCESS" "Agent completed iteration $iteration"
     else
@@ -514,6 +527,7 @@ main() {
     if [ -n "$FOCUS_PROMPT" ]; then
         log "INFO" "Focus: $FOCUS_PROMPT"
     fi
+    log "INFO" "Model: $MODEL"
     if [ "$MAX_ITERATIONS" -gt 0 ]; then
         log "INFO" "Max iterations: $MAX_ITERATIONS"
     fi
@@ -543,12 +557,13 @@ main() {
     while true; do
         log "INFO" "------------------------------------------"
         log "INFO" "ITERATION $iteration"
-        if [ "$MAX_ITERATIONS" -gt 0 ]; then
+        if [ "$MAX_ITERATIONS" -gt 0]; then
             log "INFO" "(max: $MAX_ITERATIONS)"
         fi
         if [ -n "$FOCUS_PROMPT" ]; then
             log "INFO" "Focus: $FOCUS_PROMPT"
         fi
+        log "INFO" "Model: $MODEL"
         log "INFO" "------------------------------------------"
 
         if run_iteration $iteration; then

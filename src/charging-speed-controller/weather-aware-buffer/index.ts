@@ -61,7 +61,7 @@ export const WeatherAwareBufferControllerLayer = (
             const batteryState = batteryStateManager.get();
 
             // Run simulation if forecast or battery state changed
-            const forecastHash = JSON.stringify(forecast.periods.map((p) => p.period_end));
+            const forecastHash = forecast.periods.map((p) => p.period_end).join(',');
             const batteryHash = batteryState
               ? `${batteryState.batteryLevel}-${batteryState.chargeLimitSoc}`
               : undefined;

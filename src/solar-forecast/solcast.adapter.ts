@@ -69,11 +69,9 @@ export const SolcastForecastLayer = (
               return fileCache;
             }
             // No valid cache available, fail
-            return yield* Effect.fail(
-              new SolarForecastNotAvailableError({
-                message: "Rate limited for today and no valid cache available",
-              })
-            );
+            return yield* new SolarForecastNotAvailableError({
+              message: "Rate limited for today and no valid cache available",
+            });
           }
 
           const url = new URL(
@@ -100,21 +98,17 @@ export const SolcastForecastLayer = (
               return fileCache;
             }
             // No valid cache available, fail
-            return yield* Effect.fail(
-              new SolarForecastNotAvailableError({
-                message: "Rate limited (429) and no valid cache available",
-              })
-            );
+            return yield* new SolarForecastNotAvailableError({
+              message: "Rate limited (429) and no valid cache available",
+            });
           }
 
           const responseText = yield* response.text;
 
           if (response.status !== 200) {
-            return yield* Effect.fail(
-              new SolarForecastNotAvailableError({
-                message: `API returned status ${response.status}. Body: ${responseText}`,
-              })
-            );
+            return yield* new SolarForecastNotAvailableError({
+              message: `API returned status ${response.status}. Body: ${responseText}`,
+            });
           }
           const parsed = yield* Schema.decodeUnknown(SolcastResponseSchema)(
             JSON.parse(responseText)

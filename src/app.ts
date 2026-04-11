@@ -109,10 +109,10 @@ export const AppLayer = (config: {
           importingFromGrid,
         });
         if (importingFromGrid > 0) {
-          return yield* Effect.fail(new AbruptProductionDropError({ initialProduction: currentProductionAtStart, currentProduction }));
+          return yield* new AbruptProductionDropError({ initialProduction: currentProductionAtStart, currentProduction });
         }
 
-        return Effect.void;
+        return;
       }), Schedule.fixed(Duration.seconds(4)),
       )
     );
@@ -364,16 +364,8 @@ export const AppLayer = (config: {
         yield* Effect.log('Interrupting runtime monitor fiber');
         yield* Fiber.interrupt(runtimeMonitorFiber);
       }
-
-      yield* computeAndEmitSessionSummary();
     }).pipe(
-      Effect.catchAll((err) => {
-        return Effect.fail(err).pipe(
-          Effect.tap(computeAndEmitSessionSummary().pipe(
-            Effect.catchAll(Effect.log)
-          ))
-        );
-      }),
+      Effect.tap(() => computeAndEmitSessionSummary()),
       Effect.orDie
     );
 
@@ -389,8 +381,7 @@ export const AppLayer = (config: {
         yield* teslaClient.refreshAccessToken();
 
         tokenRefreshFiber = yield* teslaClient.setupAccessTokenAutoRefreshRecurring(60 * 60 * 2)
-          .pipe(Effect.flatMap(() => Effect.void))
-          .pipe(Effect.fork);
+          .pipe(Effect.flatMap(() => Effect.void), Effect.fork);
 
         yield* Effect.sleep(1000);
 

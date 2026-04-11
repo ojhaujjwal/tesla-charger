@@ -94,9 +94,6 @@ const program = Effect.gen(function* () {
       Effect.tap(() => captureException(err)),
       Effect.flatMap(() => app.stop()),
     )),
-    Effect.catchAll(err => Effect.log(err).pipe(
-      Effect.tap(() => captureException(err)),
-    )),
   );
 }).pipe(
   Effect.provide(
