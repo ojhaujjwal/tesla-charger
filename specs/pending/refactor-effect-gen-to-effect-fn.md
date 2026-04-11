@@ -102,10 +102,10 @@ After:
 ```typescript
 const myFunction = Effect.fn("myFunction")(function* () {
   // implementation
-}));  // ← TWO closing parens: one for generator invocation, one for Effect.fn
+}));
 ```
 
-**IMPORTANT:** `Effect.fn("name")(function* () {...})` creates an Effect directly. The call sites must change from `myFunction()` to `myFunction` (no parentheses).
+**IMPORTANT:** `Effect.fn("name")(function* () {...})` returns a FUNCTION, not an Effect directly. Call sites must KEEP the `()`.
 
 Example with `.pipe()`:
 ```typescript
@@ -114,11 +114,11 @@ const myFunction = () => Effect.gen(function* () {
   // implementation
 }).pipe(Effect.withLogAnnotation("key", "value"));
 
-// After:
-const myFunction = Effect.fn("myFunction")(function* () {
-  // implementation
-})).pipe(Effect.withLogAnnotation("key", "value"));
+// After: CANNOT convert - Effect.fn returns a function, not an Effect
+// The pattern Effect.fn("name")(generator).pipe(...) fails because .pipe() is called on a function
 ```
+
+**Functions with `.pipe()` at the end CANNOT be converted.** The pattern `Effect.fn("name")(function* {...}).pipe(...)` does NOT work because `Effect.fn(name)(generator)` returns a function, not an Effect.
 
 **Steps:**
 
@@ -287,3 +287,33 @@ Before running ralph-auto.sh, verify:
 
 - Effect Solutions basics documentation: `effect-solutions show basic`
 - `Effect.fn` provides call-site tracing for better observability
+
+## Implementation Findings
+
+During implementation of Task 2 (tesla-client/index.ts), the following was discovered:
+
+### Converted Functions (3 out of 4)
+
+1. **`getTokens`** (line 53) - ✅ Converted successfully
+2. **`refreshAccessTokenFromTesla`** (line 58) - ✅ Converted successfully
+3. **`getChargeState`** (line 173) - ✅ Converted successfully
+
+### Cannot Convert (1 out of 4)
+
+**`refreshAccessToken`** (line 166) - ❌ Cannot convert
+
+This function has `.pipe(Effect.mapError(...))` at the end:
+```typescript
+const refreshAccessToken = () => Effect.gen(function* () {
+  const result = yield* refreshAccessTokenFromTesla();
+  yield* saveTokens(result.access_token, result.refresh_token);
+}).pipe(
+  Effect.mapError((err) => new AuthenticationFailedError({ cause: err }))
+);
+```
+
+**Issue:** The `Effect.fn("name")(generator)` pattern returns a FUNCTION, not an Effect. The `.pipe()` method exists on Effects, not on functions. The pattern `Effect.fn("refreshAccessToken")(function* {...}).pipe(...)` fails because you cannot call `.pipe()` on a function.
+
+**Alternative attempted:** The spec suggested `Effect.fn("name", pipeable)(generator)` but this overload does not exist in Effect - there is no overload that accepts both a name and a pipeable.
+
+**Resolution:** `refreshAccessToken` remains in its original `() => Effect.gen(...).pipe(...)` form.

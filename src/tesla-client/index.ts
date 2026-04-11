@@ -50,12 +50,12 @@ export const TeslaClientLayer = (config: {
     const httpClient = yield* HttpClient.HttpClient;
     const commandExecutor = yield* CommandExecutor.CommandExecutor;
 
-    const getTokens = () => Effect.gen(function* () {
+    const getTokens = Effect.fn("getTokens")(function* () {
       const json = yield* fs.readFileString(config.tokenFilePath || 'token.json');
       return yield* Schema.decodeUnknown(TeslaCachedTokenSchema)(json);
     });
 
-    const refreshAccessTokenFromTesla = () => Effect.gen(function* () {
+    const refreshAccessTokenFromTesla = Effect.fn("refreshAccessTokenFromTesla")(function* () {
       const { refresh_token } = yield* getTokens().pipe(
         Effect.catchAll(
           () => fs.readFileString('.access-token').pipe(
@@ -170,7 +170,7 @@ export const TeslaClientLayer = (config: {
       Effect.mapError((err) => new AuthenticationFailedError({ cause: err }))
     );
 
-    const getChargeState = () => Effect.gen(function* () {
+    const getChargeState = Effect.fn("getChargeState")(function* () {
       const { access_token } = yield* getTokens().pipe(
         Effect.mapError((err) => new ChargeStateQueryFailedError({
           message: `Failed to get access token: ${err._tag}`,

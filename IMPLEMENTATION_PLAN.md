@@ -31,21 +31,11 @@ const myFunction = Effect.fn("myFunction")(function* () {
 myFunction()
 ```
 
-**Note:** The spec incorrectly stated call sites should remove `()`. However, `Effect.fn("name")(generator)` returns a FUNCTION (not an Effect directly), so call sites must KEEP the `()`.
+**Note:** `Effect.fn("name")(generator)` returns a FUNCTION (not an Effect directly), so call sites must KEEP the `()`.
 
-**For functions with `.pipe()`:**
+**Functions with `.pipe()` at the end CANNOT be converted:**
 
-```typescript
-// Before:
-const myFunction = () => Effect.gen(function* () {
-  // implementation
-}).pipe(pipeable1, pipeable2);
-
-// After:
-const myFunction = Effect.fn("myFunction", pipeable1, pipeable2)(function* () {
-  // implementation
-});
-```
+The pattern `Effect.fn("name")(function* {...}).pipe(...)` does NOT work because `Effect.fn(name)(generator)` returns a function, not an Effect. The spec suggestion to pass pipeables to `Effect.fn` itself (`Effect.fn("name", pipeable)(generator)`) doesn't work because there's no such overload.
 
 ### Task 1 Details
 
@@ -60,12 +50,17 @@ Converted these 6 functions in `src/app.ts`:
 
 ### Task 2 Details
 
-Convert these 4 functions in `src/tesla-client/index.ts`:
+Converted 3 out of 4 functions in `src/tesla-client/index.ts`:
 
-1. `getTokens` (line 53)
-2. `refreshAccessTokenFromTesla` (line 58)
-3. `refreshAccessToken` (line 166)
-4. `getChargeState` (line 173)
+1. `getTokens` (line 53) - ✅ converted
+2. `refreshAccessTokenFromTesla` (line 58) - ✅ converted
+3. `refreshAccessToken` (line 166) - ❌ NOT converted (has `.pipe(Effect.mapError(...))` at end)
+4. `getChargeState` (line 173) - ✅ converted
+
+**Issue with `refreshAccessToken`:**
+- Has `.pipe(Effect.mapError(...))` at the end
+- Cannot convert because `Effect.fn(name)(generator)` returns a function, not an Effect
+- The spec's suggestion to use `Effect.fn(name, pipeable)(generator)` doesn't work (no such overload)
 
 ## Verification
 
