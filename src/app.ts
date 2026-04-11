@@ -416,7 +416,10 @@ export const AppLayer = (config: {
             Effect.map(() => appStatus)
           ),
           { while: (status) => status === AppStatus.Running }
-        ).pipe(Effect.flatMap(() => Effect.void)).pipe(Effect.fork);
+        ).pipe(
+          Effect.flatMap(() => Effect.void),
+          Effect.fork
+        );
 
         if (config.timingConfig.maxRuntimeHours) {
           runtimeMonitorFiber = yield* shutdownAfterMaxRuntimeHours().pipe(Effect.fork);

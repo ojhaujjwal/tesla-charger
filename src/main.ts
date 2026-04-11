@@ -10,19 +10,14 @@ import { ExcessSolarAggresiveControllerLayer } from './charging-speed-controller
 import { ExcessSolarNonAggresiveControllerLayer } from './charging-speed-controller/excess-solar-non-aggresive.controller.js';
 import { WeatherAwareBufferControllerLayer } from './charging-speed-controller/weather-aware-buffer/index.js';
 import { SolcastForecastLayer } from './solar-forecast/solcast.adapter.js';
-import { NodeSdk as EffectOpenTelemetryNodeSdk } from "@effect/opentelemetry"
-import { SentrySpanProcessor } from "@sentry/opentelemetry";
-import * as Sentry from "@sentry/node";
+import { SentryLive, SentryFlushFiber, flushSentry, captureException, initSentry } from './sentry.js';
+import * as SentryCore from '@sentry/core';
 import { serviceLayers } from "./layers.js";
-import { BatchSpanProcessor } from "@opentelemetry/sdk-trace-base";
-import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http"
 
 const isProd = process.env.NODE_ENV == 'production';
 
-Sentry.init({
-  dsn: process.env.SENTRY_DSN as string,
-  tracesSampleRate: 1.0,
-});
+// Initialize Sentry before building Effect layers
+initSentry();
 
 const maxRuntimeHours = process.argv.includes('--max-runtime-hours')
   ? parseInt(process.argv[process.argv.indexOf('--max-runtime-hours') + 1])
@@ -84,15 +79,23 @@ const createChargingSpeedControllerLayer = () => {
 const program = Effect.gen(function* () {
   const app = yield* App;
 
-  yield* Effect.addFinalizer(() => app.stop());
+  yield* Effect.addFinalizer(() => Effect.gen(function* () {
+    yield* app.stop();
+    yield* Effect.logInfo('Finalizing, flushing Sentry...');
+    yield* flushSentry().pipe(
+      Effect.catchAll(() => Effect.logDebug('Sentry flush timed out')),
+    );
+  }));
+
+  yield* Effect.fork(SentryFlushFiber);
 
   yield* app.start().pipe(
     Effect.catchAll(err => Effect.log(err).pipe(
-      Effect.tap(() => Effect.sync(() => Sentry.captureException(err))),
+      Effect.tap(() => captureException(err)),
       Effect.flatMap(() => app.stop()),
     )),
     Effect.catchAll(err => Effect.log(err).pipe(
-      Effect.tap(() => Effect.sync(() => Sentry.captureException(err))),
+      Effect.tap(() => captureException(err)),
     )),
   );
 }).pipe(
@@ -112,15 +115,7 @@ const program = Effect.gen(function* () {
           vin: process.env.TESLA_VIN as string,
         })
       ),
-      Layer.provideMerge(
-        EffectOpenTelemetryNodeSdk.layer(() => ({
-          resource: { serviceName: "tesla-charger" },
-          spanProcessor: [
-            new SentrySpanProcessor(),
-            new BatchSpanProcessor(new OTLPTraceExporter())
-          ]
-        }))
-      ),
+      Layer.provideMerge(SentryLive),
       Layer.provideMerge(NodeContext.layer),
       Layer.provideMerge(NodeHttpClient.layer),
     )
@@ -130,20 +125,20 @@ const program = Effect.gen(function* () {
   Effect.tapDefect((cause) => Effect.sync(() => {
     const defects = Chunk.toReadonlyArray(Cause.defects(cause));
     for (const defect of defects) {
-      Sentry.captureException(defect);
+      SentryCore.captureException(defect);
     }
     if (defects.length === 0) {
-      Sentry.captureException(new Error(Cause.pretty(cause)));
+      SentryCore.captureException(new Error(Cause.pretty(cause)));
     }
   })),
 );
 
 // 3. Execution
-NodeRuntime.runMain(program);
+NodeRuntime.runMain(program, { disablePrettyLogger: true });
 
 process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-  Sentry.captureException(reason);
-  void Sentry.flush(2000).then(() => process.exit(1));
+  SentryCore.captureException(reason);
+  void SentryCore.flush(5000).then(() => process.exit(1));
 });
 
