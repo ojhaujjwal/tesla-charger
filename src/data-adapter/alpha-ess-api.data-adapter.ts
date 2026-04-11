@@ -17,9 +17,9 @@ export type AlphaEssConfig = {
 
 const PpvDetailSchema = Schema.Struct({
   ppv1: Schema.Number,
-  ppv2: Schema.Number,
-  ppv3: Schema.Number,
-  ppv4: Schema.Number,
+  ppv2: Schema.NullOr(Schema.Number),
+  ppv3: Schema.NullOr(Schema.Number),
+  ppv4: Schema.NullOr(Schema.Number),
   pmeterDc: Schema.Number,
 });
 
