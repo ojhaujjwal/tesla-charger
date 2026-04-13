@@ -87,11 +87,23 @@ export const TeslaClientLayer = (config: {
             ),
             while: (error) => error._tag === 'RequestError' || error._tag === 'TimeoutException',
           }),
-          Effect.catchTag('TimeoutException', () => Effect.fail(new UnableToFetchAccessTokenError())),
+          Effect.catchTag('TimeoutException', (err) => 
+  Effect.fail(new UnableToFetchAccessTokenError({ 
+    message: 'Request timed out after 5 seconds',
+    cause: err
+  }))
+),
         );
 
       if (response.status !== 200) {
-        return yield* new UnableToFetchAccessTokenError();
+        const body = yield* response.text.pipe(
+          Effect.catchAll(() => Effect.succeed('Unable to read response body'))
+        );
+        return yield* new UnableToFetchAccessTokenError({
+          message: `Token refresh failed with status ${response.status}`,
+          statusCode: response.status,
+          responseBody: body,
+        });
       }
 
       return yield* Schema.decodeUnknown(TeslaTokenResponseSchema)(yield* response.text);
@@ -240,9 +252,30 @@ export const TeslaClientLayer = (config: {
               code: authorizationCode,
             })),
           }
+        ).pipe(
+          Effect.timeout(Duration.seconds(5)),
+          Effect.catchTag('TimeoutException', (err) => 
+            Effect.fail(new UnableToFetchAccessTokenError({
+              message: 'Authorization code grant request timed out',
+              cause: err
+            }))
+          )
         );
 
-        return yield* Schema.decodeUnknown(TeslaTokenResponseSchema)(yield* response.text);
+        if (response.status !== 200) {
+          return yield* new UnableToFetchAccessTokenError({
+            message: `Authorization code grant failed with status ${response.status}`,
+            statusCode: response.status,
+            responseBody: yield* response.text,
+          });
+        }
+
+        return yield* Schema.decodeUnknown(TeslaTokenResponseSchema)(yield* response.text).pipe(
+          Effect.mapError((err) => new UnableToFetchAccessTokenError({
+            message: 'Failed to parse token response',
+            responseBody: `${err}`
+          }))
+        );
       }),
       refreshAccessToken,
       setupAccessTokenAutoRefreshRecurring: (timeoutInSeconds: number) => Effect.repeat(refreshAccessToken(), {
