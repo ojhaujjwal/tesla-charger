@@ -52,7 +52,7 @@ export const TeslaClientLayer = (config: {
 
     const getTokens = Effect.fn("getTokens")(function* () {
       const json = yield* fs.readFileString(config.tokenFilePath || 'token.json');
-      return yield* Schema.decodeUnknown(TeslaCachedTokenSchema)(json);
+      return yield* Schema.decodeUnknown(Schema.parseJson(TeslaCachedTokenSchema))(json);
     });
 
     const refreshAccessTokenFromTesla = Effect.fn("refreshAccessTokenFromTesla")(function* () {
@@ -88,11 +88,11 @@ export const TeslaClientLayer = (config: {
             while: (error) => error._tag === 'RequestError' || error._tag === 'TimeoutException',
           }),
           Effect.catchTag('TimeoutException', (err) => 
-  Effect.fail(new UnableToFetchAccessTokenError({ 
-    message: 'Request timed out after 5 seconds',
-    cause: err
-  }))
-),
+            Effect.fail(new UnableToFetchAccessTokenError({ 
+              message: 'Request timed out after 5 seconds',
+              cause: err
+            }))
+          ),
         );
 
       if (response.status !== 200) {
@@ -106,7 +106,7 @@ export const TeslaClientLayer = (config: {
         });
       }
 
-      return yield* Schema.decodeUnknown(TeslaTokenResponseSchema)(yield* response.text);
+      return yield* Schema.decodeUnknown(Schema.parseJson(TeslaTokenResponseSchema))(yield* response.text);
     });
 
     const saveTokens = (accessToken: string, refreshToken: string) => Effect.gen(function* () {
@@ -220,7 +220,7 @@ export const TeslaClientLayer = (config: {
         }))
       );
 
-      const parsed = yield* Schema.decodeUnknown(TeslaChargeStateResponseSchema)(responseBody).pipe(
+      const parsed = yield* Schema.decodeUnknown(Schema.parseJson(TeslaChargeStateResponseSchema))(responseBody).pipe(
         Effect.mapError((err) => new ChargeStateQueryFailedError({
           message: `Failed to decode charge state response: ${err._tag}`,
           cause: err
@@ -235,7 +235,7 @@ export const TeslaClientLayer = (config: {
     });
 
     return {
-      authenticateFromAuthCodeGrant: (authorizationCode: string) => Effect.gen(function* () {
+      authenticateFromAuthCodeGrant: Effect.fn('authenticateFromAuthCodeGrant')(function* (authorizationCode: string) {
         const response = yield* httpClient.post(
           OAUTH2_TOKEN_BASE_URL,
           {
@@ -270,10 +270,12 @@ export const TeslaClientLayer = (config: {
           });
         }
 
-        return yield* Schema.decodeUnknown(TeslaTokenResponseSchema)(yield* response.text).pipe(
+        const responseBody = yield* response.text;
+        return yield* Schema.decodeUnknown(Schema.parseJson(TeslaTokenResponseSchema))(responseBody).pipe(
           Effect.mapError((err) => new UnableToFetchAccessTokenError({
             message: 'Failed to parse token response',
-            responseBody: `${err}`
+            cause: err,
+            responseBody: responseBody,
           }))
         );
       }),

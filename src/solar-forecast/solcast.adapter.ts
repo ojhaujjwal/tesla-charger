@@ -110,9 +110,7 @@ export const SolcastForecastLayer = (
               message: `API returned status ${response.status}. Body: ${responseText}`,
             });
           }
-          const parsed = yield* Schema.decodeUnknown(SolcastResponseSchema)(
-            JSON.parse(responseText)
-          );
+          const parsed = yield* Schema.decodeUnknown(Schema.parseJson(SolcastResponseSchema))(responseText);
 
           const result: SolarForecastResult = {
             periods: parsed.forecasts,
@@ -159,9 +157,7 @@ export const SolcastForecastLayer = (
           }
 
           const content = yield* fileSystem.readFileString(CACHE_FILE_PATH);
-          const cache = yield* Schema.decodeUnknown(FileCacheSchema)(
-            JSON.parse(content)
-          );
+          const cache = yield* Schema.decodeUnknown(Schema.parseJson(FileCacheSchema))(content);
 
           const fetchedAt = new Date(cache.fetchedAt).getTime();
           const ageMs = Date.now() - fetchedAt;
@@ -204,9 +200,7 @@ export const SolcastForecastLayer = (
             const cacheContent = yield* fileSystem.readFileString(
               CACHE_FILE_PATH
             );
-            const cache = yield* Schema.decodeUnknown(FileCacheSchema)(
-              JSON.parse(cacheContent)
-            );
+            const cache = yield* Schema.decodeUnknown(Schema.parseJson(FileCacheSchema))(cacheContent);
             const fetchedAt = new Date(cache.fetchedAt).getTime();
             const ageMs = Date.now() - fetchedAt;
 
