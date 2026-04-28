@@ -20,7 +20,6 @@ describe('App', () => {
         setAmpere: vitest.fn(),
         wakeUpCar: vitest.fn(),
         getChargeState: vitest.fn(),
-        saveTokens: vitest.fn(),
     };
 
     const dataAdapterMock: MockedObject<IDataAdapter> = {

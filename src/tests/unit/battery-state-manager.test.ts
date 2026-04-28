@@ -16,7 +16,6 @@ describe('BatteryStateManager', () => {
     setAmpere: vitest.fn(),
     wakeUpCar: vitest.fn(),
     getChargeState: vitest.fn(),
-    saveTokens: vitest.fn(),
   };
 
   const TestTeslaClient = Layer.succeed(TeslaClient, teslaClientMock);

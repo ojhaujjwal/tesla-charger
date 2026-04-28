@@ -20,7 +20,6 @@ export type TeslaClient = {
   readonly setAmpere: (ampere: number) => CommandResult;
   readonly wakeUpCar: () => Effect.Effect<void, VehicleCommandFailedError>;
   readonly getChargeState: () => Effect.Effect<{ batteryLevel: number; chargeLimitSoc: number; chargeEnergyAdded: number }, ChargeStateQueryFailedError>;
-  readonly saveTokens: (accessToken: string, refreshToken: string) => Effect.Effect<void, unknown>;
 }
 
 export type ITeslaClient = TeslaClient;
@@ -56,13 +55,7 @@ export const TeslaClientLayer = (config: {
     });
 
     const refreshAccessTokenFromTesla = Effect.fn("refreshAccessTokenFromTesla")(function* () {
-      const { refresh_token } = yield* getTokens().pipe(
-        Effect.catchAll(
-          () => fs.readFileString('.access-token').pipe(
-            Effect.map((val) => ({ refresh_token: val }))
-          )
-        )
-      );
+      const { refresh_token } = yield* getTokens();
 
       const response = yield* httpClient.post(
         OAUTH2_TOKEN_BASE_URL,
@@ -234,8 +227,7 @@ export const TeslaClientLayer = (config: {
       };
     });
 
-    return {
-      authenticateFromAuthCodeGrant: Effect.fn('authenticateFromAuthCodeGrant')(function* (authorizationCode: string) {
+    const authenticateFromAuthCodeGrantInternal = Effect.fn('authenticateFromAuthCodeGrant')(function* (authorizationCode: string) {
         const response = yield* httpClient.post(
           OAUTH2_TOKEN_BASE_URL,
           {
@@ -278,7 +270,18 @@ export const TeslaClientLayer = (config: {
             responseBody: responseBody,
           }))
         );
-      }),
+      });
+
+    return {
+      authenticateFromAuthCodeGrant: (authorizationCode: string) =>
+        authenticateFromAuthCodeGrantInternal(authorizationCode).pipe(
+          Effect.flatMap((result) =>
+            saveTokens(result.access_token, result.refresh_token).pipe(
+              Effect.as(result)
+            )
+          )
+        ),
+
       refreshAccessToken,
       setupAccessTokenAutoRefreshRecurring: (timeoutInSeconds: number) => Effect.repeat(refreshAccessToken(), {
         schedule: Schedule.duration(Duration.seconds(timeoutInSeconds)),
@@ -294,7 +297,6 @@ export const TeslaClientLayer = (config: {
         Effect.catchTag('VehicleAsleepError', () => Effect.fail(new VehicleCommandFailedError({ message: 'Vehicle is still asleep while issuing wakeup.' }))),
       ),
       getChargeState,
-      saveTokens,
     };
   })
 );
