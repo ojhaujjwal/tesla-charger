@@ -43,13 +43,10 @@ const parseCsv = <F extends Field>(
     const headers = rows[0].split(",");
     const data = rows.slice(1, 1 + fields.length).map((row) => {
       const values = row.split(",");
-      return headers.reduce<Record<string, string>>(
-        (acc, header, index) => {
-          acc[header] = values[index];
-          return acc;
-        },
-        {}
-      );
+      return headers.reduce<Record<string, string>>((acc, header, index) => {
+        acc[header] = values[index];
+        return acc;
+      }, {});
     });
 
     const result: Record<string, number> = {};
@@ -151,7 +148,7 @@ export class SunGatherInfluxDbDataAdapter implements IDataAdapter {
     const client = this.httpClient;
 
     return Effect.gen(this, function* () {
-      const response = yield* client.post(`${this.influxUrl}/api/v2/query?org=${deps.org}&pretty=true`, {
+      const response = yield* client.post(`${this.influxUrl}/api/v2/query?org=${this.org}&pretty=true`, {
         headers: {
           "Content-Type": "application/vnd.flux",
           Accept: "application/csv",
