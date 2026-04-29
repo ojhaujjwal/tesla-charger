@@ -162,9 +162,3 @@ const runProgram = Effect.gen(function* () {
 
 // 3. Execution
 NodeRuntime.runMain(runProgram, { disablePrettyLogger: true });
-
-process.on("unhandledRejection", (reason, promise) => {
-  console.error("Unhandled Rejection at:", promise, "reason:", reason);
-  SentryCore.captureException(reason);
-  void SentryCore.flush(5000).then(() => process.exit(1));
-});

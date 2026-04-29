@@ -35,7 +35,13 @@
     {
       "files": ["src/setup-tesla-partner-application.ts"],
       "rules": {
-        "no-console": "off"
+        "tesla-charger/no-console": "off"
+      }
+    },
+    {
+      "files": ["src/memory-usage.ts"],
+      "rules": {
+        "tesla-charger/no-process": "off"
       }
     }
   ]

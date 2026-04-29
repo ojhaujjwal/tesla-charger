@@ -2,7 +2,7 @@ import { Duration, Effect, Layer, Schedule, Schema } from "effect";
 import { DataAdapter, DataNotAvailableError, SourceNotAvailableError, type Field, type IDataAdapter } from "./types.js";
 import { HttpClient } from "@effect/platform";
 import { AppConfig } from "./../config.js";
-import { createHash } from "node:crypto";
+import { createHash } from "crypto";
 
 export type AlphaEssConfig = {
   readonly appId: string;

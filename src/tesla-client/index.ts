@@ -122,9 +122,9 @@ export const TeslaClientLayer = (config: {
 
       const runCommand = (command: string, commandArgs: string[]) =>
         Effect.gen(function* () {
-          const process = yield* Command.start(Command.make(command, ...commandArgs));
+          const commandOutcome = yield* Command.start(Command.make(command, ...commandArgs));
           const [exitCode, stdout, stderr] = yield* Effect.all(
-            [process.exitCode, runString(process.stdout), runString(process.stderr)],
+            [commandOutcome.exitCode, runString(commandOutcome.stdout), runString(commandOutcome.stderr)],
             { concurrency: 3 }
           );
           return { exitCode, stdout, stderr };

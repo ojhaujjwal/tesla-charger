@@ -148,18 +148,17 @@ export class SunGatherInfluxDbDataAdapter implements IDataAdapter {
   getLowestValueInLastXMinutes(field: Field, minutes: number) {
     const mappedField = fieldMap[field] ?? field;
 
-    const deps = this;
     const client = this.httpClient;
 
-    return Effect.gen(function* () {
-      const response = yield* client.post(`${deps.influxUrl}/api/v2/query?org=${deps.org}&pretty=true`, {
+    return Effect.gen(this, function* () {
+      const response = yield* client.post(`${this.influxUrl}/api/v2/query?org=${deps.org}&pretty=true`, {
         headers: {
           "Content-Type": "application/vnd.flux",
           Accept: "application/csv",
-          Authorization: `Token ${deps.influxToken}`
+          Authorization: `Token ${this.influxToken}`
         },
         body: raw(`
-              from(bucket: "${deps.bucket}")
+              from(bucket: "${this.bucket}")
                 |> range(start: -${minutes}m)
                 |> filter(fn: (r) => r._field == "${mappedField}")
                 |> min()

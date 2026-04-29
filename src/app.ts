@@ -12,6 +12,7 @@ import { Context, Duration, Effect, Fiber, Layer, PubSub, pipe, Schedule } from 
 import { type AuthenticationFailedError, type VehicleCommandFailedError } from "./tesla-client/errors.js";
 import { VehicleNotWakingUpError } from "./errors/vehicle-not-waking-up.error.js";
 import { BatteryStateManager } from "./battery-state-manager.js";
+import { memoryUsageMB } from "./memory-usage.js";
 import type { TeslaChargerEvent } from "./events.js";
 
 type ChargingState = {
@@ -99,8 +100,6 @@ export const AppLayer = (config: {
           >
         | undefined;
       let runtimeMonitorFiber: Fiber.RuntimeFiber<void, never> | undefined;
-
-      const memoryUsageMB = () => process.memoryUsage().heapUsed / 1024 / 1024;
 
       const waitAndWatchoutForSuddenDropInProduction = (currentProductionAtStart: number, timeInSeconds: number) =>
         Effect.race(
