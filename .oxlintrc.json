@@ -1,0 +1,43 @@
+{
+  "ignorePatterns": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/.tsbuildinfo",
+    "**/*.md",
+    "**/.ralph/**"
+  ],
+  "jsPlugins": ["./lint/index.ts"],
+  "rules": {
+    "no-explicit-any": "error",
+    "typescript/consistent-type-assertions": ["error", { "assertionStyle": "never" }],
+    "typescript/no-non-null-assertion": "error",
+    "tesla-charger/no-effect-ignore": "error",
+    "tesla-charger/no-effect-catchallcause": "error",
+    "tesla-charger/no-effect-asvoid": "error",
+    "tesla-charger/no-silent-error-swallow": "error",
+    "tesla-charger/no-service-option": "error",
+    "tesla-charger/no-nested-layer-provide": "error",
+    "tesla-charger/pipe-max-arguments": "error",
+    "tesla-charger/prefer-option-from-nullable": "error",
+    "tesla-charger/no-disable-validation": "error",
+    "tesla-charger/no-void-expression": "error",
+    "tesla-charger/no-node-imports": "error",
+    "tesla-charger/no-require": "error",
+    "tesla-charger/no-process": "error",
+    "tesla-charger/no-bun-globals": "error",
+    "tesla-charger/no-console": "error",
+    "tesla-charger/no-plain-it-with-effect": "error",
+    "tesla-charger/no-oxlint-disable": "error",
+    "tesla-charger/no-vitest-modifiers": "error",
+    "tesla-charger/no-ts-ignore": "error"
+  },
+  "overrides": [
+    {
+      "files": ["**/*.test.ts"],
+      "rules": {
+        "tesla-charger/no-silent-error-swallow": "off"
+      }
+    }
+  ]
+}

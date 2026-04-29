@@ -1,7 +1,7 @@
 /**
- * @filename: lint-staged.config.js
+ * @filename: lint-staged.config.mjs
  * @type {import('lint-staged').Configuration}
  */
 export default {
-  '*': 'npm run lint --fix',
+  '*.{ts}': ['oxfmt --write', 'oxlint --disable-nested-config --fix'],
 }
