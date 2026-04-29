@@ -5,15 +5,10 @@ import type { WeatherAwareBufferConfig, SunTimes } from "./types.js";
 export const calculateSunTimes = (date: Date, latitude: number): SunTimes => {
   // Calculate day of year (1-365)
   const startOfYear = new Date(date.getFullYear(), 0, 1);
-  const dayOfYear = Math.floor(
-    (date.getTime() - startOfYear.getTime()) / (1000 * 60 * 60 * 24)
-  );
+  const dayOfYear = Math.floor((date.getTime() - startOfYear.getTime()) / (1000 * 60 * 60 * 24));
 
   // Solar declination angle (in radians)
-  const declinationRad =
-    (23.45 * Math.PI) /
-    180 *
-    Math.sin((2 * Math.PI * (284 + dayOfYear)) / 365);
+  const declinationRad = ((23.45 * Math.PI) / 180) * Math.sin((2 * Math.PI * (284 + dayOfYear)) / 365);
 
   // Convert latitude to radians
   const latRad = (latitude * Math.PI) / 180;
@@ -44,29 +39,21 @@ export const calculateSunTimes = (date: Date, latitude: number): SunTimes => {
 
   return {
     sunrise: sunriseHour,
-    sunset: sunsetHour,
+    sunset: sunsetHour
   };
 };
 
-export const calculateDefaultMonthlyPeakFactors = (
-  latitude: number
-): readonly number[] => {
+export const calculateDefaultMonthlyPeakFactors = (latitude: number): readonly number[] => {
   const factors: number[] = [];
 
   // Calculate for each month (using 15th as representative day)
   for (let month = 0; month < 12; month++) {
     const date = new Date(2024, month, 15); // Use 2024 as reference year
     const startOfYear = new Date(2024, 0, 1);
-    const dayOfYear =
-      Math.floor(
-        (date.getTime() - startOfYear.getTime()) / (1000 * 60 * 60 * 24)
-      ) + 1;
+    const dayOfYear = Math.floor((date.getTime() - startOfYear.getTime()) / (1000 * 60 * 60 * 24)) + 1;
 
     // Solar declination angle (in radians)
-    const declinationRad =
-      (23.45 * Math.PI) /
-      180 *
-      Math.sin((2 * Math.PI * (284 + dayOfYear)) / 365);
+    const declinationRad = ((23.45 * Math.PI) / 180) * Math.sin((2 * Math.PI * (284 + dayOfYear)) / 365);
 
     // Solar elevation at noon = 90 - |latitude - declination|
     // For southern hemisphere, we need to account for the sign
@@ -90,15 +77,9 @@ export const calculateDefaultMonthlyPeakFactors = (
   return [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
 };
 
-export const expectedCapacityKw = (
-  date: Date,
-  hour: number,
-  config: WeatherAwareBufferConfig
-): number => {
+export const expectedCapacityKw = (date: Date, hour: number, config: WeatherAwareBufferConfig): number => {
   // Get monthly peak factors (use provided or calculate)
-  const monthlyPeakFactors =
-    config.monthlyPeakFactors ??
-    calculateDefaultMonthlyPeakFactors(config.latitude);
+  const monthlyPeakFactors = config.monthlyPeakFactors ?? calculateDefaultMonthlyPeakFactors(config.latitude);
 
   // Get sun times for this date
   const { sunrise, sunset } = calculateSunTimes(date, config.latitude);

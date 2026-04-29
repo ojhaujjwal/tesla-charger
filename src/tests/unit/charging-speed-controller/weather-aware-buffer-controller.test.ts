@@ -9,7 +9,7 @@ import {
   periodConfidence,
   simulateCharge,
   WeatherAwareBufferControllerLayer,
-  type WeatherAwareBufferConfig,
+  type WeatherAwareBufferConfig
 } from "../../../charging-speed-controller/weather-aware-buffer/index.js";
 import { ChargingSpeedController } from "../../../charging-speed-controller/types.js";
 import { DataAdapter, type IDataAdapter } from "../../../data-adapter/types.js";
@@ -121,7 +121,7 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
       longitude: 151.2093,
       defaultDailyProductionKwh: 30,
       solarCutoffHour: 18,
-      multipleOf: 3,
+      multipleOf: 3
     };
 
     it("should return peak capacity at solar noon", () => {
@@ -226,7 +226,7 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
       longitude: 151.2093,
       defaultDailyProductionKwh: 30,
       solarCutoffHour: 18,
-      multipleOf: 3,
+      multipleOf: 3
     };
 
     it("should return canComplete=true for sunny forecast with low charge need", () => {
@@ -236,19 +236,19 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
             pv_estimate: 8.0, // High production
             pv_estimate10: 8.0,
             pv_estimate90: 8.0,
-            period_end: "2024-01-15T12:30:00Z",
+            period_end: "2024-01-15T12:30:00Z"
           },
           {
             pv_estimate: 8.5,
             pv_estimate10: 8.5,
             pv_estimate90: 8.5,
-            period_end: "2024-01-15T13:00:00Z",
-          },
-        ],
+            period_end: "2024-01-15T13:00:00Z"
+          }
+        ]
       };
       const batteryState = {
         batteryLevel: 70,
-        chargeLimitSoc: 80, // Only needs 10% = 7.5 kWh
+        chargeLimitSoc: 80 // Only needs 10% = 7.5 kWh
       };
       const now = new Date("2024-01-15T12:00:00Z");
 
@@ -265,19 +265,19 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
             pv_estimate: 1.0, // Low production (cloudy)
             pv_estimate10: 1.0,
             pv_estimate90: 1.0,
-            period_end: "2024-01-15T12:30:00Z",
+            period_end: "2024-01-15T12:30:00Z"
           },
           {
             pv_estimate: 1.5,
             pv_estimate10: 1.5,
             pv_estimate90: 1.5,
-            period_end: "2024-01-15T13:00:00Z",
-          },
-        ],
+            period_end: "2024-01-15T13:00:00Z"
+          }
+        ]
       };
       const batteryState = {
         batteryLevel: 30,
-        chargeLimitSoc: 80, // Needs 50% = 37.5 kWh
+        chargeLimitSoc: 80 // Needs 50% = 37.5 kWh
       };
       const now = new Date("2024-01-15T12:00:00Z");
 
@@ -294,13 +294,13 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
             pv_estimate: 8.0,
             pv_estimate10: 8.0,
             pv_estimate90: 8.0,
-            period_end: "2024-01-15T19:00:00Z", // After cutoff (18:00)
-          },
-        ],
+            period_end: "2024-01-15T19:00:00Z" // After cutoff (18:00)
+          }
+        ]
       };
       const batteryState = {
         batteryLevel: 50,
-        chargeLimitSoc: 80,
+        chargeLimitSoc: 80
       };
       const now = new Date("2024-01-15T18:30:00Z"); // After cutoff
 
@@ -323,16 +323,16 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
 
       mockDataAdapter = {
         queryLatestValues: vi.fn(),
-        getLowestValueInLastXMinutes: vi.fn(),
+        getLowestValueInLastXMinutes: vi.fn()
       };
 
       mockSolarForecast = {
-        getForecast: vi.fn(),
+        getForecast: vi.fn()
       };
 
       mockBatteryStateManager = {
         start: vi.fn(),
-        get: vi.fn(() => batteryState),
+        get: vi.fn(() => batteryState)
       };
     });
 
@@ -345,7 +345,7 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
       longitude: 151.2093,
       defaultDailyProductionKwh: 30,
       solarCutoffHour: 18,
-      multipleOf: 3,
+      multipleOf: 3
     };
 
     const TestLayer = (config: WeatherAwareBufferConfig = baseConfig) =>
@@ -368,7 +368,7 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
             current_production: 0,
             current_load: 0,
             daily_import: 0,
-            battery_power: 0,
+            battery_power: 0
           })
         );
 
@@ -393,15 +393,15 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
                 pv_estimate10: 8.0,
                 pv_estimate90: 8.0,
                 period_end: "2024-01-15T12:30:00Z",
-                period: "PT30M",
-              },
-            ],
+                period: "PT30M"
+              }
+            ]
           })
         );
         batteryState = {
           batteryLevel: 50,
           chargeLimitSoc: 80,
-          queriedAtMs: Date.now(),
+          queriedAtMs: Date.now()
         };
         mockDataAdapter.queryLatestValues.mockReturnValue(
           Effect.succeed({
@@ -411,7 +411,7 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
             current_production: 0,
             current_load: 0,
             daily_import: 0,
-            battery_power: 0,
+            battery_power: 0
           })
         );
 
@@ -438,15 +438,15 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
                 pv_estimate10: 1.0,
                 pv_estimate90: 1.0,
                 period_end: "2024-01-15T12:30:00Z",
-                period: "PT30M",
-              },
-            ],
+                period: "PT30M"
+              }
+            ]
           })
         );
         batteryState = {
           batteryLevel: 50,
           chargeLimitSoc: 80,
-          queriedAtMs: Date.now(),
+          queriedAtMs: Date.now()
         };
         mockDataAdapter.queryLatestValues.mockReturnValue(
           Effect.succeed({
@@ -456,7 +456,7 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
             current_production: 0,
             current_load: 0,
             daily_import: 0,
-            battery_power: 0,
+            battery_power: 0
           })
         );
 
@@ -483,15 +483,15 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
                 pv_estimate10: 2.0,
                 pv_estimate90: 2.0,
                 period_end: "2024-01-15T12:30:00Z",
-                period: "PT30M",
-              },
-            ],
+                period: "PT30M"
+              }
+            ]
           })
         );
         batteryState = {
           batteryLevel: 30,
           chargeLimitSoc: 80, // Needs a lot
-          queriedAtMs: Date.now(),
+          queriedAtMs: Date.now()
         };
         mockDataAdapter.queryLatestValues.mockReturnValue(
           Effect.succeed({
@@ -501,7 +501,7 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
             current_production: 0,
             current_load: 0,
             daily_import: 0,
-            battery_power: 0,
+            battery_power: 0
           })
         );
 
@@ -517,7 +517,7 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
         Effect.provide(
           TestLayer({
             ...baseConfig,
-            deadlineHour: 14, // 2PM deadline
+            deadlineHour: 14 // 2PM deadline
           })
         )
       )
@@ -533,15 +533,15 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
                 pv_estimate10: 8.0,
                 pv_estimate90: 8.0,
                 period_end: "2024-01-15T12:30:00Z",
-                period: "PT30M",
-              },
-            ],
+                period: "PT30M"
+              }
+            ]
           })
         );
         batteryState = {
           batteryLevel: 50,
           chargeLimitSoc: 80,
-          queriedAtMs: Date.now(),
+          queriedAtMs: Date.now()
         };
         // Very high export -> should hit 32A limit
         mockDataAdapter.queryLatestValues.mockReturnValue(
@@ -552,7 +552,7 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
             current_production: 0,
             current_load: 0,
             daily_import: 0,
-            battery_power: 0,
+            battery_power: 0
           })
         );
 

@@ -12,9 +12,7 @@ export type SolarForecastResult = {
   readonly periods: readonly SolarForecastPeriod[];
 };
 
-export class SolarForecastNotAvailableError extends Data.TaggedError(
-  "SolarForecastNotAvailable"
-)<{
+export class SolarForecastNotAvailableError extends Data.TaggedError("SolarForecastNotAvailable")<{
   readonly message: string;
   readonly cause?: unknown;
 }> {}
@@ -22,9 +20,6 @@ export class SolarForecastNotAvailableError extends Data.TaggedError(
 export class SolarForecast extends Context.Tag("SolarForecast")<
   SolarForecast,
   {
-    readonly getForecast: () => Effect.Effect<
-      SolarForecastResult,
-      SolarForecastNotAvailableError
-    >;
+    readonly getForecast: () => Effect.Effect<SolarForecastResult, SolarForecastNotAvailableError>;
   }
 >() {}

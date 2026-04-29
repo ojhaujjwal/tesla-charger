@@ -15,11 +15,7 @@ export { simulateCharge } from "./charge-simulation.js";
 
 export const WeatherAwareBufferControllerLayer = (
   config: WeatherAwareBufferConfig
-): Layer.Layer<
-  ChargingSpeedController,
-  never,
-  DataAdapter | SolarForecast | BatteryStateManager
-> =>
+): Layer.Layer<ChargingSpeedController, never, DataAdapter | SolarForecast | BatteryStateManager> =>
   Layer.effect(
     ChargingSpeedController,
     Effect.gen(function* () {
@@ -34,7 +30,7 @@ export const WeatherAwareBufferControllerLayer = (
       yield* Effect.logInfo("Weather-aware buffer controller initialized", {
         monthlyPeakFactors: monthlyPeakFactors,
         peakSolarCapacityKw: config.peakSolarCapacityKw,
-        latitude: config.latitude,
+        latitude: config.latitude
       });
 
       // Cache simulation result (refresh when forecast changes)
@@ -52,7 +48,7 @@ export const WeatherAwareBufferControllerLayer = (
             const forecast = yield* solarForecast.getForecast().pipe(
               Effect.catchAll(() =>
                 Effect.succeed({
-                  periods: [],
+                  periods: []
                 })
               )
             );
@@ -61,19 +57,14 @@ export const WeatherAwareBufferControllerLayer = (
             const batteryState = batteryStateManager.get();
 
             // Run simulation if forecast or battery state changed
-            const forecastHash = forecast.periods.map((p) => p.period_end).join(',');
+            const forecastHash = forecast.periods.map((p) => p.period_end).join(",");
             const batteryHash = batteryState
               ? `${batteryState.batteryLevel}-${batteryState.chargeLimitSoc}`
               : undefined;
             const currentHash = `${forecastHash}-${batteryHash}`;
 
             if (currentHash !== lastForecastHash || cachedSimulation === undefined) {
-              cachedSimulation = simulateCharge(
-                config,
-                forecast,
-                batteryState,
-                now
-              );
+              cachedSimulation = simulateCharge(config, forecast, batteryState, now);
               lastForecastHash = currentHash;
 
               // Log shortfall warning if needed
@@ -98,25 +89,18 @@ export const WeatherAwareBufferControllerLayer = (
 
             if (currentPeriod) {
               const periodEnd = new Date(currentPeriod.period_end);
-              const periodHourUtc =
-                periodEnd.getUTCHours() + periodEnd.getUTCMinutes() / 60;
+              const periodHourUtc = periodEnd.getUTCHours() + periodEnd.getUTCMinutes() / 60;
               const localHour = periodHourUtc; // Treat as local solar time
 
               const expectedCap = expectedCapacityKw(periodEnd, localHour, {
                 ...config,
-                monthlyPeakFactors,
+                monthlyPeakFactors
               });
 
-              const confidence = periodConfidence(
-                currentPeriod.pv_estimate,
-                expectedCap
-              );
+              const confidence = periodConfidence(currentPeriod.pv_estimate, expectedCap);
 
               // Weather-based buffer: inversely proportional to confidence
-              const weatherBuffer =
-                config.minBufferPower *
-                (1 +
-                  (config.bufferMultiplierMax - 1) * (1 - confidence));
+              const weatherBuffer = config.minBufferPower * (1 + (config.bufferMultiplierMax - 1) * (1 - confidence));
 
               // Urgency modulation ONLY if deadlineHour is set
               if (config.deadlineHour !== undefined && batteryState) {
@@ -134,34 +118,23 @@ export const WeatherAwareBufferControllerLayer = (
             const {
               voltage,
               export_to_grid: exportingToGrid,
-              import_from_grid: importingFromGrid,
-            } = yield* dataAdapter.queryLatestValues([
-              "voltage",
-              "export_to_grid",
-              "import_from_grid",
-            ]);
+              import_from_grid: importingFromGrid
+            } = yield* dataAdapter.queryLatestValues(["voltage", "export_to_grid", "import_from_grid"]);
 
             const netExport = exportingToGrid - importingFromGrid;
-            const excessSolar =
-              netExport - finalBuffer + currentChargingSpeed * voltage;
+            const excessSolar = netExport - finalBuffer + currentChargingSpeed * voltage;
 
             if (excessSolar / voltage >= 32) {
               return 32;
             }
 
-            return Math.max(
-              0,
-              Math.floor((excessSolar / voltage) / config.multipleOf) *
-                config.multipleOf
-            );
+            return Math.max(0, Math.floor(excessSolar / voltage / config.multipleOf) * config.multipleOf);
           }).pipe(
             Effect.catchTags({
-              DataNotAvailable: (err) =>
-                Effect.fail(new InadequateDataToDetermineSpeedError({ cause: err })),
-              SourceNotAvailable: (err) =>
-                Effect.fail(new InadequateDataToDetermineSpeedError({ cause: err })),
+              DataNotAvailable: (err) => Effect.fail(new InadequateDataToDetermineSpeedError({ cause: err })),
+              SourceNotAvailable: (err) => Effect.fail(new InadequateDataToDetermineSpeedError({ cause: err }))
             })
-          ),
+          )
       };
     })
   );

@@ -2,11 +2,10 @@
   "name": "tesla-charger",
   "version": "1.0.0",
   "description": "",
-  "exports": "./index.js",
+  "license": "ISC",
+  "author": "",
   "type": "module",
-  "engines": {
-    "node": ">=21.7.3"
-  },
+  "exports": "./index.js",
   "scripts": {
     "cmd:generate-refresh-token": "tsx --env-file=.env src/generate-refresh-token.ts",
     "cmd:setup-tesla-partner-application": "tsx --env-file=.env src/setup-tesla-partner-application.ts",
@@ -26,8 +25,18 @@
     "lint-staged": "lint-staged",
     "prepare": "husky && effect-language-service patch"
   },
-  "author": "",
-  "license": "ISC",
+  "dependencies": {
+    "@effect/cluster": "^0.58.0",
+    "@effect/experimental": "^0.60.0",
+    "@effect/platform": "^0.96.0",
+    "@effect/platform-node": "^0.106.0",
+    "@effect/rpc": "^0.75.0",
+    "@effect/sql": "^0.51.0",
+    "@sentry/core": "^10.48.0",
+    "@sentry/effect": "^10.48.0",
+    "effect": "^3.21.0",
+    "pm2": "^5.4.3"
+  },
   "devDependencies": {
     "@effect/language-service": "^0.85.1",
     "@effect/vitest": "^0.29.0",
@@ -44,16 +53,7 @@
     "typescript": "^5.7.2",
     "vitest": "^3.0.5"
   },
-  "dependencies": {
-    "@effect/cluster": "^0.58.0",
-    "@effect/experimental": "^0.60.0",
-    "@effect/platform": "^0.96.0",
-    "@effect/platform-node": "^0.106.0",
-    "@effect/rpc": "^0.75.0",
-    "@effect/sql": "^0.51.0",
-    "@sentry/core": "^10.48.0",
-    "@sentry/effect": "^10.48.0",
-    "effect": "^3.21.0",
-    "pm2": "^5.4.3"
+  "engines": {
+    "node": ">=21.7.3"
   }
 }

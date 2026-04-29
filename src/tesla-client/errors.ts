@@ -1,10 +1,10 @@
-import type { PlatformError } from '@effect/platform/Error';
-import type { ParseError } from 'effect/ParseResult';
-import type { HttpClientError } from '@effect/platform/HttpClientError';
+import type { PlatformError } from "@effect/platform/Error";
+import type { ParseError } from "effect/ParseResult";
+import type { HttpClientError } from "@effect/platform/HttpClientError";
 import { Data } from "effect";
 
-export class VehicleAsleepError extends Data.TaggedError('VehicleAsleepError') {
-  public override message = 'Vehicle is asleep';
+export class VehicleAsleepError extends Data.TaggedError("VehicleAsleepError") {
+  public override message = "Vehicle is asleep";
 }
 
 // Internal retryable error (not exposed externally)
@@ -18,7 +18,7 @@ export class UnableToFetchAccessTokenError extends Data.TaggedError("UnableToFet
 }> {}
 
 export class AuthenticationFailedError extends Data.TaggedError("AuthenticationFailedError")<{
-  cause: HttpClientError | PlatformError | UnableToFetchAccessTokenError | ParseError,
+  cause: HttpClientError | PlatformError | UnableToFetchAccessTokenError | ParseError;
 }> {}
 
 export class VehicleCommandFailedError extends Data.TaggedError("VehicleCommandFailed")<{

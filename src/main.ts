@@ -1,141 +1,170 @@
-import { NodeContext, NodeHttpClient, NodeRuntime } from "@effect/platform-node"
-import { Cause, Chunk, Effect, Layer, Logger, LogLevel } from "effect"
-import { createTeslaClientLayer } from './layers.js';
-import { App, AppLayer, type TimingConfig } from './app.js';
-import { BatteryStateManagerLayer } from './battery-state-manager.js';
-import { FixedSpeedControllerLayer } from './charging-speed-controller/fixed-speed.controller.js';
-import { ConservativeControllerLayer } from './charging-speed-controller/conservative-controller.js';
-import { ExcessFeedInSolarControllerLayer } from './charging-speed-controller/excess-feed-in-solar-controller.js';
-import { ExcessSolarAggresiveControllerLayer } from './charging-speed-controller/excess-solar-aggresive-controller.js';
-import { ExcessSolarNonAggresiveControllerLayer } from './charging-speed-controller/excess-solar-non-aggresive.controller.js';
-import { WeatherAwareBufferControllerLayer } from './charging-speed-controller/weather-aware-buffer/index.js';
-import { SolcastForecastLayer } from './solar-forecast/solcast.adapter.js';
-import { SentryLive, SentryFlushFiber, flushSentry, captureException, initSentry } from './sentry.js';
-import * as SentryCore from '@sentry/core';
+import { NodeContext, NodeHttpClient, NodeRuntime } from "@effect/platform-node";
+import { Cause, Chunk, Config, Effect, Layer, Logger, LogLevel, Option } from "effect";
+import { AppConfig } from "./config.js";
+import { createTeslaClientLayer } from "./layers.js";
+import { App, AppLayer, type TimingConfig } from "./app.js";
+import { BatteryStateManagerLayer } from "./battery-state-manager.js";
+import { FixedSpeedControllerLayer } from "./charging-speed-controller/fixed-speed.controller.js";
+import { ConservativeControllerLayer } from "./charging-speed-controller/conservative-controller.js";
+import { ExcessFeedInSolarControllerLayer } from "./charging-speed-controller/excess-feed-in-solar-controller.js";
+import { ExcessSolarAggresiveControllerLayer } from "./charging-speed-controller/excess-solar-aggresive-controller.js";
+import { ExcessSolarNonAggresiveControllerLayer } from "./charging-speed-controller/excess-solar-non-aggresive.controller.js";
+import { WeatherAwareBufferControllerLayer } from "./charging-speed-controller/weather-aware-buffer/index.js";
+import { SolcastForecastLayer } from "./solar-forecast/solcast.adapter.js";
+import { SentryLive, SentryFlushFiber, flushSentry, captureException, initSentry } from "./sentry.js";
+import * as SentryCore from "@sentry/core";
 import { serviceLayers } from "./layers.js";
-
-const isProd = process.env.NODE_ENV == 'production';
 
 // Initialize Sentry before building Effect layers
 initSentry();
 
-const maxRuntimeHours = process.argv.includes('--max-runtime-hours')
-  ? parseInt(process.argv[process.argv.indexOf('--max-runtime-hours') + 1])
+const maxRuntimeHours = process.argv.includes("--max-runtime-hours")
+  ? parseInt(process.argv[process.argv.indexOf("--max-runtime-hours") + 1])
   : undefined;
 
-const timingConfig: TimingConfig = {
+const timingConfigBase = {
   syncIntervalInMs: 5000,
   vehicleAwakeningTimeInMs: 10 * 1000,
   inactivityTimeInSeconds: 15 * 60,
   waitPerAmereInSeconds: 2.2,
   extraWaitOnChargeStartInSeconds: 10,
-  extraWaitOnChargeStopInSeconds: 10,
-  ...(maxRuntimeHours !== undefined && { maxRuntimeHours }),
+  extraWaitOnChargeStopInSeconds: 10
 };
 
-const createChargingSpeedControllerLayer = () => {
-  if (process.argv.includes('--fixed-lowest-speed')) {
-    return FixedSpeedControllerLayer({
-      fixedSpeed: parseInt(process.env.FIXED_SPEED_AMPERE ?? '5'),
-      bufferPower: 300
+const MainLayer = Layer.unwrapEffect(
+  Effect.gen(function* () {
+    const timingConfig: TimingConfig = {
+      ...timingConfigBase,
+      ...(maxRuntimeHours !== undefined && { maxRuntimeHours })
+    };
+
+    const teslaAppDomain = yield* AppConfig.tesla.appDomain;
+    const teslaClientId = yield* AppConfig.tesla.oauth2ClientId;
+    const teslaClientSecret = yield* AppConfig.tesla.oauth2ClientSecret;
+    const teslaVin = yield* AppConfig.tesla.vin;
+    const costPerKwh = yield* AppConfig.cost.perKwh;
+
+    let controllerLayer;
+
+    if (process.argv.includes("--fixed-lowest-speed")) {
+      const fixedSpeed = yield* AppConfig.controller.fixedSpeedAmpere;
+      controllerLayer = FixedSpeedControllerLayer({ fixedSpeed, bufferPower: 300 });
+    } else if (process.argv.includes("--conservative")) {
+      controllerLayer = ConservativeControllerLayer();
+    } else if (process.argv.includes("--excess-feed-in-solar")) {
+      const maxFeedInAllowed = yield* AppConfig.controller.maxAllowedFeedInPower;
+      controllerLayer = ExcessFeedInSolarControllerLayer({ maxFeedInAllowed });
+    } else if (process.argv.includes("--weather-aware")) {
+      const minBufferPower = yield* AppConfig.weatherAware.minBufferPower;
+      const bufferMultiplierMax = yield* AppConfig.weatherAware.bufferMultiplierMax;
+      const carBatteryCapacityKwh = yield* AppConfig.weatherAware.carBatteryCapacityKwh;
+      const peakSolarCapacityKw = yield* AppConfig.weatherAware.peakSolarCapacityKw;
+      const latitude = yield* AppConfig.weatherAware.latitude;
+      const longitude = yield* AppConfig.weatherAware.longitude;
+      const defaultDailyProductionKwh = yield* AppConfig.weatherAware.defaultDailyProductionKwh;
+      const solarCutoffHour = yield* AppConfig.weatherAware.solarCutoffHour;
+      const deadlineHourOption = yield* Effect.option(AppConfig.weatherAware.deadlineHour);
+
+      const solcastApiKey = yield* AppConfig.solcast.apiKey;
+      const solcastRooftopResourceId = yield* AppConfig.solcast.rooftopResourceId;
+
+      controllerLayer = WeatherAwareBufferControllerLayer({
+        minBufferPower,
+        bufferMultiplierMax,
+        carBatteryCapacityKwh,
+        peakSolarCapacityKw,
+        latitude,
+        longitude,
+        defaultDailyProductionKwh,
+        solarCutoffHour,
+        multipleOf: 3,
+        ...(Option.isSome(deadlineHourOption) && { deadlineHour: deadlineHourOption.value })
+      }).pipe(
+        Layer.provide(
+          SolcastForecastLayer({
+            apiKey: solcastApiKey,
+            rooftopResourceId: solcastRooftopResourceId
+          })
+        )
+      );
+    } else {
+      const bufferPower = yield* AppConfig.excessSolar.bufferPower;
+      controllerLayer = ExcessSolarNonAggresiveControllerLayer({
+        baseControllerLayer: ExcessSolarAggresiveControllerLayer({
+          bufferPower,
+          multipleOf: 3
+        })
+      });
+    }
+
+    const teslaLayer = createTeslaClientLayer({
+      appDomain: teslaAppDomain,
+      clientId: teslaClientId,
+      clientSecret: teslaClientSecret,
+      vin: teslaVin
     });
-  }
-  if (process.argv.includes('--conservative')) {
-    return ConservativeControllerLayer();
-  }
-  if (process.argv.includes('--excess-feed-in-solar')) {
-    return ExcessFeedInSolarControllerLayer({
-      maxFeedInAllowed: parseInt(process.env.MAX_ALLOWED_FEED_IN_POWER ?? '5000')
-    });
-  }
-  if (process.argv.includes('--weather-aware')) {
-    return WeatherAwareBufferControllerLayer({
-      minBufferPower: parseInt(process.env.EXCESS_SOLAR_BUFFER_POWER ?? '500'),
-      bufferMultiplierMax: parseFloat(process.env.BUFFER_MULTIPLIER_MAX ?? '3'),
-      carBatteryCapacityKwh: parseFloat(process.env.CAR_BATTERY_CAPACITY_KWH ?? '60'),
-      peakSolarCapacityKw: parseFloat(process.env.SOLCAST_CAPACITY_KW ?? '9'),
-      latitude: parseFloat(process.env.SOLCAST_LATITUDE as string),
-      longitude: parseFloat(process.env.SOLCAST_LONGITUDE as string),
-      defaultDailyProductionKwh: parseFloat(process.env.DEFAULT_DAILY_PRODUCTION_KWH ?? '60'),
-      solarCutoffHour: parseInt(process.env.SOLAR_CUTOFF_HOUR ?? '18'),
-      multipleOf: 3,
-      ...(process.env.DEADLINE_HOUR && { deadlineHour: parseInt(process.env.DEADLINE_HOUR) }),
+
+    return AppLayer({
+      timingConfig,
+      isDryRun: process.argv.includes("--dry-run"),
+      costPerKwh
     }).pipe(
-      Layer.provide(SolcastForecastLayer({
-        apiKey: process.env.SOLCAST_API_KEY as string,
-        rooftopResourceId: process.env.SOLCAST_ROOFTOP_RESOURCE_ID as string,
-      })),
+      Layer.provideMerge(controllerLayer),
+      Layer.provideMerge(BatteryStateManagerLayer),
+      Layer.provideMerge(serviceLayers),
+      Layer.provideMerge(teslaLayer),
+      Layer.provideMerge(SentryLive),
+      Layer.provideMerge(NodeContext.layer),
+      Layer.provideMerge(NodeHttpClient.layer)
     );
-  }
-  // Default: ExcessSolarNonAggresive wrapping ExcessSolarAggresive
-  return ExcessSolarNonAggresiveControllerLayer({
-    baseControllerLayer: ExcessSolarAggresiveControllerLayer({
-      bufferPower: parseInt(process.env.EXCESS_SOLAR_BUFFER_POWER ?? '1000'),
-      multipleOf: 3
-    })
-  });
-};
+  })
+);
 
 const program = Effect.gen(function* () {
   const app = yield* App;
 
-  yield* Effect.addFinalizer(() => Effect.gen(function* () {
-    yield* app.stop();
-    yield* Effect.logInfo('Finalizing, flushing Sentry...');
-    yield* flushSentry().pipe(
-      Effect.catchAll(() => Effect.logDebug('Sentry flush timed out')),
-    );
-  }));
+  yield* Effect.addFinalizer(() =>
+    Effect.gen(function* () {
+      yield* app.stop();
+      yield* Effect.logInfo("Finalizing, flushing Sentry...");
+      yield* flushSentry().pipe(Effect.catchAll(() => Effect.logDebug("Sentry flush timed out")));
+    })
+  );
 
   yield* Effect.fork(SentryFlushFiber);
 
   yield* app.start().pipe(
-    Effect.catchAll(err => Effect.log(err).pipe(
-      Effect.tap(() => captureException(err)),
-      Effect.flatMap(() => app.stop()),
-    )),
-  );
-}).pipe(
-  Effect.provide(
-    AppLayer({
-      timingConfig,
-      isDryRun: process.argv.includes('--dry-run'),
-    }).pipe(
-      Layer.provideMerge(createChargingSpeedControllerLayer()),
-      Layer.provideMerge(BatteryStateManagerLayer),
-      Layer.provideMerge(serviceLayers),
-      Layer.provideMerge(
-        createTeslaClientLayer({
-          appDomain: process.env.TESLA_APP_DOMAIN as string,
-          clientId: process.env.TESLA_OAUTH2_CLIENT_ID as string,
-          clientSecret: process.env.TESLA_OAUTH2_CLIENT_SECRET as string,
-          vin: process.env.TESLA_VIN as string,
-        })
-      ),
-      Layer.provideMerge(SentryLive),
-      Layer.provideMerge(NodeContext.layer),
-      Layer.provideMerge(NodeHttpClient.layer),
+    Effect.catchAll((err) =>
+      Effect.log(err).pipe(
+        Effect.tap(() => captureException(err)),
+        Effect.flatMap(() => app.stop())
+      )
     )
-  ),
-  Effect.scoped,
-  Logger.withMinimumLogLevel(isProd ? LogLevel.Info : LogLevel.Debug),
-  Effect.tapDefect((cause) => Effect.sync(() => {
-    const defects = Chunk.toReadonlyArray(Cause.defects(cause));
-    for (const defect of defects) {
-      SentryCore.captureException(defect);
-    }
-    if (defects.length === 0) {
-      SentryCore.captureException(new Error(Cause.pretty(cause)));
-    }
-  })),
+  );
+}).pipe(Effect.provide(MainLayer), Effect.scoped);
+
+const runProgram = Effect.gen(function* () {
+  const nodeEnv = yield* Config.string("NODE_ENV").pipe(Config.withDefault("production"));
+  return yield* program.pipe(Logger.withMinimumLogLevel(nodeEnv === "production" ? LogLevel.Info : LogLevel.Debug));
+}).pipe(
+  Effect.tapDefect((cause) =>
+    Effect.sync(() => {
+      const defects = Chunk.toReadonlyArray(Cause.defects(cause));
+      for (const defect of defects) {
+        SentryCore.captureException(defect);
+      }
+      if (defects.length === 0) {
+        SentryCore.captureException(new Error(Cause.pretty(cause)));
+      }
+    })
+  )
 );
 
 // 3. Execution
-NodeRuntime.runMain(program, { disablePrettyLogger: true });
+NodeRuntime.runMain(runProgram, { disablePrettyLogger: true });
 
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("Unhandled Rejection at:", promise, "reason:", reason);
   SentryCore.captureException(reason);
   void SentryCore.flush(5000).then(() => process.exit(1));
 });
-

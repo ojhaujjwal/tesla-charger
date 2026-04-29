@@ -27,7 +27,7 @@
     "forceConsistentCasingInFileNames": true,
     "moduleDetection": "force",
     "noEmit": false,
-     "plugins": [
+    "plugins": [
       {
         "name": "@effect/language-service"
       }

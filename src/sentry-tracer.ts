@@ -1,20 +1,39 @@
-import type { Span } from '@sentry/core';
-import { SEMANTIC_ATTRIBUTE_SENTRY_ORIGIN, startInactiveSpan, withActiveSpan } from '@sentry/core';
-import type * as Context from 'effect/Context';
-import * as Exit from 'effect/Exit';
-import * as Option from 'effect/Option';
-import * as EffectTracer from 'effect/Tracer';
+import type { Span, SpanAttributeValue, SpanAttributes } from "@sentry/core";
+import { SEMANTIC_ATTRIBUTE_SENTRY_ORIGIN, startInactiveSpan, withActiveSpan } from "@sentry/core";
+import type * as Context from "effect/Context";
+import * as Exit from "effect/Exit";
+import * as Option from "effect/Option";
+import * as EffectTracer from "effect/Tracer";
+
+function isSpanAttributeValue(value: unknown): value is SpanAttributeValue {
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return true;
+  if (Array.isArray(value)) {
+    return value.every(
+      (item) =>
+        item === null ||
+        item === undefined ||
+        typeof item === "string" ||
+        typeof item === "number" ||
+        typeof item === "boolean"
+    );
+  }
+  return false;
+}
+
+function isSpanAttributes(value: Record<string, unknown>): value is SpanAttributes {
+  return Object.values(value).every((v) => v === undefined || isSpanAttributeValue(v));
+}
 
 function deriveOrigin(name: string): string {
-  if (name.startsWith('http.server') || name.startsWith('http.client')) {
-    return 'auto.http.effect';
+  if (name.startsWith("http.server") || name.startsWith("http.client")) {
+    return "auto.http.effect";
   }
-  return 'auto.function.effect';
+  return "auto.function.effect";
 }
 
 type HrTime = [number, number];
 
-const SENTRY_SPAN_SYMBOL = Symbol.for('@sentry/effect.SentrySpan');
+const SENTRY_SPAN_SYMBOL = Symbol.for("@sentry/effect.SentrySpan");
 
 function nanosToHrTime(nanos: bigint): HrTime {
   const seconds = Number(nanos / BigInt(1_000_000_000));
@@ -25,7 +44,7 @@ function nanosToHrTime(nanos: bigint): HrTime {
 type SentrySpanLike = {
   readonly [SENTRY_SPAN_SYMBOL]: true;
   readonly sentrySpan: Span;
-} & EffectTracer.Span
+} & EffectTracer.Span;
 
 function isSentrySpan(span: EffectTracer.AnySpan): span is SentrySpanLike {
   return SENTRY_SPAN_SYMBOL in span;
@@ -33,7 +52,7 @@ function isSentrySpan(span: EffectTracer.AnySpan): span is SentrySpanLike {
 
 class SentrySpanWrapper implements SentrySpanLike {
   public readonly [SENTRY_SPAN_SYMBOL] = true as const;
-  public readonly _tag = 'Span' as const;
+  public readonly _tag = "Span" as const;
   public readonly spanId: string;
   public readonly traceId: string;
   public readonly attributes: Map<string, unknown>;
@@ -50,7 +69,7 @@ class SentrySpanWrapper implements SentrySpanLike {
     links: readonly EffectTracer.SpanLink[],
     startTime: bigint,
     public readonly kind: EffectTracer.SpanKind,
-    sentrySpan: Span,
+    sentrySpan: Span
   ) {
     this.attributes = new Map<string, unknown>();
     this.parent = parent;
@@ -61,12 +80,14 @@ class SentrySpanWrapper implements SentrySpanLike {
     this.spanId = spanContext.spanId;
     this.traceId = spanContext.traceId;
     this.sampled = this.sentrySpan.isRecording();
-    this.status = { _tag: 'Started', startTime };
+    this.status = { _tag: "Started", startTime };
   }
 
   public attribute(key: string, value: unknown): void {
     if (!this.sentrySpan.isRecording()) return;
-    this.sentrySpan.setAttribute(key, value as Parameters<Span['setAttribute']>[1]);
+    if (value === undefined || isSpanAttributeValue(value)) {
+      this.sentrySpan.setAttribute(key, value);
+    }
     this.attributes.set(key, value);
   }
 
@@ -75,13 +96,13 @@ class SentrySpanWrapper implements SentrySpanLike {
   }
 
   public end(endTime: bigint, exit: Exit.Exit<unknown, unknown>): void {
-    this.status = { _tag: 'Ended', endTime, exit, startTime: this.status.startTime };
+    this.status = { _tag: "Ended", endTime, exit, startTime: this.status.startTime };
     if (!this.sentrySpan.isRecording()) return;
 
     if (Exit.isFailure(exit)) {
       const cause = exit.cause;
       const message =
-        cause._tag === 'Fail' ? String(cause.error) : cause._tag === 'Die' ? String(cause.defect) : 'internal_error';
+        cause._tag === "Fail" ? String(cause.error) : cause._tag === "Die" ? String(cause.defect) : "internal_error";
       this.sentrySpan.setStatus({ code: 2, message });
     } else {
       this.sentrySpan.setStatus({ code: 1 });
@@ -91,7 +112,11 @@ class SentrySpanWrapper implements SentrySpanLike {
 
   public event(name: string, startTime: bigint, attributes?: Record<string, unknown>): void {
     if (!this.sentrySpan.isRecording()) return;
-    this.sentrySpan.addEvent(name, attributes as Parameters<Span['addEvent']>[1], nanosToHrTime(startTime));
+    if (attributes && isSpanAttributes(attributes)) {
+      this.sentrySpan.addEvent(name, attributes, nanosToHrTime(startTime));
+    } else {
+      this.sentrySpan.addEvent(name, nanosToHrTime(startTime));
+    }
   }
 }
 
@@ -101,7 +126,7 @@ function createSentrySpan(
   context: Context.Context<never>,
   links: readonly EffectTracer.SpanLink[],
   startTime: bigint,
-  kind: EffectTracer.SpanKind,
+  kind: EffectTracer.SpanKind
 ): SentrySpanLike {
   let parentSentrySpan: Span | null = null;
 
@@ -113,9 +138,9 @@ function createSentrySpan(
     name,
     startTime: nanosToHrTime(startTime),
     attributes: {
-      [SEMANTIC_ATTRIBUTE_SENTRY_ORIGIN]: deriveOrigin(name),
+      [SEMANTIC_ATTRIBUTE_SENTRY_ORIGIN]: deriveOrigin(name)
     },
-    ...(parentSentrySpan ? { parentSpan: parentSentrySpan } : {}),
+    ...(parentSentrySpan ? { parentSpan: parentSentrySpan } : {})
   });
 
   return new SentrySpanWrapper(name, parent, context, links, startTime, kind, newSpan);
@@ -131,5 +156,5 @@ export const CustomSentryTracer: EffectTracer.Tracer = EffectTracer.make({
       return execution();
     }
     return withActiveSpan(currentSpan.sentrySpan, execution);
-  },
+  }
 });

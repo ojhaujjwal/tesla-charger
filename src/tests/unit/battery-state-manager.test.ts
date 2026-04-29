@@ -1,12 +1,12 @@
-import { describe, it, vitest, beforeEach, expect } from '@effect/vitest';
-import type { MockedObject } from '@effect/vitest';
-import { Effect, Duration, Fiber, Layer, PubSub, TestClock } from 'effect';
-import { TeslaClient } from '../../tesla-client/index.js';
-import { ChargeStateQueryFailedError } from '../../tesla-client/errors.js';
-import { BatteryStateManager, BatteryStateManagerLayer } from '../../battery-state-manager.js';
-import type { TeslaChargerEvent } from '../../events.js';
+import { describe, it, vitest, beforeEach, expect } from "@effect/vitest";
+import type { MockedObject } from "@effect/vitest";
+import { Effect, Duration, Fiber, Layer, PubSub, TestClock } from "effect";
+import { TeslaClient } from "../../tesla-client/index.js";
+import { ChargeStateQueryFailedError } from "../../tesla-client/errors.js";
+import { BatteryStateManager, BatteryStateManagerLayer } from "../../battery-state-manager.js";
+import type { TeslaChargerEvent } from "../../events.js";
 
-describe('BatteryStateManager', () => {
+describe("BatteryStateManager", () => {
   const teslaClientMock: MockedObject<TeslaClient> = {
     authenticateFromAuthCodeGrant: vitest.fn(),
     refreshAccessToken: vitest.fn(),
@@ -15,15 +15,13 @@ describe('BatteryStateManager', () => {
     stopCharging: vitest.fn(),
     setAmpere: vitest.fn(),
     wakeUpCar: vitest.fn(),
-    getChargeState: vitest.fn(),
+    getChargeState: vitest.fn()
   };
 
   const TestTeslaClient = Layer.succeed(TeslaClient, teslaClientMock);
 
   const provideBatteryStateManagerLayer = (effect: Effect.Effect<void, unknown, BatteryStateManager>) =>
-    effect.pipe(
-      Effect.provide(BatteryStateManagerLayer.pipe(Layer.provideMerge(TestTeslaClient)))
-    );
+    effect.pipe(Effect.provide(BatteryStateManagerLayer.pipe(Layer.provideMerge(TestTeslaClient))));
 
   beforeEach(() => {
     vitest.clearAllMocks();
@@ -32,7 +30,7 @@ describe('BatteryStateManager', () => {
     );
   });
 
-  it.effect('should fetch battery state on first AmpereChanged event (deferred from startup)', () =>
+  it.effect("should fetch battery state on first AmpereChanged event (deferred from startup)", () =>
     Effect.gen(function* () {
       teslaClientMock.getChargeState.mockReturnValue(
         Effect.succeed({ batteryLevel: 45, chargeLimitSoc: 80, chargeEnergyAdded: 1.2 })
@@ -50,9 +48,9 @@ describe('BatteryStateManager', () => {
       // Publish the first AmpereChanged event — should trigger fetch
       // because batteryState is null (timeSinceLastQuery = Infinity)
       yield* PubSub.publish(pubSub, {
-        _tag: 'AmpereChanged' as const,
+        _tag: "AmpereChanged" as const,
         previous: 0,
-        current: 10,
+        current: 10
       });
 
       yield* TestClock.adjust(Duration.millis(100));
@@ -70,10 +68,10 @@ describe('BatteryStateManager', () => {
     }).pipe(provideBatteryStateManagerLayer)
   );
 
-  it.effect('should handle TeslaClient failure gracefully on first fetch', () =>
+  it.effect("should handle TeslaClient failure gracefully on first fetch", () =>
     Effect.gen(function* () {
       teslaClientMock.getChargeState.mockReturnValue(
-        Effect.fail(new ChargeStateQueryFailedError({ message: 'Vehicle is asleep' }))
+        Effect.fail(new ChargeStateQueryFailedError({ message: "Vehicle is asleep" }))
       );
 
       const batteryStateManager = yield* BatteryStateManager;
@@ -84,9 +82,9 @@ describe('BatteryStateManager', () => {
 
       // Publish event to trigger first fetch
       yield* PubSub.publish(pubSub, {
-        _tag: 'AmpereChanged' as const,
+        _tag: "AmpereChanged" as const,
         previous: 0,
-        current: 5,
+        current: 5
       });
 
       yield* TestClock.adjust(Duration.millis(100));
@@ -102,7 +100,7 @@ describe('BatteryStateManager', () => {
     }).pipe(provideBatteryStateManagerLayer)
   );
 
-  it.effect('should not refresh batteryState when ampere changes but cooldown has not elapsed', () =>
+  it.effect("should not refresh batteryState when ampere changes but cooldown has not elapsed", () =>
     Effect.gen(function* () {
       const batteryStateManager = yield* BatteryStateManager;
       const pubSub = yield* PubSub.unbounded<TeslaChargerEvent>();
@@ -111,9 +109,9 @@ describe('BatteryStateManager', () => {
       yield* TestClock.adjust(Duration.millis(100));
 
       yield* PubSub.publish(pubSub, {
-        _tag: 'AmpereChanged' as const,
+        _tag: "AmpereChanged" as const,
         previous: 0,
-        current: 10,
+        current: 10
       });
 
       yield* TestClock.adjust(Duration.millis(100));
@@ -121,9 +119,9 @@ describe('BatteryStateManager', () => {
 
       // Second AmpereChanged within cooldown period
       yield* PubSub.publish(pubSub, {
-        _tag: 'AmpereChanged' as const,
+        _tag: "AmpereChanged" as const,
         previous: 10,
-        current: 15,
+        current: 15
       });
 
       yield* TestClock.adjust(Duration.millis(100));
@@ -136,7 +134,7 @@ describe('BatteryStateManager', () => {
     }).pipe(provideBatteryStateManagerLayer)
   );
 
-  it.effect('should refresh batteryState when ampere changes and cooldown has elapsed', () =>
+  it.effect("should refresh batteryState when ampere changes and cooldown has elapsed", () =>
     Effect.gen(function* () {
       let getChargeStateCallCount = 0;
       teslaClientMock.getChargeState.mockImplementation(() => {
@@ -156,9 +154,9 @@ describe('BatteryStateManager', () => {
 
       // First AmpereChanged triggers the initial fetch
       yield* PubSub.publish(pubSub, {
-        _tag: 'AmpereChanged' as const,
+        _tag: "AmpereChanged" as const,
         previous: 0,
-        current: 10,
+        current: 10
       });
 
       yield* TestClock.adjust(Duration.millis(100));
@@ -169,9 +167,9 @@ describe('BatteryStateManager', () => {
 
       // Second AmpereChanged after cooldown — should trigger refresh
       yield* PubSub.publish(pubSub, {
-        _tag: 'AmpereChanged' as const,
+        _tag: "AmpereChanged" as const,
         previous: 10,
-        current: 15,
+        current: 15
       });
 
       // Wait a bit for refresh
@@ -189,7 +187,7 @@ describe('BatteryStateManager', () => {
     }).pipe(provideBatteryStateManagerLayer)
   );
 
-  it.effect('should keep old batteryState if refresh fails', () =>
+  it.effect("should keep old batteryState if refresh fails", () =>
     Effect.gen(function* () {
       let getChargeStateCallCount = 0;
       teslaClientMock.getChargeState.mockImplementation(() => {
@@ -198,7 +196,7 @@ describe('BatteryStateManager', () => {
           return Effect.succeed({ batteryLevel: 50, chargeLimitSoc: 80, chargeEnergyAdded: 0 });
         }
         // Subsequent calls fail
-        return Effect.fail(new ChargeStateQueryFailedError({ message: 'Vehicle is asleep' }));
+        return Effect.fail(new ChargeStateQueryFailedError({ message: "Vehicle is asleep" }));
       });
 
       const batteryStateManager = yield* BatteryStateManager;
@@ -209,9 +207,9 @@ describe('BatteryStateManager', () => {
 
       // First AmpereChanged triggers the initial fetch
       yield* PubSub.publish(pubSub, {
-        _tag: 'AmpereChanged' as const,
+        _tag: "AmpereChanged" as const,
         previous: 0,
-        current: 10,
+        current: 10
       });
 
       yield* TestClock.adjust(Duration.millis(100));
@@ -223,9 +221,9 @@ describe('BatteryStateManager', () => {
 
       // Publish ampere changed event (triggers refresh that fails)
       yield* PubSub.publish(pubSub, {
-        _tag: 'AmpereChanged' as const,
+        _tag: "AmpereChanged" as const,
         previous: 10,
-        current: 15,
+        current: 15
       });
 
       // Wait a bit for refresh attempt
@@ -243,7 +241,7 @@ describe('BatteryStateManager', () => {
     }).pipe(provideBatteryStateManagerLayer)
   );
 
-  it.effect('should stop listening when PubSub is shut down', () =>
+  it.effect("should stop listening when PubSub is shut down", () =>
     Effect.gen(function* () {
       const batteryStateManager = yield* BatteryStateManager;
       const pubSub = yield* PubSub.unbounded<TeslaChargerEvent>();
@@ -263,7 +261,7 @@ describe('BatteryStateManager', () => {
 
       // Fiber should be done (listener stopped)
       const status = yield* Fiber.status(fiber);
-      expect(status._tag).toBe('Done');
+      expect(status._tag).toBe("Done");
     }).pipe(provideBatteryStateManagerLayer)
   );
 });

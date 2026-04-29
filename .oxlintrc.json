@@ -1,12 +1,5 @@
 {
-  "ignorePatterns": [
-    "**/node_modules/**",
-    "**/dist/**",
-    "**/build/**",
-    "**/.tsbuildinfo",
-    "**/*.md",
-    "**/.ralph/**"
-  ],
+  "ignorePatterns": ["**/node_modules/**", "**/dist/**", "**/build/**", "**/.tsbuildinfo", "**/*.md", "**/.ralph/**"],
   "jsPlugins": ["./lint/index.ts"],
   "rules": {
     "no-explicit-any": "error",
@@ -37,6 +30,12 @@
       "files": ["**/*.test.ts"],
       "rules": {
         "tesla-charger/no-silent-error-swallow": "off"
+      }
+    },
+    {
+      "files": ["src/setup-tesla-partner-application.ts"],
+      "rules": {
+        "no-console": "off"
       }
     }
   ]

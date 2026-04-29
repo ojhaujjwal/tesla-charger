@@ -2,7 +2,6 @@ import type { IEventLogger, SessionSummary } from "./types.js";
 import { Effect } from "effect";
 
 export class EventLogger implements IEventLogger {
-
   public onSetAmpere(ampere: number) {
     return Effect.log(`Setting charging rate to ${ampere}A`);
   }
@@ -12,14 +11,14 @@ export class EventLogger implements IEventLogger {
   }
 
   public onSessionEnd(summary: SessionSummary) {
-    return Effect.log('Session ended', {
+    return Effect.log("Session ended", {
       sessionDurationMs: summary.sessionDurationMs,
       totalEnergyChargedKwh: summary.totalEnergyChargedKwh,
       gridImportKwh: summary.gridImportKwh,
       solarEnergyUsedKwh: summary.solarEnergyUsedKwh,
       averageChargingSpeedAmps: summary.averageChargingSpeedAmps,
       ampereFluctuations: summary.ampereFluctuations,
-      gridImportCost: summary.gridImportCost,
+      gridImportCost: summary.gridImportCost
     });
   }
 }

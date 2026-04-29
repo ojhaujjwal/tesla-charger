@@ -13,7 +13,7 @@ describe("charge-simulation", () => {
       longitude: 151.2093,
       defaultDailyProductionKwh: 30,
       solarCutoffHour: 18,
-      multipleOf: 3,
+      multipleOf: 3
     };
 
     it("should return canComplete=true for sunny forecast with low charge need", () => {
@@ -23,19 +23,19 @@ describe("charge-simulation", () => {
             pv_estimate: 8.0, // High production
             pv_estimate10: 8.0,
             pv_estimate90: 8.0,
-            period_end: "2024-01-15T12:30:00Z",
+            period_end: "2024-01-15T12:30:00Z"
           },
           {
             pv_estimate: 8.5,
             pv_estimate10: 8.5,
             pv_estimate90: 8.5,
-            period_end: "2024-01-15T13:00:00Z",
-          },
-        ],
+            period_end: "2024-01-15T13:00:00Z"
+          }
+        ]
       };
       const batteryState = {
         batteryLevel: 70,
-        chargeLimitSoc: 80, // Only needs 10% = 7.5 kWh
+        chargeLimitSoc: 80 // Only needs 10% = 7.5 kWh
       };
       const now = new Date("2024-01-15T12:00:00Z");
 
@@ -52,19 +52,19 @@ describe("charge-simulation", () => {
             pv_estimate: 1.0, // Low production (cloudy)
             pv_estimate10: 1.0,
             pv_estimate90: 1.0,
-            period_end: "2024-01-15T12:30:00Z",
+            period_end: "2024-01-15T12:30:00Z"
           },
           {
             pv_estimate: 1.5,
             pv_estimate10: 1.5,
             pv_estimate90: 1.5,
-            period_end: "2024-01-15T13:00:00Z",
-          },
-        ],
+            period_end: "2024-01-15T13:00:00Z"
+          }
+        ]
       };
       const batteryState = {
         batteryLevel: 30,
-        chargeLimitSoc: 80, // Needs 50% = 37.5 kWh
+        chargeLimitSoc: 80 // Needs 50% = 37.5 kWh
       };
       const now = new Date("2024-01-15T12:00:00Z");
 
@@ -81,13 +81,13 @@ describe("charge-simulation", () => {
             pv_estimate: 8.0,
             pv_estimate10: 8.0,
             pv_estimate90: 8.0,
-            period_end: "2024-01-15T19:00:00Z", // After cutoff (18:00)
-          },
-        ],
+            period_end: "2024-01-15T19:00:00Z" // After cutoff (18:00)
+          }
+        ]
       };
       const batteryState = {
         batteryLevel: 50,
-        chargeLimitSoc: 80,
+        chargeLimitSoc: 80
       };
       const now = new Date("2024-01-15T18:30:00Z"); // After cutoff
 

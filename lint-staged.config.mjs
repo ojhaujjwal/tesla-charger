@@ -3,5 +3,5 @@
  * @type {import('lint-staged').Configuration}
  */
 export default {
-  '*.{ts}': ['oxfmt --write', 'oxlint --disable-nested-config --fix'],
-}
+  "*.{ts}": ["oxfmt --write", "oxlint --disable-nested-config --fix"]
+};

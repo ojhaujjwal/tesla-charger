@@ -2,7 +2,7 @@ import { describe, it, expect } from "@effect/vitest";
 import {
   calculateSunTimes,
   calculateDefaultMonthlyPeakFactors,
-  expectedCapacityKw,
+  expectedCapacityKw
 } from "../../../../charging-speed-controller/weather-aware-buffer/solar-calculations.js";
 import type { WeatherAwareBufferConfig } from "../../../../charging-speed-controller/weather-aware-buffer/types.js";
 
@@ -111,7 +111,7 @@ describe("solar-calculations", () => {
       longitude: 151.2093,
       defaultDailyProductionKwh: 30,
       solarCutoffHour: 18,
-      multipleOf: 3,
+      multipleOf: 3
     };
 
     it("should return peak capacity at solar noon", () => {

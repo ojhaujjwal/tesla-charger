@@ -11,6 +11,10 @@ export type AlphaEssConfig = {
   readonly baseUrl: string;
 }
 
+function isFieldRecord<F extends string>(obj: Record<string, number>, fields: readonly F[]): obj is Record<F, number> {
+  return fields.every((field) => field in obj && typeof obj[field] === "number");
+};
+
 // ============================================================================
 // 2. API Response Schema
 // ============================================================================
@@ -20,20 +24,20 @@ const PpvDetailSchema = Schema.Struct({
   ppv2: Schema.NullOr(Schema.Number),
   ppv3: Schema.NullOr(Schema.Number),
   ppv4: Schema.NullOr(Schema.Number),
-  pmeterDc: Schema.Number,
+  pmeterDc: Schema.Number
 });
 
 const PevDetailSchema = Schema.Struct({
   ev1Power: Schema.NullOr(Schema.Number),
   ev2Power: Schema.NullOr(Schema.Number),
   ev3Power: Schema.NullOr(Schema.Number),
-  ev4Power: Schema.NullOr(Schema.Number),
+  ev4Power: Schema.NullOr(Schema.Number)
 });
 
 const PgridDetailSchema = Schema.Struct({
   pmeterL1: Schema.Number,
   pmeterL2: Schema.Number,
-  pmeterL3: Schema.Number,
+  pmeterL3: Schema.Number
 });
 
 const PowerDataSchema = Schema.Struct({
@@ -48,7 +52,7 @@ const PowerDataSchema = Schema.Struct({
   pbat: Schema.Number,
   pgrid: Schema.Number,
   pload: Schema.Number,
-  pgridDetail: PgridDetailSchema,
+  pgridDetail: PgridDetailSchema
 }).pipe(Schema.NullOr);
 
 const ApiResponseSchema = Schema.Struct({
@@ -56,26 +60,18 @@ const ApiResponseSchema = Schema.Struct({
   msg: Schema.String,
   expMsg: Schema.NullOr(Schema.String),
   data: PowerDataSchema,
-  extra: Schema.NullOr(Schema.Unknown),
+  extra: Schema.NullOr(Schema.Unknown)
 });
 
 export type ApiResponse = Schema.Schema.Type<typeof ApiResponseSchema>;
 
-
-const generateSignature = (
-  appId: string,
-  appSecret: string,
-  timestamp: string
-): string => {
+const generateSignature = (appId: string, appSecret: string, timestamp: string): string => {
   const input = `${appId}${appSecret}${timestamp}`;
   //todo: use Effect Platform
   return createHash("sha512").update(input).digest("hex");
-}
+};
 
-const mapFieldToValue = (
-  field: Field,
-  data: NonNullable<ApiResponse["data"]>
-): number => {
+const mapFieldToValue = (field: Field, data: NonNullable<ApiResponse["data"]>): number => {
   switch (field) {
     case "voltage":
       // Hardcoded value for voltage as API does not provide it
@@ -110,28 +106,26 @@ export class AlphaEssCloudApiDataAdapter implements IDataAdapter {
 
   constructor(
     private config: AlphaEssConfig,
-    private httpClient: HttpClient.HttpClient,
-  ) { }
+    private httpClient: HttpClient.HttpClient
+  ) {}
 
-  public queryLatestValues<F extends Field>(fields: F[]): Effect.Effect<Record<F, number>, DataNotAvailableError | SourceNotAvailableError> {
+  public queryLatestValues<F extends Field>(
+    fields: F[]
+  ): Effect.Effect<Record<F, number>, DataNotAvailableError | SourceNotAvailableError> {
     const config = this.config;
     const httpClient = this.httpClient;
 
     return Effect.gen(function* () {
       const timestamp = Math.floor(Date.now() / 1000).toString();
-      const signature = generateSignature(
-        config.appId,
-        config.appSecret,
-        timestamp
-      );
+      const signature = generateSignature(config.appId, config.appSecret, timestamp);
 
       // Make API request
       const url = `${config.baseUrl}/api/getLastPowerData?sysSn=${config.sysSn}`;
       const headers = {
-        "appId": config.appId,
-        "timeStamp": timestamp,
-        "sign": signature,
-        "Content-Type": "application/json",
+        appId: config.appId,
+        timeStamp: timestamp,
+        sign: signature,
+        "Content-Type": "application/json"
       };
 
       const response = yield* httpClient.get(url, { headers });
@@ -141,7 +135,7 @@ export class AlphaEssCloudApiDataAdapter implements IDataAdapter {
 
       // Parse and validate response
       const parsed = yield* Schema.decodeUnknown(ApiResponseSchema)(responseBody).pipe(
-        Effect.catchTag('ParseError', () => Effect.dieMessage(`Unrecognized response from Alpha ESS API`)),
+        Effect.catchTag("ParseError", () => Effect.dieMessage(`Unrecognized response from Alpha ESS API`))
       );
 
       if (parsed.code !== 200 || !parsed.data) {
@@ -149,9 +143,13 @@ export class AlphaEssCloudApiDataAdapter implements IDataAdapter {
       }
 
       // Map fields to values
-      const result = {} as Record<F, number>;
+      const result: Record<string, number> = {};
       for (const field of fields) {
         result[field] = mapFieldToValue(field, parsed.data);
+      }
+
+      if (!isFieldRecord(result, fields)) {
+        return yield* Effect.dieMessage("Failed to build result record");
       }
 
       return result;
@@ -159,21 +157,20 @@ export class AlphaEssCloudApiDataAdapter implements IDataAdapter {
       Effect.timeout(Duration.millis(this.TIMEOUT_MS)),
       Effect.retry({
         schedule: Schedule.compose(
-          Schedule.recurs(5),  // Max 5 retries (6 total attempts)
+          Schedule.recurs(5), // Max 5 retries (6 total attempts)
           Schedule.exponential(Duration.seconds(2), 2) // Backoff: 2s, 4s, 8s, 16s, 32s
         ),
-        while: (err) => err._tag === 'TimeoutException' || (err._tag === "RequestError" && err.reason === "Transport")
+        while: (err) => err._tag === "TimeoutException" || (err._tag === "RequestError" && err.reason === "Transport")
       }),
-      Effect.catchTag('TimeoutException', () => Effect.fail(new SourceNotAvailableError())),
-      Effect.catchTag('RequestError', () => Effect.fail(new SourceNotAvailableError())),
-      Effect.catchTag('ResponseError', () => Effect.fail(new SourceNotAvailableError())),
+      Effect.catchTag("TimeoutException", () => Effect.fail(new SourceNotAvailableError())),
+      Effect.catchTag("RequestError", () => Effect.fail(new SourceNotAvailableError())),
+      Effect.catchTag("ResponseError", () => Effect.fail(new SourceNotAvailableError()))
     );
   }
 
-
   public getLowestValueInLastXMinutes(): Effect.Effect<number, DataNotAvailableError> {
     return Effect.fail(new DataNotAvailableError());
-  };
+  }
 }
 
 export const AlphaEssCloudApiDataAdapterLayer = Layer.effect(
@@ -186,7 +183,7 @@ export const AlphaEssCloudApiDataAdapterLayer = Layer.effect(
         appId: yield* config.appId,
         appSecret: yield* config.appSecret,
         sysSn: yield* config.sysSn,
-        baseUrl: yield* config.baseUrl,
+        baseUrl: yield* config.baseUrl
       },
       yield* HttpClient.HttpClient
     );

@@ -1,6 +1,6 @@
-import { Context, Clock, Effect, Layer, PubSub } from 'effect';
-import { TeslaClient } from './tesla-client/index.js';
-import type { TeslaChargerEvent } from './events.js';
+import { Context, Clock, Effect, Layer, PubSub } from "effect";
+import { TeslaClient } from "./tesla-client/index.js";
+import type { TeslaChargerEvent } from "./events.js";
 
 export type BatteryState = {
   batteryLevel: number;
@@ -15,7 +15,7 @@ export type BatteryStateManager = {
   readonly get: () => BatteryState | null;
 };
 
-export const BatteryStateManager = Context.GenericTag<BatteryStateManager>('@tesla-charger/BatteryStateManager');
+export const BatteryStateManager = Context.GenericTag<BatteryStateManager>("@tesla-charger/BatteryStateManager");
 
 export const BatteryStateManagerLayer = Layer.effect(
   BatteryStateManager,
@@ -39,7 +39,7 @@ export const BatteryStateManagerLayer = Layer.effect(
           batteryState = {
             batteryLevel: result.batteryLevel,
             chargeLimitSoc: result.chargeLimitSoc,
-            queriedAtMs: now,
+            queriedAtMs: now
           };
         }
       });
@@ -58,12 +58,10 @@ export const BatteryStateManagerLayer = Layer.effect(
             const event = yield* subscription.take;
 
             // Handle AmpereChanged event
-            if (event._tag === 'AmpereChanged') {
+            if (event._tag === "AmpereChanged") {
               const now = yield* Clock.currentTimeMillis;
 
-              const timeSinceLastQuery = batteryState
-                ? now - batteryState.queriedAtMs
-                : Infinity;
+              const timeSinceLastQuery = batteryState ? now - batteryState.queriedAtMs : Infinity;
 
               if (timeSinceLastQuery >= BATTERY_STATE_REFRESH_COOLDOWN_MS) {
                 yield* Effect.logInfo(
@@ -80,7 +78,7 @@ export const BatteryStateManagerLayer = Layer.effect(
 
     return {
       start,
-      get,
+      get
     };
   })
 );
