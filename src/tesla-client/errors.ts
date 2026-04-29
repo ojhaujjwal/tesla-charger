@@ -10,7 +10,12 @@ export class VehicleAsleepError extends Data.TaggedError('VehicleAsleepError') {
 // Internal retryable error (not exposed externally)
 export class ContextDeadlineExceededError extends Data.TaggedError("ContextDeadlineExceeded") {}
 
-export class UnableToFetchAccessTokenError extends Data.TaggedError("UnableToFetchAccessToken") {}
+export class UnableToFetchAccessTokenError extends Data.TaggedError("UnableToFetchAccessToken")<{
+  message: string;
+  statusCode?: number;
+  responseBody?: string;
+  cause?: unknown;
+}> {}
 
 export class AuthenticationFailedError extends Data.TaggedError("AuthenticationFailedError")<{
   cause: HttpClientError | PlatformError | UnableToFetchAccessTokenError | ParseError,

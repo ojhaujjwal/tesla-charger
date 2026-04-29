@@ -20,7 +20,6 @@ export type TeslaClient = {
   readonly setAmpere: (ampere: number) => CommandResult;
   readonly wakeUpCar: () => Effect.Effect<void, VehicleCommandFailedError>;
   readonly getChargeState: () => Effect.Effect<{ batteryLevel: number; chargeLimitSoc: number; chargeEnergyAdded: number }, ChargeStateQueryFailedError>;
-  readonly saveTokens: (accessToken: string, refreshToken: string) => Effect.Effect<void, unknown>;
 }
 
 export type ITeslaClient = TeslaClient;
@@ -52,17 +51,11 @@ export const TeslaClientLayer = (config: {
 
     const getTokens = Effect.fn("getTokens")(function* () {
       const json = yield* fs.readFileString(config.tokenFilePath || 'token.json');
-      return yield* Schema.decodeUnknown(TeslaCachedTokenSchema)(json);
+      return yield* Schema.decodeUnknown(Schema.parseJson(TeslaCachedTokenSchema))(json);
     });
 
     const refreshAccessTokenFromTesla = Effect.fn("refreshAccessTokenFromTesla")(function* () {
-      const { refresh_token } = yield* getTokens().pipe(
-        Effect.catchAll(
-          () => fs.readFileString('.access-token').pipe(
-            Effect.map((val) => ({ refresh_token: val }))
-          )
-        )
-      );
+      const { refresh_token } = yield* getTokens();
 
       const response = yield* httpClient.post(
         OAUTH2_TOKEN_BASE_URL,
@@ -87,14 +80,26 @@ export const TeslaClientLayer = (config: {
             ),
             while: (error) => error._tag === 'RequestError' || error._tag === 'TimeoutException',
           }),
-          Effect.catchTag('TimeoutException', () => Effect.fail(new UnableToFetchAccessTokenError())),
+          Effect.catchTag('TimeoutException', (err) => 
+            Effect.fail(new UnableToFetchAccessTokenError({ 
+              message: 'Request timed out after 5 seconds',
+              cause: err
+            }))
+          ),
         );
 
       if (response.status !== 200) {
-        return yield* new UnableToFetchAccessTokenError();
+        const body = yield* response.text.pipe(
+          Effect.catchAll(() => Effect.succeed('Unable to read response body'))
+        );
+        return yield* new UnableToFetchAccessTokenError({
+          message: `Token refresh failed with status ${response.status}`,
+          statusCode: response.status,
+          responseBody: body,
+        });
       }
 
-      return yield* Schema.decodeUnknown(TeslaTokenResponseSchema)(yield* response.text);
+      return yield* Schema.decodeUnknown(Schema.parseJson(TeslaTokenResponseSchema))(yield* response.text);
     });
 
     const saveTokens = (accessToken: string, refreshToken: string) => Effect.gen(function* () {
@@ -208,7 +213,7 @@ export const TeslaClientLayer = (config: {
         }))
       );
 
-      const parsed = yield* Schema.decodeUnknown(TeslaChargeStateResponseSchema)(responseBody).pipe(
+      const parsed = yield* Schema.decodeUnknown(Schema.parseJson(TeslaChargeStateResponseSchema))(responseBody).pipe(
         Effect.mapError((err) => new ChargeStateQueryFailedError({
           message: `Failed to decode charge state response: ${err._tag}`,
           cause: err
@@ -222,8 +227,7 @@ export const TeslaClientLayer = (config: {
       };
     });
 
-    return {
-      authenticateFromAuthCodeGrant: (authorizationCode: string) => Effect.gen(function* () {
+    const authenticateFromAuthCodeGrantInternal = Effect.fn('authenticateFromAuthCodeGrant')(function* (authorizationCode: string) {
         const response = yield* httpClient.post(
           OAUTH2_TOKEN_BASE_URL,
           {
@@ -240,10 +244,44 @@ export const TeslaClientLayer = (config: {
               code: authorizationCode,
             })),
           }
+        ).pipe(
+          Effect.timeout(Duration.seconds(5)),
+          Effect.catchTag('TimeoutException', (err) => 
+            Effect.fail(new UnableToFetchAccessTokenError({
+              message: 'Authorization code grant request timed out',
+              cause: err
+            }))
+          )
         );
 
-        return yield* Schema.decodeUnknown(TeslaTokenResponseSchema)(yield* response.text);
-      }),
+        if (response.status !== 200) {
+          return yield* new UnableToFetchAccessTokenError({
+            message: `Authorization code grant failed with status ${response.status}`,
+            statusCode: response.status,
+            responseBody: yield* response.text,
+          });
+        }
+
+        const responseBody = yield* response.text;
+        return yield* Schema.decodeUnknown(Schema.parseJson(TeslaTokenResponseSchema))(responseBody).pipe(
+          Effect.mapError((err) => new UnableToFetchAccessTokenError({
+            message: 'Failed to parse token response',
+            cause: err,
+            responseBody: responseBody,
+          }))
+        );
+      });
+
+    return {
+      authenticateFromAuthCodeGrant: (authorizationCode: string) =>
+        authenticateFromAuthCodeGrantInternal(authorizationCode).pipe(
+          Effect.flatMap((result) =>
+            saveTokens(result.access_token, result.refresh_token).pipe(
+              Effect.as(result)
+            )
+          )
+        ),
+
       refreshAccessToken,
       setupAccessTokenAutoRefreshRecurring: (timeoutInSeconds: number) => Effect.repeat(refreshAccessToken(), {
         schedule: Schedule.duration(Duration.seconds(timeoutInSeconds)),
@@ -259,7 +297,6 @@ export const TeslaClientLayer = (config: {
         Effect.catchTag('VehicleAsleepError', () => Effect.fail(new VehicleCommandFailedError({ message: 'Vehicle is still asleep while issuing wakeup.' }))),
       ),
       getChargeState,
-      saveTokens,
     };
   })
 );

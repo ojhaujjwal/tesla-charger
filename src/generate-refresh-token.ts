@@ -28,9 +28,7 @@ const program = Effect.gen(function* () {
     return;
   }
 
-  const result = yield* teslaClient.authenticateFromAuthCodeGrant(authorizationCode);
-
-  yield* teslaClient.saveTokens(result.access_token, result.refresh_token);
+  yield* teslaClient.authenticateFromAuthCodeGrant(authorizationCode);
 });
 
 const MainLayer = TeslaClientLayer({
