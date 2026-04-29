@@ -1,5 +1,5 @@
 {
-  "ignorePatterns": ["**/node_modules/**", "**/dist/**", "**/build/**", "**/.tsbuildinfo", "**/*.md", "**/.ralph/**"],
+  "ignorePatterns": ["**/node_modules/**", "**/dist/**", "**/build/**", "**/.tsbuildinfo", "**/*.md", "**/.ralph/**", "repos/**"],
   "jsPlugins": ["./lint/index.ts"],
   "rules": {
     "no-explicit-any": "error",

@@ -10,7 +10,7 @@
     "cmd:generate-refresh-token": "tsx --env-file=.env src/generate-refresh-token.ts",
     "cmd:setup-tesla-partner-application": "tsx --env-file=.env src/setup-tesla-partner-application.ts",
     "ci": "npm run typecheck && npm run lint && npm run format && npm run test -- --run",
-    "test": "vitest",
+    "test": "vitest src/",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "dev": "tsx  --env-file=.env src/main.ts",

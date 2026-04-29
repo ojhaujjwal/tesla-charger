@@ -1,33 +1,21 @@
 # Tesla Charger - Agent Guide
+This project uses the following tools:
+- node for runtime
+- Vitest for running tests
+- Effect TypeScript Library. Run `effect-solutions show basics` for basics on how Effect works.
 
-## Build/Lint/Test Commands
-- Build: `npm run build` (TypeScript compilation)
-- Lint: `npm run lint:fix`
-- Test: `npm test -- --run` (runs Vitest)
-- Run single test: `npm test -- src/tests/unit/path/to/test.test.ts`
+<!-- effect-solutions:start -->
 
-## Code Style
+## Effect Best Practices
 
-### Module System & Imports
-- ES Modules only (type: "module" in package.json)
-- Use .js extensions in imports for TypeScript files (verbatimModuleSyntax: true)
-- Import order: external packages first, then internal modules with .js extension
-- Example: `import { App } from './app.js';`
+**IMPORTANT:** Always consult effect-solutions before writing Effect code.
 
-### TypeScript
-- Strict mode enabled with exactOptionalPropertyTypes
-- Use `type` not `interface` (@typescript-eslint/consistent-type-definitions)
-- Explicit return types on public methods
-- No implicit any or returns
+1. Run `effect-solutions list` to see available guides
+2. Run `effect-solutions show <topic>...` for relevant patterns (supports multiple topics)
+3. Search `./repos/effect-smol` for real implementations
 
-### Effect-TS Framework
-- **Antigravity Instructions:** Follow the best practices defined in [.agent/effect/SKILL.md](.agent/effect/SKILL.md)
-- **Consult effect-solutions:** Before implementing Effect features, run `effect-solutions list` and read the relevant guide
-- Topics include: services and layers, data modeling, error handling, configuration, testing, HTTP clients, CLIs, observability, and project structure
-- When encountering Effect compiler errors, use effect-solutions to understand and fix them
-- **Effect Source Reference:** `~/.local/share/effect-solutions/effect` - Search here for real implementations when docs aren't enough
+Topics: quick-start, project-setup, tsconfig, basics, services-and-layers, data-modeling, error-handling, config, testing, cli.
 
-### Naming & Style
-- Classes: PascalCase
-- Files: kebab-case.ts (e.g., excess-solar-aggresive-controller.ts)
-- Types: PascalCase with descriptive names
+Never guess at Effect patterns - check the guide first.
+
+<!-- effect-solutions:end -->

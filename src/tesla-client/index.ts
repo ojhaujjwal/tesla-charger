@@ -9,12 +9,15 @@ import {
 import { Context, Duration, Effect, Layer, pipe, Schedule, Schema, Stream, String } from "effect";
 import { Command, CommandExecutor, FileSystem, HttpClient } from "@effect/platform";
 import { raw } from "@effect/platform/HttpBody";
+import { ResponseError, type HttpClientError } from "@effect/platform/HttpClientError";
 import {
   TeslaCachedTokenSchema,
   TeslaTokenResponseSchema,
   TeslaChargeStateResponseSchema,
   type TeslaTokenResponse
 } from "./schema.js";
+
+const isResponseError = (error: HttpClientError): error is ResponseError => error._tag === "ResponseError";
 
 const OAUTH2_TOKEN_BASE_URL = "https://fleet-auth.prd.vn.cloud.tesla.com/oauth2/v3/token";
 const FLEET_API_BASE_URL = "https://fleet-api.prd.na.vn.cloud.tesla.com";
@@ -86,7 +89,10 @@ export const TeslaClientLayer = (config: {
             Effect.timeout(Duration.seconds(5)),
             Effect.retry({
               schedule: Schedule.compose(Schedule.recurs(5), Schedule.exponential(Duration.seconds(1), 2)),
-              while: (error) => error._tag === "RequestError" || error._tag === "TimeoutException"
+              while: (error) =>
+                error._tag === "RequestError" ||
+                error._tag === "TimeoutException" ||
+                (isResponseError(error) && error.response.status >= 500)
             }),
             Effect.catchTag("TimeoutException", (err) =>
               Effect.fail(
@@ -202,6 +208,10 @@ export const TeslaClientLayer = (config: {
           })
           .pipe(
             Effect.timeout(Duration.seconds(10)),
+            Effect.retry({
+              schedule: Schedule.compose(Schedule.recurs(3), Schedule.exponential(Duration.seconds(1), 2)),
+              while: (error) => error._tag === "RequestError" || error._tag === "TimeoutException"
+            }),
             Effect.mapError(
               (err) =>
                 new ChargeStateQueryFailedError({
