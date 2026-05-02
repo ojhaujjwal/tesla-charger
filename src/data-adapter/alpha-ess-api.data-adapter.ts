@@ -9,11 +9,11 @@ export type AlphaEssConfig = {
   readonly appSecret: string;
   readonly sysSn: string;
   readonly baseUrl: string;
-}
+};
 
 function isFieldRecord<F extends string>(obj: Record<string, number>, fields: readonly F[]): obj is Record<F, number> {
   return fields.every((field) => field in obj && typeof obj[field] === "number");
-};
+}
 
 // ============================================================================
 // 2. API Response Schema

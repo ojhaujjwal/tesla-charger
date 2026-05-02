@@ -20,9 +20,7 @@ const mockResponse = (req: HttpClientRequest.HttpClientRequest, body: string): H
 
 // Custom HttpClient using HttpClient.make
 const makeMockHttpClient = (responseJson: unknown): HttpClient.HttpClient =>
-  HttpClient.make(
-    (req) => Effect.succeed(mockResponse(req, JSON.stringify(responseJson)))
-  );
+  HttpClient.make((req) => Effect.succeed(mockResponse(req, JSON.stringify(responseJson))));
 
 const TestConfigLayer = Layer.setConfigProvider(
   ConfigProvider.fromMap(
