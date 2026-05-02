@@ -57,15 +57,19 @@ export const BatteryStateManagerLayer = Layer.effect(
           Effect.gen(function* () {
             const event = yield* subscription.take;
 
-            // Handle AmpereChanged event
-            if (event._tag === "AmpereChanged") {
+            // Trigger battery state refresh on events that signal active charging
+            if (
+              event._tag === "ChargingStarted" ||
+              event._tag === "AmpereChangeInitiated" ||
+              event._tag === "AmpereChangeFinished"
+            ) {
               const now = yield* Clock.currentTimeMillis;
 
               const timeSinceLastQuery = batteryState ? now - batteryState.queriedAtMs : Infinity;
 
               if (timeSinceLastQuery >= BATTERY_STATE_REFRESH_COOLDOWN_MS) {
                 yield* Effect.logInfo(
-                  `Refreshing battery state: ampere changed (${event.previous} -> ${event.current}), last queried ${Math.round(timeSinceLastQuery / 60000)}min ago`
+                  `Refreshing battery state: ${event._tag}, last queried ${Math.round(timeSinceLastQuery / 60000)}min ago`
                 );
                 yield* fetchAndStoreBatteryState();
               }

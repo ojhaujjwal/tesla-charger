@@ -1,14 +1,7 @@
 import type { Effect } from "effect";
+import type { SessionSummary } from "../domain/session-summary.js";
 
-export type SessionSummary = {
-  sessionDurationMs: number;
-  totalEnergyChargedKwh: number;
-  gridImportKwh: number;
-  solarEnergyUsedKwh: number;
-  averageChargingSpeedAmps: number;
-  ampereFluctuations: number;
-  gridImportCost: number;
-};
+export type { SessionSummary } from "../domain/session-summary.js";
 
 export type IEventLogger = {
   onSetAmpere: (ampere: number) => Effect.Effect<void>;

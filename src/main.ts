@@ -3,6 +3,7 @@ import { Cause, Chunk, Config, Effect, Layer, Logger, LogLevel, Option } from "e
 import { AppConfig } from "./config.js";
 import { createTeslaClientLayer } from "./layers.js";
 import { App, AppLayer, type TimingConfig } from "./app.js";
+import type { ChargingConfig } from "./domain/charging-session.js";
 import { BatteryStateManagerLayer } from "./battery-state-manager.js";
 import { FixedSpeedControllerLayer } from "./charging-speed-controller/fixed-speed.controller.js";
 import { ConservativeControllerLayer } from "./charging-speed-controller/conservative-controller.js";
@@ -22,13 +23,16 @@ const maxRuntimeHours = process.argv.includes("--max-runtime-hours")
   ? parseInt(process.argv[process.argv.indexOf("--max-runtime-hours") + 1])
   : undefined;
 
-const timingConfigBase = {
-  syncIntervalInMs: 5000,
-  vehicleAwakeningTimeInMs: 10 * 1000,
-  inactivityTimeInSeconds: 15 * 60,
+const chargingConfig: ChargingConfig = {
   waitPerAmereInSeconds: 2.2,
   extraWaitOnChargeStartInSeconds: 10,
   extraWaitOnChargeStopInSeconds: 10
+};
+
+const timingConfigBase = {
+  syncIntervalInMs: 5000,
+  vehicleAwakeningTimeInMs: 10 * 1000,
+  inactivityTimeInSeconds: 15 * 60
 };
 
 const MainLayer = Layer.unwrapEffect(
@@ -105,6 +109,7 @@ const MainLayer = Layer.unwrapEffect(
     });
 
     return AppLayer({
+      chargingConfig,
       timingConfig,
       isDryRun: process.argv.includes("--dry-run"),
       costPerKwh

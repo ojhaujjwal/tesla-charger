@@ -1,3 +1,4 @@
+import { ElectricVehicle } from "../domain/electric-vehicle.js";
 import {
   AuthenticationFailedError,
   ChargeStateQueryFailedError,
@@ -24,7 +25,13 @@ const FLEET_API_BASE_URL = "https://fleet-api.prd.na.vn.cloud.tesla.com";
 
 type CommandResult = Effect.Effect<void, VehicleAsleepError | VehicleCommandFailedError>;
 
-export type TeslaClient = {
+export type ChargeState = {
+  readonly batteryLevel: number;
+  readonly chargeLimitSoc: number;
+  readonly chargeEnergyAdded: number;
+};
+
+export type TeslaClientService = ElectricVehicle["Type"] & {
   readonly authenticateFromAuthCodeGrant: (authorizationCode: string) => Effect.Effect<TeslaTokenResponse, unknown>;
   readonly refreshAccessToken: () => Effect.Effect<void, AuthenticationFailedError>;
   readonly setupAccessTokenAutoRefreshRecurring: (
@@ -34,15 +41,10 @@ export type TeslaClient = {
   readonly stopCharging: () => CommandResult;
   readonly setAmpere: (ampere: number) => CommandResult;
   readonly wakeUpCar: () => Effect.Effect<void, VehicleCommandFailedError>;
-  readonly getChargeState: () => Effect.Effect<
-    { batteryLevel: number; chargeLimitSoc: number; chargeEnergyAdded: number },
-    ChargeStateQueryFailedError
-  >;
+  readonly getChargeState: () => Effect.Effect<ChargeState, ChargeStateQueryFailedError>;
 };
 
-export type ITeslaClient = TeslaClient;
-
-export const TeslaClient = Context.GenericTag<TeslaClient>("@tesla-charger/TeslaClient");
+export const TeslaClient = Context.GenericTag<TeslaClientService>("@tesla-charger/TeslaClient");
 
 // Helper function to collect stream output as a string
 const runString = <E, R>(stream: Stream.Stream<Uint8Array, E, R>): Effect.Effect<string, E, R> =>

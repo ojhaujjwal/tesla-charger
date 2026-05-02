@@ -1,13 +1,13 @@
 import { describe, it, vitest, beforeEach, expect } from "@effect/vitest";
 import type { MockedObject } from "@effect/vitest";
 import { Effect, Duration, Fiber, Layer, PubSub, TestClock } from "effect";
-import { TeslaClient } from "../../tesla-client/index.js";
+import { TeslaClient, type TeslaClientService } from "../../tesla-client/index.js";
 import { ChargeStateQueryFailedError } from "../../tesla-client/errors.js";
 import { BatteryStateManager, BatteryStateManagerLayer } from "../../battery-state-manager.js";
 import type { TeslaChargerEvent } from "../../events.js";
 
 describe("BatteryStateManager", () => {
-  const teslaClientMock: MockedObject<TeslaClient> = {
+  const teslaClientMock: MockedObject<TeslaClientService> = {
     authenticateFromAuthCodeGrant: vitest.fn(),
     refreshAccessToken: vitest.fn(),
     setupAccessTokenAutoRefreshRecurring: vitest.fn(),
@@ -30,7 +30,7 @@ describe("BatteryStateManager", () => {
     );
   });
 
-  it.effect("should fetch battery state on first AmpereChanged event (deferred from startup)", () =>
+  it.effect("should fetch battery state on first charging event (deferred from startup)", () =>
     Effect.gen(function* () {
       teslaClientMock.getChargeState.mockReturnValue(
         Effect.succeed({ batteryLevel: 45, chargeLimitSoc: 80, chargeEnergyAdded: 1.2 })
@@ -45,10 +45,10 @@ describe("BatteryStateManager", () => {
       expect(teslaClientMock.getChargeState).not.toHaveBeenCalled();
       expect(batteryStateManager.get()).toBeNull();
 
-      // Publish the first AmpereChanged event — should trigger fetch
+      // Publish the first AmpereChangeInitiated event — should trigger fetch
       // because batteryState is null (timeSinceLastQuery = Infinity)
       yield* PubSub.publish(pubSub, {
-        _tag: "AmpereChanged" as const,
+        _tag: "AmpereChangeInitiated" as const,
         previous: 0,
         current: 10
       });
@@ -82,7 +82,7 @@ describe("BatteryStateManager", () => {
 
       // Publish event to trigger first fetch
       yield* PubSub.publish(pubSub, {
-        _tag: "AmpereChanged" as const,
+        _tag: "AmpereChangeInitiated" as const,
         previous: 0,
         current: 5
       });
@@ -109,7 +109,7 @@ describe("BatteryStateManager", () => {
       yield* TestClock.adjust(Duration.millis(100));
 
       yield* PubSub.publish(pubSub, {
-        _tag: "AmpereChanged" as const,
+        _tag: "AmpereChangeInitiated" as const,
         previous: 0,
         current: 10
       });
@@ -117,9 +117,9 @@ describe("BatteryStateManager", () => {
       yield* TestClock.adjust(Duration.millis(100));
       expect(teslaClientMock.getChargeState).toHaveBeenCalledTimes(1);
 
-      // Second AmpereChanged within cooldown period
+      // Second AmpereChangeInitiated within cooldown period
       yield* PubSub.publish(pubSub, {
-        _tag: "AmpereChanged" as const,
+        _tag: "AmpereChangeInitiated" as const,
         previous: 10,
         current: 15
       });
@@ -154,7 +154,7 @@ describe("BatteryStateManager", () => {
 
       // First AmpereChanged triggers the initial fetch
       yield* PubSub.publish(pubSub, {
-        _tag: "AmpereChanged" as const,
+        _tag: "AmpereChangeInitiated" as const,
         previous: 0,
         current: 10
       });
@@ -165,9 +165,9 @@ describe("BatteryStateManager", () => {
       // Advance past cooldown (10 minutes)
       yield* TestClock.adjust(Duration.minutes(11));
 
-      // Second AmpereChanged after cooldown — should trigger refresh
+      // Second AmpereChangeInitiated after cooldown — should trigger refresh
       yield* PubSub.publish(pubSub, {
-        _tag: "AmpereChanged" as const,
+        _tag: "AmpereChangeInitiated" as const,
         previous: 10,
         current: 15
       });
@@ -207,7 +207,7 @@ describe("BatteryStateManager", () => {
 
       // First AmpereChanged triggers the initial fetch
       yield* PubSub.publish(pubSub, {
-        _tag: "AmpereChanged" as const,
+        _tag: "AmpereChangeInitiated" as const,
         previous: 0,
         current: 10
       });
@@ -221,7 +221,7 @@ describe("BatteryStateManager", () => {
 
       // Publish ampere changed event (triggers refresh that fails)
       yield* PubSub.publish(pubSub, {
-        _tag: "AmpereChanged" as const,
+        _tag: "AmpereChangeInitiated" as const,
         previous: 10,
         current: 15
       });
