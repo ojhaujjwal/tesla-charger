@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "@effect/vitest";
+import { describe, it, expect } from "@effect/vitest";
 import { Cause, Duration, Effect, Exit, Fiber, Inspectable, Layer, Option, Sink, Stream, TestClock } from "effect";
 import { CommandExecutor, FileSystem, HttpClient, HttpClientResponse } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
@@ -11,32 +11,6 @@ import {
   VehicleAsleepError,
   VehicleCommandFailedError
 } from "../../../tesla-client/errors.js";
-
-let tmpDir: string;
-let counter = 0;
-
-beforeEach(() => {
-  counter++;
-  tmpDir = `/tmp/tesla-client-test-${Date.now()}-${counter}`;
-  return Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    yield* fs.makeDirectory(tmpDir, { recursive: true });
-  })
-    .pipe(Effect.provide(NodeFileSystem.layer), Effect.runPromise)
-    .catch(() => Promise.resolve());
-});
-
-afterEach(() => {
-  return Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    const exists = yield* fs.exists(tmpDir);
-    if (exists) {
-      yield* fs.remove(tmpDir, { recursive: true });
-    }
-  })
-    .pipe(Effect.provide(NodeFileSystem.layer), Effect.runPromise)
-    .catch(() => Promise.resolve());
-});
 
 const getFailure = (exit: Exit.Exit<unknown, unknown>): unknown => {
   if (!Exit.isFailure(exit)) throw new Error("Expected failure");
@@ -58,7 +32,7 @@ const validChargeStateJson = JSON.stringify({
   }
 });
 
-const writeTokenFile = () =>
+const writeTokenFile = (tmpDir: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     yield* fs.writeFileString(
@@ -116,10 +90,13 @@ const makeMockCommandExecutor = (
   return CommandExecutor.makeExecutor((_command) => Effect.succeed(makeMockProcess(getConfig())));
 };
 
-const makeTestLayer = (overrides: {
-  httpClient?: HttpClient.HttpClient;
-  commandExecutor?: CommandExecutor.CommandExecutor;
-}) =>
+const makeTestLayer = (
+  tmpDir: string,
+  overrides: {
+    httpClient?: HttpClient.HttpClient;
+    commandExecutor?: CommandExecutor.CommandExecutor;
+  }
+) =>
   TeslaClientLayer({
     appDomain: "test.example.com",
     clientId: "test-client-id",
@@ -138,155 +115,193 @@ const makeTestLayer = (overrides: {
     Layer.provideMerge(NodeFileSystem.layer)
   );
 
+const withTestDir = <A, E, R>(f: (tmpDir: string) => Effect.Effect<A, E, R>) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const tmpDir = `/tmp/tesla-client-test-${Date.now()}-${Math.random()}`;
+    yield* fs.makeDirectory(tmpDir, { recursive: true });
+    yield* Effect.addFinalizer(() =>
+      fs.exists(tmpDir).pipe(
+        Effect.flatMap((exists) => (exists ? fs.remove(tmpDir, { recursive: true }) : Effect.void)),
+        Effect.catchAll(() => Effect.void)
+      )
+    );
+    return yield* f(tmpDir);
+  });
+
 describe("TeslaClient", () => {
   describe("authenticateFromAuthCodeGrant", () => {
-    it.effect("should authenticate successfully given valid auth code", () =>
-      Effect.gen(function* () {
-        const client = yield* TeslaClient;
-        const result = yield* client.authenticateFromAuthCodeGrant("valid-auth-code");
+    it.scoped("should authenticate successfully given valid auth code", () =>
+      withTestDir((tmpDir) =>
+        Effect.gen(function* () {
+          const client = yield* TeslaClient;
+          const result = yield* client.authenticateFromAuthCodeGrant("valid-auth-code");
 
-        expect(result).toEqual({
-          access_token: "new-access-token",
-          refresh_token: "new-refresh-token"
-        });
+          expect(result).toEqual({
+            access_token: "new-access-token",
+            refresh_token: "new-refresh-token"
+          });
 
-        const fs = yield* FileSystem.FileSystem;
-        const tokenFilePath = `${tmpDir}/token.json`;
-        const exists = yield* fs.exists(tokenFilePath);
-        expect(exists).toBe(true);
-        const saved = yield* fs.readFileString(tokenFilePath);
-        expect(JSON.parse(saved)).toEqual({
-          access_token: "new-access-token",
-          refresh_token: "new-refresh-token"
-        });
-      }).pipe(Effect.provide(makeTestLayer({ httpClient: makeMockHttpClient({ status: 200, body: validTokenJson }) })))
+          const fs = yield* FileSystem.FileSystem;
+          const tokenFilePath = `${tmpDir}/token.json`;
+          const exists = yield* fs.exists(tokenFilePath);
+          expect(exists).toBe(true);
+          const saved = yield* fs.readFileString(tokenFilePath);
+          expect(JSON.parse(saved)).toEqual({
+            access_token: "new-access-token",
+            refresh_token: "new-refresh-token"
+          });
+        }).pipe(
+          Effect.provide(
+            makeTestLayer(tmpDir, { httpClient: makeMockHttpClient({ status: 200, body: validTokenJson }) })
+          )
+        )
+      ).pipe(Effect.provide(NodeFileSystem.layer))
     );
 
-    it.effect("should fail authentication given invalid auth code", () =>
-      Effect.gen(function* () {
-        const client = yield* TeslaClient;
-        const result = yield* Effect.exit(client.authenticateFromAuthCodeGrant("invalid-auth-code"));
+    it.scoped("should fail authentication given invalid auth code", () =>
+      withTestDir((tmpDir) =>
+        Effect.gen(function* () {
+          const client = yield* TeslaClient;
+          const result = yield* Effect.exit(client.authenticateFromAuthCodeGrant("invalid-auth-code"));
 
-        expect(result).toStrictEqual(
-          Exit.fail(
-            new UnableToFetchAccessTokenError({
-              message: "Authorization code grant failed with status 400",
-              statusCode: 400,
-              responseBody: JSON.stringify({
-                error: "invalid_grant",
-                error_description: "Invalid authorization code"
+          expect(result).toStrictEqual(
+            Exit.fail(
+              new UnableToFetchAccessTokenError({
+                message: "Authorization code grant failed with status 400",
+                statusCode: 400,
+                responseBody: JSON.stringify({
+                  error: "invalid_grant",
+                  error_description: "Invalid authorization code"
+                })
+              })
+            )
+          );
+        }).pipe(
+          Effect.provide(
+            makeTestLayer(tmpDir, {
+              httpClient: makeMockHttpClient({
+                status: 400,
+                body: JSON.stringify({
+                  error: "invalid_grant",
+                  error_description: "Invalid authorization code"
+                })
               })
             })
           )
-        );
-      }).pipe(
-        Effect.provide(
-          makeTestLayer({
-            httpClient: makeMockHttpClient({
-              status: 400,
-              body: JSON.stringify({
-                error: "invalid_grant",
-                error_description: "Invalid authorization code"
-              })
-            })
-          })
         )
-      )
+      ).pipe(Effect.provide(NodeFileSystem.layer))
     );
 
-    it.effect("should return error on network connectivity issues", () =>
-      Effect.gen(function* () {
-        const client = yield* TeslaClient;
-        const result = yield* Effect.exit(client.authenticateFromAuthCodeGrant("auth-code"));
+    it.scoped("should return error on network connectivity issues", () =>
+      withTestDir((tmpDir) =>
+        Effect.gen(function* () {
+          const client = yield* TeslaClient;
+          const result = yield* Effect.exit(client.authenticateFromAuthCodeGrant("auth-code"));
 
-        expect(Exit.isFailure(result)).toBe(true);
-        if (Exit.isFailure(result)) {
-          const failure = getFailure(result);
-          expect(failure).toMatchObject({ _tag: "RequestError" });
-        }
-      }).pipe(Effect.provide(makeTestLayer({ httpClient: makeMockHttpClient({ requestError: true }) })))
+          expect(Exit.isFailure(result)).toBe(true);
+          if (Exit.isFailure(result)) {
+            const failure = getFailure(result);
+            expect(failure).toMatchObject({ _tag: "RequestError" });
+          }
+        }).pipe(Effect.provide(makeTestLayer(tmpDir, { httpClient: makeMockHttpClient({ requestError: true }) })))
+      ).pipe(Effect.provide(NodeFileSystem.layer))
     );
 
-    it.effect("should return error out when request times out", () =>
-      Effect.gen(function* () {
-        const client = yield* TeslaClient;
-        const fiber = yield* Effect.fork(client.authenticateFromAuthCodeGrant("auth-code"));
+    it.scoped("should return error out when request times out", () =>
+      withTestDir((tmpDir) =>
+        Effect.gen(function* () {
+          const client = yield* TeslaClient;
+          const fiber = yield* Effect.fork(client.authenticateFromAuthCodeGrant("auth-code"));
 
-        yield* TestClock.adjust(Duration.seconds(6));
-        const result = yield* Fiber.await(fiber);
+          yield* TestClock.adjust(Duration.seconds(6));
+          const result = yield* Fiber.await(fiber);
 
-        expect(Exit.isFailure(result)).toBe(true);
-        if (Exit.isFailure(result)) {
-          const failure = getFailure(result);
-          expect(failure).toMatchObject({
-            _tag: "UnableToFetchAccessToken",
-            message: "Authorization code grant request timed out"
-          });
-          expect(failure).toHaveProperty("cause");
-        }
-      }).pipe(Effect.provide(makeTestLayer({ httpClient: makeMockHttpClient({ neverRespond: true }) })))
+          expect(Exit.isFailure(result)).toBe(true);
+          if (Exit.isFailure(result)) {
+            const failure = getFailure(result);
+            expect(failure).toMatchObject({
+              _tag: "UnableToFetchAccessToken",
+              message: "Authorization code grant request timed out"
+            });
+            expect(failure).toHaveProperty("cause");
+          }
+        }).pipe(Effect.provide(makeTestLayer(tmpDir, { httpClient: makeMockHttpClient({ neverRespond: true }) })))
+      ).pipe(Effect.provide(NodeFileSystem.layer))
     );
 
-    it.effect("should return error for unexpected server responses", () =>
-      Effect.gen(function* () {
-        const client = yield* TeslaClient;
-        const result = yield* Effect.exit(client.authenticateFromAuthCodeGrant("auth-code"));
+    it.scoped("should return error for unexpected server responses", () =>
+      withTestDir((tmpDir) =>
+        Effect.gen(function* () {
+          const client = yield* TeslaClient;
+          const result = yield* Effect.exit(client.authenticateFromAuthCodeGrant("auth-code"));
 
-        expect(Exit.isFailure(result)).toBe(true);
-        if (Exit.isFailure(result)) {
-          const failure = getFailure(result);
-          expect(failure).toMatchObject({
-            _tag: "UnableToFetchAccessToken",
-            message: "Failed to parse token response",
-            responseBody: "not valid json"
-          });
-        }
-      }).pipe(
-        Effect.provide(makeTestLayer({ httpClient: makeMockHttpClient({ status: 200, body: "not valid json" }) }))
-      )
+          expect(Exit.isFailure(result)).toBe(true);
+          if (Exit.isFailure(result)) {
+            const failure = getFailure(result);
+            expect(failure).toMatchObject({
+              _tag: "UnableToFetchAccessToken",
+              message: "Failed to parse token response",
+              responseBody: "not valid json"
+            });
+          }
+        }).pipe(
+          Effect.provide(
+            makeTestLayer(tmpDir, { httpClient: makeMockHttpClient({ status: 200, body: "not valid json" }) })
+          )
+        )
+      ).pipe(Effect.provide(NodeFileSystem.layer))
     );
   });
 
   describe("refreshAccessToken", () => {
-    it.effect("should refresh access token successfully given valid refresh token exists", () =>
-      Effect.gen(function* () {
-        yield* writeTokenFile();
-        const client = yield* TeslaClient;
-        const result = yield* Effect.exit(client.refreshAccessToken());
+    it.scoped("should refresh access token successfully given valid refresh token exists", () =>
+      withTestDir((tmpDir) =>
+        Effect.gen(function* () {
+          yield* writeTokenFile(tmpDir);
+          const client = yield* TeslaClient;
+          const result = yield* Effect.exit(client.refreshAccessToken());
 
-        expect(result).toStrictEqual(Exit.void);
+          expect(result).toStrictEqual(Exit.void);
 
-        const fs = yield* FileSystem.FileSystem;
-        const tokenFilePath = `${tmpDir}/token.json`;
-        const saved = yield* fs.readFileString(tokenFilePath);
-        expect(JSON.parse(saved)).toEqual({
-          access_token: "new-access-token",
-          refresh_token: "new-refresh-token"
-        });
-      }).pipe(Effect.provide(makeTestLayer({ httpClient: makeMockHttpClient({ status: 200, body: validTokenJson }) })))
-    );
-
-    it.effect("should fail to refresh access token given invalid refresh token", () =>
-      Effect.gen(function* () {
-        yield* writeTokenFile();
-        const client = yield* TeslaClient;
-        const result = yield* Effect.exit(client.refreshAccessToken());
-
-        expect(result).toStrictEqual(
-          Exit.fail(
-            new AuthenticationFailedError({
-              cause: new UnableToFetchAccessTokenError({
-                message: "Token refresh failed with status 400",
-                statusCode: 400,
-                responseBody: ""
-              })
-            })
+          const fs = yield* FileSystem.FileSystem;
+          const tokenFilePath = `${tmpDir}/token.json`;
+          const saved = yield* fs.readFileString(tokenFilePath);
+          expect(JSON.parse(saved)).toEqual({
+            access_token: "new-access-token",
+            refresh_token: "new-refresh-token"
+          });
+        }).pipe(
+          Effect.provide(
+            makeTestLayer(tmpDir, { httpClient: makeMockHttpClient({ status: 200, body: validTokenJson }) })
           )
-        );
-      }).pipe(Effect.provide(makeTestLayer({ httpClient: makeMockHttpClient({ status: 400, body: "" }) })))
+        )
+      ).pipe(Effect.provide(NodeFileSystem.layer))
     );
 
-    it.effect("should return retry with exponential backoff on network connectivity issues", () => {
+    it.scoped("should fail to refresh access token given invalid refresh token", () =>
+      withTestDir((tmpDir) =>
+        Effect.gen(function* () {
+          yield* writeTokenFile(tmpDir);
+          const client = yield* TeslaClient;
+          const result = yield* Effect.exit(client.refreshAccessToken());
+
+          expect(result).toStrictEqual(
+            Exit.fail(
+              new AuthenticationFailedError({
+                cause: new UnableToFetchAccessTokenError({
+                  message: "Token refresh failed with status 400",
+                  statusCode: 400,
+                  responseBody: ""
+                })
+              })
+            )
+          );
+        }).pipe(Effect.provide(makeTestLayer(tmpDir, { httpClient: makeMockHttpClient({ status: 400, body: "" }) })))
+      ).pipe(Effect.provide(NodeFileSystem.layer))
+    );
+
+    it.scoped("should return retry with exponential backoff on network connectivity issues", () => {
       let callCount = 0;
       const httpClient = HttpClient.make((req) => {
         callCount++;
@@ -301,19 +316,21 @@ describe("TeslaClient", () => {
         );
       });
 
-      return Effect.gen(function* () {
-        yield* writeTokenFile();
-        const client = yield* TeslaClient;
-        const fiber = yield* Effect.fork(client.refreshAccessToken());
-        yield* TestClock.adjust(Duration.seconds(3));
-        const result = yield* Fiber.await(fiber);
+      return withTestDir((tmpDir) =>
+        Effect.gen(function* () {
+          yield* writeTokenFile(tmpDir);
+          const client = yield* TeslaClient;
+          const fiber = yield* Effect.fork(client.refreshAccessToken());
+          yield* TestClock.adjust(Duration.seconds(3));
+          const result = yield* Fiber.await(fiber);
 
-        expect(result).toStrictEqual(Exit.void);
-        expect(callCount).toBe(2);
-      }).pipe(Effect.provide(makeTestLayer({ httpClient })));
+          expect(result).toStrictEqual(Exit.void);
+          expect(callCount).toBe(2);
+        }).pipe(Effect.provide(makeTestLayer(tmpDir, { httpClient })))
+      ).pipe(Effect.provide(NodeFileSystem.layer));
     });
 
-    it.effect("should return retry with exponential backoff when request times out", () => {
+    it.scoped("should return retry with exponential backoff when request times out", () => {
       let callCount = 0;
       const httpClient = HttpClient.make((req) => {
         callCount++;
@@ -328,19 +345,21 @@ describe("TeslaClient", () => {
         );
       });
 
-      return Effect.gen(function* () {
-        yield* writeTokenFile();
-        const client = yield* TeslaClient;
-        const fiber = yield* Effect.fork(client.refreshAccessToken());
-        yield* TestClock.adjust(Duration.seconds(7));
-        const result = yield* Fiber.await(fiber);
+      return withTestDir((tmpDir) =>
+        Effect.gen(function* () {
+          yield* writeTokenFile(tmpDir);
+          const client = yield* TeslaClient;
+          const fiber = yield* Effect.fork(client.refreshAccessToken());
+          yield* TestClock.adjust(Duration.seconds(7));
+          const result = yield* Fiber.await(fiber);
 
-        expect(result).toStrictEqual(Exit.void);
-        expect(callCount).toBe(2);
-      }).pipe(Effect.provide(makeTestLayer({ httpClient })));
+          expect(result).toStrictEqual(Exit.void);
+          expect(callCount).toBe(2);
+        }).pipe(Effect.provide(makeTestLayer(tmpDir, { httpClient })))
+      ).pipe(Effect.provide(NodeFileSystem.layer));
     });
 
-    it.effect("should return retry with exponential backoff when server returns 5xx errors", () => {
+    it.scoped("should return retry with exponential backoff when server returns 5xx errors", () => {
       let callCount = 0;
       const httpClient = HttpClient.make((req) => {
         callCount++;
@@ -361,41 +380,45 @@ describe("TeslaClient", () => {
         );
       });
 
-      return Effect.gen(function* () {
-        yield* writeTokenFile();
-        const client = yield* TeslaClient;
-        const fiber = yield* Effect.fork(client.refreshAccessToken());
-        yield* TestClock.adjust(Duration.seconds(3));
-        const result = yield* Fiber.await(fiber);
+      return withTestDir((tmpDir) =>
+        Effect.gen(function* () {
+          yield* writeTokenFile(tmpDir);
+          const client = yield* TeslaClient;
+          const fiber = yield* Effect.fork(client.refreshAccessToken());
+          yield* TestClock.adjust(Duration.seconds(3));
+          const result = yield* Fiber.await(fiber);
 
-        expect(result).toStrictEqual(Exit.void);
-        expect(callCount).toBe(2);
-      }).pipe(Effect.provide(makeTestLayer({ httpClient })));
+          expect(result).toStrictEqual(Exit.void);
+          expect(callCount).toBe(2);
+        }).pipe(Effect.provide(makeTestLayer(tmpDir, { httpClient })))
+      ).pipe(Effect.provide(NodeFileSystem.layer));
     });
 
-    it.effect("should return error when upstream returns 4xx responses", () =>
-      Effect.gen(function* () {
-        yield* writeTokenFile();
-        const client = yield* TeslaClient;
-        const result = yield* Effect.exit(client.refreshAccessToken());
+    it.scoped("should return error when upstream returns 4xx responses", () =>
+      withTestDir((tmpDir) =>
+        Effect.gen(function* () {
+          yield* writeTokenFile(tmpDir);
+          const client = yield* TeslaClient;
+          const result = yield* Effect.exit(client.refreshAccessToken());
 
-        expect(result).toStrictEqual(
-          Exit.fail(
-            new AuthenticationFailedError({
-              cause: new UnableToFetchAccessTokenError({
-                message: "Token refresh failed with status 401",
-                statusCode: 401,
-                responseBody: ""
+          expect(result).toStrictEqual(
+            Exit.fail(
+              new AuthenticationFailedError({
+                cause: new UnableToFetchAccessTokenError({
+                  message: "Token refresh failed with status 401",
+                  statusCode: 401,
+                  responseBody: ""
+                })
               })
-            })
-          )
-        );
-      }).pipe(Effect.provide(makeTestLayer({ httpClient: makeMockHttpClient({ status: 401, body: "" }) })))
+            )
+          );
+        }).pipe(Effect.provide(makeTestLayer(tmpDir, { httpClient: makeMockHttpClient({ status: 401, body: "" }) })))
+      ).pipe(Effect.provide(NodeFileSystem.layer))
     );
   });
 
   describe("setupAccessTokenAutoRefreshRecurring", () => {
-    it.effect("should set up recurring access token refresh successfully", () => {
+    it.scoped("should set up recurring access token refresh successfully", () => {
       let callCount = 0;
       const httpClient = HttpClient.make((req) => {
         callCount++;
@@ -407,322 +430,372 @@ describe("TeslaClient", () => {
         );
       });
 
-      return Effect.gen(function* () {
-        yield* writeTokenFile();
-        const client = yield* TeslaClient;
-        const fiber = yield* Effect.fork(client.setupAccessTokenAutoRefreshRecurring(60));
-        yield* TestClock.adjust(Duration.seconds(61));
-        yield* Fiber.interrupt(fiber);
+      return withTestDir((tmpDir) =>
+        Effect.gen(function* () {
+          yield* writeTokenFile(tmpDir);
+          const client = yield* TeslaClient;
+          const fiber = yield* Effect.fork(client.setupAccessTokenAutoRefreshRecurring(60));
+          yield* TestClock.adjust(Duration.seconds(61));
+          yield* Fiber.interrupt(fiber);
 
-        expect(callCount).toBeGreaterThanOrEqual(1);
-      }).pipe(Effect.provide(makeTestLayer({ httpClient })));
+          expect(callCount).toBeGreaterThanOrEqual(1);
+        }).pipe(Effect.provide(makeTestLayer(tmpDir, { httpClient })))
+      ).pipe(Effect.provide(NodeFileSystem.layer));
     });
 
-    it.effect("should return error when response body is not in expected format", () =>
-      Effect.gen(function* () {
-        yield* writeTokenFile();
-        const client = yield* TeslaClient;
-        const result = yield* Effect.exit(client.setupAccessTokenAutoRefreshRecurring(60));
+    it.scoped("should return error when response body is not in expected format", () =>
+      withTestDir((tmpDir) =>
+        Effect.gen(function* () {
+          yield* writeTokenFile(tmpDir);
+          const client = yield* TeslaClient;
+          const result = yield* Effect.exit(client.setupAccessTokenAutoRefreshRecurring(60));
 
-        expect(Exit.isFailure(result)).toBe(true);
-        if (Exit.isFailure(result)) {
-          const failure = getFailure(result);
-          expect(failure).toMatchObject({ _tag: "AuthenticationFailedError" });
-        }
-      }).pipe(
-        Effect.provide(makeTestLayer({ httpClient: makeMockHttpClient({ status: 200, body: "not valid json" }) }))
-      )
+          expect(Exit.isFailure(result)).toBe(true);
+          if (Exit.isFailure(result)) {
+            const failure = getFailure(result);
+            expect(failure).toMatchObject({ _tag: "AuthenticationFailedError" });
+          }
+        }).pipe(
+          Effect.provide(
+            makeTestLayer(tmpDir, { httpClient: makeMockHttpClient({ status: 200, body: "not valid json" }) })
+          )
+        )
+      ).pipe(Effect.provide(NodeFileSystem.layer))
     );
   });
 
   describe("startCharging", () => {
-    it.effect("should return void when command is successful", () =>
-      Effect.gen(function* () {
-        const client = yield* TeslaClient;
-        const result = yield* Effect.exit(client.startCharging());
+    it.scoped("should return void when command is successful", () =>
+      withTestDir((tmpDir) =>
+        Effect.gen(function* () {
+          const client = yield* TeslaClient;
+          const result = yield* Effect.exit(client.startCharging());
 
-        expect(result).toStrictEqual(Exit.void);
-      }).pipe(
-        Effect.provide(makeTestLayer({ commandExecutor: makeMockCommandExecutor([{ exitCode: 0, stderr: "" }]) }))
-      )
-    );
-
-    it.effect("should return void when car is already charging", () =>
-      Effect.gen(function* () {
-        const client = yield* TeslaClient;
-        const result = yield* Effect.exit(client.startCharging());
-
-        expect(result).toStrictEqual(Exit.void);
-      }).pipe(
-        Effect.provide(
-          makeTestLayer({
-            commandExecutor: makeMockCommandExecutor([
-              { exitCode: 1, stderr: "car could not execute command: is_charging" }
-            ])
-          })
+          expect(result).toStrictEqual(Exit.void);
+        }).pipe(
+          Effect.provide(
+            makeTestLayer(tmpDir, { commandExecutor: makeMockCommandExecutor([{ exitCode: 0, stderr: "" }]) })
+          )
         )
-      )
+      ).pipe(Effect.provide(NodeFileSystem.layer))
     );
 
-    it.effect("should retry with exponential backoff when command execution times out", () =>
-      Effect.gen(function* () {
-        const client = yield* TeslaClient;
-        const fiber = yield* Effect.fork(client.startCharging());
-        yield* TestClock.adjust(Duration.seconds(1));
-        const result = yield* Fiber.await(fiber);
+    it.scoped("should return void when car is already charging", () =>
+      withTestDir((tmpDir) =>
+        Effect.gen(function* () {
+          const client = yield* TeslaClient;
+          const result = yield* Effect.exit(client.startCharging());
 
-        expect(result).toStrictEqual(Exit.void);
-      }).pipe(
-        Effect.provide(
-          makeTestLayer({
-            commandExecutor: makeMockCommandExecutor([
-              { exitCode: 1, stderr: "context deadline exceeded" },
-              { exitCode: 0, stderr: "" }
-            ])
-          })
-        )
-      )
-    );
-
-    it.effect("should return error when vehicle is asleep", () =>
-      Effect.gen(function* () {
-        const client = yield* TeslaClient;
-        const result = yield* Effect.exit(client.startCharging());
-
-        expect(result).toStrictEqual(Exit.fail(new VehicleAsleepError()));
-      }).pipe(
-        Effect.provide(
-          makeTestLayer({
-            commandExecutor: makeMockCommandExecutor([{ exitCode: 1, stderr: "vehicle is offline or asleep" }])
-          })
-        )
-      )
-    );
-
-    it.effect("should return error when command fails for other reasons", () =>
-      Effect.gen(function* () {
-        const client = yield* TeslaClient;
-        const result = yield* Effect.exit(client.startCharging());
-
-        expect(result).toStrictEqual(
-          Exit.fail(
-            new VehicleCommandFailedError({
-              message: "Command failed. Stderr: unknown error occurred",
-              stderr: "unknown error occurred"
+          expect(result).toStrictEqual(Exit.void);
+        }).pipe(
+          Effect.provide(
+            makeTestLayer(tmpDir, {
+              commandExecutor: makeMockCommandExecutor([
+                { exitCode: 1, stderr: "car could not execute command: is_charging" }
+              ])
             })
           )
-        );
-      }).pipe(
-        Effect.provide(
-          makeTestLayer({
-            commandExecutor: makeMockCommandExecutor([{ exitCode: 1, stderr: "unknown error occurred" }])
-          })
         )
-      )
+      ).pipe(Effect.provide(NodeFileSystem.layer))
+    );
+
+    it.scoped("should retry with exponential backoff when command execution times out", () =>
+      withTestDir((tmpDir) =>
+        Effect.gen(function* () {
+          const client = yield* TeslaClient;
+          const fiber = yield* Effect.fork(client.startCharging());
+          yield* TestClock.adjust(Duration.seconds(1));
+          const result = yield* Fiber.await(fiber);
+
+          expect(result).toStrictEqual(Exit.void);
+        }).pipe(
+          Effect.provide(
+            makeTestLayer(tmpDir, {
+              commandExecutor: makeMockCommandExecutor([
+                { exitCode: 1, stderr: "context deadline exceeded" },
+                { exitCode: 0, stderr: "" }
+              ])
+            })
+          )
+        )
+      ).pipe(Effect.provide(NodeFileSystem.layer))
+    );
+
+    it.scoped("should return error when vehicle is asleep", () =>
+      withTestDir((tmpDir) =>
+        Effect.gen(function* () {
+          const client = yield* TeslaClient;
+          const result = yield* Effect.exit(client.startCharging());
+
+          expect(result).toStrictEqual(Exit.fail(new VehicleAsleepError()));
+        }).pipe(
+          Effect.provide(
+            makeTestLayer(tmpDir, {
+              commandExecutor: makeMockCommandExecutor([{ exitCode: 1, stderr: "vehicle is offline or asleep" }])
+            })
+          )
+        )
+      ).pipe(Effect.provide(NodeFileSystem.layer))
+    );
+
+    it.scoped("should return error when command fails for other reasons", () =>
+      withTestDir((tmpDir) =>
+        Effect.gen(function* () {
+          const client = yield* TeslaClient;
+          const result = yield* Effect.exit(client.startCharging());
+
+          expect(result).toStrictEqual(
+            Exit.fail(
+              new VehicleCommandFailedError({
+                message: "Command failed. Stderr: unknown error occurred",
+                stderr: "unknown error occurred"
+              })
+            )
+          );
+        }).pipe(
+          Effect.provide(
+            makeTestLayer(tmpDir, {
+              commandExecutor: makeMockCommandExecutor([{ exitCode: 1, stderr: "unknown error occurred" }])
+            })
+          )
+        )
+      ).pipe(Effect.provide(NodeFileSystem.layer))
     );
   });
 
   describe("stopCharging", () => {
-    it.effect("should return void when command is successful", () =>
-      Effect.gen(function* () {
-        const client = yield* TeslaClient;
-        const result = yield* Effect.exit(client.stopCharging());
+    it.scoped("should return void when command is successful", () =>
+      withTestDir((tmpDir) =>
+        Effect.gen(function* () {
+          const client = yield* TeslaClient;
+          const result = yield* Effect.exit(client.stopCharging());
 
-        expect(result).toStrictEqual(Exit.void);
-      }).pipe(
-        Effect.provide(makeTestLayer({ commandExecutor: makeMockCommandExecutor([{ exitCode: 0, stderr: "" }]) }))
-      )
+          expect(result).toStrictEqual(Exit.void);
+        }).pipe(
+          Effect.provide(
+            makeTestLayer(tmpDir, { commandExecutor: makeMockCommandExecutor([{ exitCode: 0, stderr: "" }]) })
+          )
+        )
+      ).pipe(Effect.provide(NodeFileSystem.layer))
     );
 
-    it.effect("should return void when car is already not charging", () =>
-      Effect.gen(function* () {
-        const client = yield* TeslaClient;
-        // Note: This test is aspirational. stopCharging currently does not
-        // handle the "already not charging" case specially.
-        const result = yield* Effect.exit(client.stopCharging());
+    it.scoped("should return void when car is already not charging", () =>
+      withTestDir((tmpDir) =>
+        Effect.gen(function* () {
+          const client = yield* TeslaClient;
+          // Note: This test is aspirational. stopCharging currently does not
+          // handle the "already not charging" case specially.
+          const result = yield* Effect.exit(client.stopCharging());
 
-        expect(result).toStrictEqual(
-          Exit.fail(
-            new VehicleCommandFailedError({
-              message: "Command failed. Stderr: ",
-              stderr: ""
-            })
+          expect(result).toStrictEqual(
+            Exit.fail(
+              new VehicleCommandFailedError({
+                message: "Command failed. Stderr: ",
+                stderr: ""
+              })
+            )
+          );
+        }).pipe(
+          Effect.provide(
+            makeTestLayer(tmpDir, { commandExecutor: makeMockCommandExecutor([{ exitCode: 1, stderr: "" }]) })
           )
-        );
-      }).pipe(
-        Effect.provide(makeTestLayer({ commandExecutor: makeMockCommandExecutor([{ exitCode: 1, stderr: "" }]) }))
-      )
+        )
+      ).pipe(Effect.provide(NodeFileSystem.layer))
     );
   });
 
   describe("setAmpere", () => {
-    it.effect("should set ampere successfully given valid input", () =>
-      Effect.gen(function* () {
-        const client = yield* TeslaClient;
-        const result = yield* Effect.exit(client.setAmpere(10));
+    it.scoped("should set ampere successfully given valid input", () =>
+      withTestDir((tmpDir) =>
+        Effect.gen(function* () {
+          const client = yield* TeslaClient;
+          const result = yield* Effect.exit(client.setAmpere(10));
 
-        expect(result).toStrictEqual(Exit.void);
-      }).pipe(
-        Effect.provide(makeTestLayer({ commandExecutor: makeMockCommandExecutor([{ exitCode: 0, stderr: "" }]) }))
-      )
+          expect(result).toStrictEqual(Exit.void);
+        }).pipe(
+          Effect.provide(
+            makeTestLayer(tmpDir, { commandExecutor: makeMockCommandExecutor([{ exitCode: 0, stderr: "" }]) })
+          )
+        )
+      ).pipe(Effect.provide(NodeFileSystem.layer))
     );
 
-    it.effect("should return error given invalid ampere value", () =>
-      Effect.gen(function* () {
-        const client = yield* TeslaClient;
-        const result = yield* Effect.exit(client.setAmpere(999));
+    it.scoped("should return error given invalid ampere value", () =>
+      withTestDir((tmpDir) =>
+        Effect.gen(function* () {
+          const client = yield* TeslaClient;
+          const result = yield* Effect.exit(client.setAmpere(999));
 
-        expect(result).toStrictEqual(
-          Exit.fail(
-            new VehicleCommandFailedError({
-              message: "Command failed. Stderr: invalid ampere value",
-              stderr: "invalid ampere value"
+          expect(result).toStrictEqual(
+            Exit.fail(
+              new VehicleCommandFailedError({
+                message: "Command failed. Stderr: invalid ampere value",
+                stderr: "invalid ampere value"
+              })
+            )
+          );
+        }).pipe(
+          Effect.provide(
+            makeTestLayer(tmpDir, {
+              commandExecutor: makeMockCommandExecutor([{ exitCode: 1, stderr: "invalid ampere value" }])
             })
           )
-        );
-      }).pipe(
-        Effect.provide(
-          makeTestLayer({
-            commandExecutor: makeMockCommandExecutor([{ exitCode: 1, stderr: "invalid ampere value" }])
-          })
         )
-      )
+      ).pipe(Effect.provide(NodeFileSystem.layer))
     );
 
-    it.effect("should retry with exponential backoff when command execution times out", () =>
-      Effect.gen(function* () {
-        const client = yield* TeslaClient;
-        const fiber = yield* Effect.fork(client.setAmpere(10));
-        yield* TestClock.adjust(Duration.seconds(1));
-        const result = yield* Fiber.await(fiber);
+    it.scoped("should retry with exponential backoff when command execution times out", () =>
+      withTestDir((tmpDir) =>
+        Effect.gen(function* () {
+          const client = yield* TeslaClient;
+          const fiber = yield* Effect.fork(client.setAmpere(10));
+          yield* TestClock.adjust(Duration.seconds(1));
+          const result = yield* Fiber.await(fiber);
 
-        expect(result).toStrictEqual(Exit.void);
-      }).pipe(
-        Effect.provide(
-          makeTestLayer({
-            commandExecutor: makeMockCommandExecutor([
-              { exitCode: 1, stderr: "context deadline exceeded" },
-              { exitCode: 0, stderr: "" }
-            ])
-          })
-        )
-      )
-    );
-
-    it.effect("should return error when vehicle is asleep", () =>
-      Effect.gen(function* () {
-        const client = yield* TeslaClient;
-        const result = yield* Effect.exit(client.setAmpere(10));
-
-        expect(result).toStrictEqual(Exit.fail(new VehicleAsleepError()));
-      }).pipe(
-        Effect.provide(
-          makeTestLayer({
-            commandExecutor: makeMockCommandExecutor([{ exitCode: 1, stderr: "vehicle is offline or asleep" }])
-          })
-        )
-      )
-    );
-
-    it.effect("should return error when command fails for other reasons", () =>
-      Effect.gen(function* () {
-        const client = yield* TeslaClient;
-        const result = yield* Effect.exit(client.setAmpere(10));
-
-        expect(result).toStrictEqual(
-          Exit.fail(
-            new VehicleCommandFailedError({
-              message: "Command failed. Stderr: some other error",
-              stderr: "some other error"
+          expect(result).toStrictEqual(Exit.void);
+        }).pipe(
+          Effect.provide(
+            makeTestLayer(tmpDir, {
+              commandExecutor: makeMockCommandExecutor([
+                { exitCode: 1, stderr: "context deadline exceeded" },
+                { exitCode: 0, stderr: "" }
+              ])
             })
           )
-        );
-      }).pipe(
-        Effect.provide(
-          makeTestLayer({
-            commandExecutor: makeMockCommandExecutor([{ exitCode: 1, stderr: "some other error" }])
-          })
         )
-      )
+      ).pipe(Effect.provide(NodeFileSystem.layer))
+    );
+
+    it.scoped("should return error when vehicle is asleep", () =>
+      withTestDir((tmpDir) =>
+        Effect.gen(function* () {
+          const client = yield* TeslaClient;
+          const result = yield* Effect.exit(client.setAmpere(10));
+
+          expect(result).toStrictEqual(Exit.fail(new VehicleAsleepError()));
+        }).pipe(
+          Effect.provide(
+            makeTestLayer(tmpDir, {
+              commandExecutor: makeMockCommandExecutor([{ exitCode: 1, stderr: "vehicle is offline or asleep" }])
+            })
+          )
+        )
+      ).pipe(Effect.provide(NodeFileSystem.layer))
+    );
+
+    it.scoped("should return error when command fails for other reasons", () =>
+      withTestDir((tmpDir) =>
+        Effect.gen(function* () {
+          const client = yield* TeslaClient;
+          const result = yield* Effect.exit(client.setAmpere(10));
+
+          expect(result).toStrictEqual(
+            Exit.fail(
+              new VehicleCommandFailedError({
+                message: "Command failed. Stderr: some other error",
+                stderr: "some other error"
+              })
+            )
+          );
+        }).pipe(
+          Effect.provide(
+            makeTestLayer(tmpDir, {
+              commandExecutor: makeMockCommandExecutor([{ exitCode: 1, stderr: "some other error" }])
+            })
+          )
+        )
+      ).pipe(Effect.provide(NodeFileSystem.layer))
     );
   });
 
   describe("wakeUpCar", () => {
-    it.effect("should wake up car successfully", () =>
-      Effect.gen(function* () {
-        const client = yield* TeslaClient;
-        const result = yield* Effect.exit(client.wakeUpCar());
+    it.scoped("should wake up car successfully", () =>
+      withTestDir((tmpDir) =>
+        Effect.gen(function* () {
+          const client = yield* TeslaClient;
+          const result = yield* Effect.exit(client.wakeUpCar());
 
-        expect(result).toStrictEqual(Exit.void);
-      }).pipe(
-        Effect.provide(makeTestLayer({ commandExecutor: makeMockCommandExecutor([{ exitCode: 0, stderr: "" }]) }))
-      )
+          expect(result).toStrictEqual(Exit.void);
+        }).pipe(
+          Effect.provide(
+            makeTestLayer(tmpDir, { commandExecutor: makeMockCommandExecutor([{ exitCode: 0, stderr: "" }]) })
+          )
+        )
+      ).pipe(Effect.provide(NodeFileSystem.layer))
     );
 
-    it.effect("should return VehicleCommandFailedError should be returned if car is still asleep", () =>
-      Effect.gen(function* () {
-        const client = yield* TeslaClient;
-        const result = yield* Effect.exit(client.wakeUpCar());
+    it.scoped("should return VehicleCommandFailedError should be returned if car is still asleep", () =>
+      withTestDir((tmpDir) =>
+        Effect.gen(function* () {
+          const client = yield* TeslaClient;
+          const result = yield* Effect.exit(client.wakeUpCar());
 
-        expect(result).toStrictEqual(
-          Exit.fail(
-            new VehicleCommandFailedError({
-              message: "Vehicle is still asleep while issuing wakeup."
+          expect(result).toStrictEqual(
+            Exit.fail(
+              new VehicleCommandFailedError({
+                message: "Vehicle is still asleep while issuing wakeup."
+              })
+            )
+          );
+        }).pipe(
+          Effect.provide(
+            makeTestLayer(tmpDir, {
+              commandExecutor: makeMockCommandExecutor([{ exitCode: 1, stderr: "vehicle is offline or asleep" }])
             })
           )
-        );
-      }).pipe(
-        Effect.provide(
-          makeTestLayer({
-            commandExecutor: makeMockCommandExecutor([{ exitCode: 1, stderr: "vehicle is offline or asleep" }])
-          })
         )
-      )
+      ).pipe(Effect.provide(NodeFileSystem.layer))
     );
 
-    it.effect("should return error when command fails for other reasons", () =>
-      Effect.gen(function* () {
-        const client = yield* TeslaClient;
-        const result = yield* Effect.exit(client.wakeUpCar());
+    it.scoped("should return error when command fails for other reasons", () =>
+      withTestDir((tmpDir) =>
+        Effect.gen(function* () {
+          const client = yield* TeslaClient;
+          const result = yield* Effect.exit(client.wakeUpCar());
 
-        expect(result).toStrictEqual(
-          Exit.fail(
-            new VehicleCommandFailedError({
-              message: "Command failed. Stderr: some error",
-              stderr: "some error"
+          expect(result).toStrictEqual(
+            Exit.fail(
+              new VehicleCommandFailedError({
+                message: "Command failed. Stderr: some error",
+                stderr: "some error"
+              })
+            )
+          );
+        }).pipe(
+          Effect.provide(
+            makeTestLayer(tmpDir, {
+              commandExecutor: makeMockCommandExecutor([{ exitCode: 1, stderr: "some error" }])
             })
           )
-        );
-      }).pipe(
-        Effect.provide(
-          makeTestLayer({
-            commandExecutor: makeMockCommandExecutor([{ exitCode: 1, stderr: "some error" }])
-          })
         )
-      )
+      ).pipe(Effect.provide(NodeFileSystem.layer))
     );
   });
 
   describe("getChargeState", () => {
-    it.effect("should fetch charge state successfully", () =>
-      Effect.gen(function* () {
-        yield* writeTokenFile();
-        const client = yield* TeslaClient;
-        const result = yield* Effect.exit(client.getChargeState());
+    it.scoped("should fetch charge state successfully", () =>
+      withTestDir((tmpDir) =>
+        Effect.gen(function* () {
+          yield* writeTokenFile(tmpDir);
+          const client = yield* TeslaClient;
+          const result = yield* Effect.exit(client.getChargeState());
 
-        expect(result).toStrictEqual(
-          Exit.succeed({
-            batteryLevel: 72,
-            chargeLimitSoc: 80,
-            chargeEnergyAdded: 15.5
-          })
-        );
-      }).pipe(
-        Effect.provide(makeTestLayer({ httpClient: makeMockHttpClient({ status: 200, body: validChargeStateJson }) }))
-      )
+          expect(result).toStrictEqual(
+            Exit.succeed({
+              batteryLevel: 72,
+              chargeLimitSoc: 80,
+              chargeEnergyAdded: 15.5
+            })
+          );
+        }).pipe(
+          Effect.provide(
+            makeTestLayer(tmpDir, { httpClient: makeMockHttpClient({ status: 200, body: validChargeStateJson }) })
+          )
+        )
+      ).pipe(Effect.provide(NodeFileSystem.layer))
     );
 
-    it.effect("should retry with exponential backoff when query times out", () => {
+    it.scoped("should retry with exponential backoff when query times out", () => {
       let callCount = 0;
       const httpClient = HttpClient.make((req) => {
         callCount++;
@@ -737,25 +810,27 @@ describe("TeslaClient", () => {
         );
       });
 
-      return Effect.gen(function* () {
-        yield* writeTokenFile();
-        const client = yield* TeslaClient;
-        const fiber = yield* Effect.fork(client.getChargeState());
-        yield* TestClock.adjust(Duration.seconds(12));
-        const result = yield* Fiber.await(fiber);
+      return withTestDir((tmpDir) =>
+        Effect.gen(function* () {
+          yield* writeTokenFile(tmpDir);
+          const client = yield* TeslaClient;
+          const fiber = yield* Effect.fork(client.getChargeState());
+          yield* TestClock.adjust(Duration.seconds(12));
+          const result = yield* Fiber.await(fiber);
 
-        expect(result).toStrictEqual(
-          Exit.succeed({
-            batteryLevel: 72,
-            chargeLimitSoc: 80,
-            chargeEnergyAdded: 15.5
-          })
-        );
-        expect(callCount).toBe(2);
-      }).pipe(Effect.provide(makeTestLayer({ httpClient })));
+          expect(result).toStrictEqual(
+            Exit.succeed({
+              batteryLevel: 72,
+              chargeLimitSoc: 80,
+              chargeEnergyAdded: 15.5
+            })
+          );
+          expect(callCount).toBe(2);
+        }).pipe(Effect.provide(makeTestLayer(tmpDir, { httpClient })))
+      ).pipe(Effect.provide(NodeFileSystem.layer));
     });
 
-    it.effect("should retry with exponential backoff when network connectivity issues occur", () => {
+    it.scoped("should retry with exponential backoff when network connectivity issues occur", () => {
       let callCount = 0;
       const httpClient = HttpClient.make((req) => {
         callCount++;
@@ -770,57 +845,65 @@ describe("TeslaClient", () => {
         );
       });
 
-      return Effect.gen(function* () {
-        yield* writeTokenFile();
-        const client = yield* TeslaClient;
-        const fiber = yield* Effect.fork(client.getChargeState());
-        yield* TestClock.adjust(Duration.seconds(3));
-        const result = yield* Fiber.await(fiber);
+      return withTestDir((tmpDir) =>
+        Effect.gen(function* () {
+          yield* writeTokenFile(tmpDir);
+          const client = yield* TeslaClient;
+          const fiber = yield* Effect.fork(client.getChargeState());
+          yield* TestClock.adjust(Duration.seconds(3));
+          const result = yield* Fiber.await(fiber);
 
-        expect(result).toStrictEqual(
-          Exit.succeed({
-            batteryLevel: 72,
-            chargeLimitSoc: 80,
-            chargeEnergyAdded: 15.5
-          })
-        );
-        expect(callCount).toBe(2);
-      }).pipe(Effect.provide(makeTestLayer({ httpClient })));
+          expect(result).toStrictEqual(
+            Exit.succeed({
+              batteryLevel: 72,
+              chargeLimitSoc: 80,
+              chargeEnergyAdded: 15.5
+            })
+          );
+          expect(callCount).toBe(2);
+        }).pipe(Effect.provide(makeTestLayer(tmpDir, { httpClient })))
+      ).pipe(Effect.provide(NodeFileSystem.layer));
     });
 
-    it.effect("should return error API returns 5xx errors", () =>
-      Effect.gen(function* () {
-        yield* writeTokenFile();
-        const client = yield* TeslaClient;
-        const result = yield* Effect.exit(client.getChargeState());
+    it.scoped("should return error API returns 5xx errors", () =>
+      withTestDir((tmpDir) =>
+        Effect.gen(function* () {
+          yield* writeTokenFile(tmpDir);
+          const client = yield* TeslaClient;
+          const result = yield* Effect.exit(client.getChargeState());
 
-        expect(result).toStrictEqual(
-          Exit.fail(
-            new ChargeStateQueryFailedError({
-              message: "Fleet API returned status 500: "
-            })
-          )
-        );
-      }).pipe(Effect.provide(makeTestLayer({ httpClient: makeMockHttpClient({ status: 500, body: "" }) })))
+          expect(result).toStrictEqual(
+            Exit.fail(
+              new ChargeStateQueryFailedError({
+                message: "Fleet API returned status 500: "
+              })
+            )
+          );
+        }).pipe(Effect.provide(makeTestLayer(tmpDir, { httpClient: makeMockHttpClient({ status: 500, body: "" }) })))
+      ).pipe(Effect.provide(NodeFileSystem.layer))
     );
 
-    it.effect("should return error when response body is not in expected format", () =>
-      Effect.gen(function* () {
-        yield* writeTokenFile();
-        const client = yield* TeslaClient;
-        const result = yield* Effect.exit(client.getChargeState());
+    it.scoped("should return error when response body is not in expected format", () =>
+      withTestDir((tmpDir) =>
+        Effect.gen(function* () {
+          yield* writeTokenFile(tmpDir);
+          const client = yield* TeslaClient;
+          const result = yield* Effect.exit(client.getChargeState());
 
-        expect(Exit.isFailure(result)).toBe(true);
-        if (Exit.isFailure(result)) {
-          const failure = getFailure(result);
-          expect(failure).toMatchObject({
-            _tag: "ChargeStateQueryFailed",
-            message: "Failed to decode charge state response: ParseError"
-          });
-        }
-      }).pipe(
-        Effect.provide(makeTestLayer({ httpClient: makeMockHttpClient({ status: 200, body: "not valid json" }) }))
-      )
+          expect(Exit.isFailure(result)).toBe(true);
+          if (Exit.isFailure(result)) {
+            const failure = getFailure(result);
+            expect(failure).toMatchObject({
+              _tag: "ChargeStateQueryFailed",
+              message: "Failed to decode charge state response: ParseError"
+            });
+          }
+        }).pipe(
+          Effect.provide(
+            makeTestLayer(tmpDir, { httpClient: makeMockHttpClient({ status: 200, body: "not valid json" }) })
+          )
+        )
+      ).pipe(Effect.provide(NodeFileSystem.layer))
     );
   });
 });
