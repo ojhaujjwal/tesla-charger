@@ -3,6 +3,7 @@ This project uses the following tools:
 - node for runtime
 - Vitest for running tests
 - Effect TypeScript Library. Run `effect-solutions show basics` for basics on how Effect works.
+- See `@specs/guides/testing-with-effect.md` for testing patterns.
 
 <!-- effect-solutions:start -->
 
