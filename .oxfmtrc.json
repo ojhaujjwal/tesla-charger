@@ -7,5 +7,13 @@
   "trailingComma": "none",
   "arrowParens": "always",
   "jsxSingleQuote": false,
-  "ignorePatterns": ["**/node_modules/**", "**/dist/**", "**/build/**", "**/.tsbuildinfo", "**/*.md", "**/.ralph/**"]
+  "ignorePatterns": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/.tsbuildinfo",
+    "**/*.md",
+    "**/.ralph/**",
+    "repos/**"
+  ]
 }
