@@ -1,6 +1,6 @@
 import { Effect, Exit, Redacted } from "effect";
 import { SunGatherInfluxDbDataAdapter } from "./influx-db-sungather.data-adapter.js";
-import { DataNotAvailableError, SourceNotAvailableError } from "./types.js";
+import { SourceNotAvailableError } from "./types.js";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "@effect/platform";
 import { describe, it, expect } from "@effect/vitest";
 import { RequestError } from "@effect/platform/HttpClientError";

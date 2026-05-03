@@ -14,7 +14,6 @@ import { raw } from "@effect/platform/HttpBody";
 import { ResponseError, type HttpClientError } from "@effect/platform/HttpClientError";
 import {
   TeslaCachedTokenSchema,
-  type TeslaCachedToken,
   TeslaTokenResponseSchema,
   TeslaChargeStateResponseSchema,
   type TeslaTokenResponse
