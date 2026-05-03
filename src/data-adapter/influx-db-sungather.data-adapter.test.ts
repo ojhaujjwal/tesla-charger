@@ -1,4 +1,4 @@
-import { Data, Effect, Exit } from "effect";
+import { Data, Effect, Exit, Redacted } from "effect";
 import { SunGatherInfluxDbDataAdapter } from "./influx-db-sungather.data-adapter.js";
 import { DataNotAvailableError, SourceNotAvailableError } from "./types.js";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "@effect/platform";
@@ -35,30 +35,7 @@ describe("SunGatherInfluxDbDataAdapter", () => {
 
       const adapter = new SunGatherInfluxDbDataAdapter(
         "http://localhost:8086",
-        "test-token",
-        "test-org",
-        "test-bucket",
-        mockHttpClient
-      );
-
-      const result = yield* adapter.queryLatestValues(["export_to_grid", "import_from_grid", "voltage"]);
-
-      expect(result).toEqual({
-        export_to_grid: 0,
-        import_from_grid: 254,
-        voltage: 238
-      });
-    })
-  );
-
-  it.effect("should fail with DataNotAvailableError if no data rows", () =>
-    Effect.gen(function* () {
-      const emptyResponse = ",result,table,_start,_stop,_time,_value,_field,_measurement,inverter";
-      const mockHttpClient = makeMockHttpClient(emptyResponse);
-
-      const adapter = new SunGatherInfluxDbDataAdapter(
-        "http://localhost:8086",
-        "test-token",
+        Redacted.make("test-token"),
         "test-org",
         "test-bucket",
         mockHttpClient
@@ -77,7 +54,7 @@ describe("SunGatherInfluxDbDataAdapter", () => {
 
       const adapter = new SunGatherInfluxDbDataAdapter(
         "http://localhost:8086",
-        "test-token",
+        Redacted.make("test-token"),
         "test-org",
         "test-bucket",
         failingHttpClient

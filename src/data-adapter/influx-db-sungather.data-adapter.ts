@@ -1,4 +1,5 @@
-import { Duration, Effect, Layer, Schema } from "effect";
+import { Duration, Effect, Layer, Redacted, Schema } from "effect";
+import type { Redacted as RedactedType } from "effect/Redacted";
 import { HttpClient } from "@effect/platform";
 import { type IDataAdapter, type Field, DataNotAvailableError, SourceNotAvailableError, DataAdapter } from "./types.js";
 import { raw } from "@effect/platform/HttpBody";
@@ -66,7 +67,7 @@ export class SunGatherInfluxDbDataAdapter implements IDataAdapter {
 
   constructor(
     private influxUrl: string,
-    private influxToken: string,
+    private influxToken: RedactedType<string>,
     private org: string,
     private bucket: string,
     private httpClient: HttpClient.HttpClient
@@ -104,7 +105,7 @@ export class SunGatherInfluxDbDataAdapter implements IDataAdapter {
         headers: {
           "Content-Type": "application/vnd.flux",
           Accept: "application/csv",
-          Authorization: `Token ${influxToken}`
+          Authorization: `Token ${Redacted.value(influxToken)}`
         },
         body: raw(body)
       });
@@ -152,7 +153,7 @@ export class SunGatherInfluxDbDataAdapter implements IDataAdapter {
         headers: {
           "Content-Type": "application/vnd.flux",
           Accept: "application/csv",
-          Authorization: `Token ${this.influxToken}`
+          Authorization: `Token ${Redacted.value(this.influxToken)}`
         },
         body: raw(`
               from(bucket: "${this.bucket}")

@@ -1,5 +1,18 @@
 import { describe, it, expect } from "@effect/vitest";
-import { Cause, Duration, Effect, Exit, Fiber, Inspectable, Layer, Option, Sink, Stream, TestClock } from "effect";
+import {
+  Cause,
+  Duration,
+  Effect,
+  Exit,
+  Fiber,
+  Inspectable,
+  Layer,
+  Option,
+  Redacted,
+  Sink,
+  Stream,
+  TestClock
+} from "effect";
 import { CommandExecutor, FileSystem, HttpClient, HttpClientResponse } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { RequestError, ResponseError } from "@effect/platform/HttpClientError";
@@ -100,7 +113,7 @@ const makeTestLayer = (
   TeslaClientLayer({
     appDomain: "test.example.com",
     clientId: "test-client-id",
-    clientSecret: "test-client-secret",
+    clientSecret: Redacted.make("test-client-secret"),
     vin: "TESTVIN123",
     tokenFilePath: `${tmpDir}/token.json`,
     accessTokenFilePath: `${tmpDir}/.access-token`
@@ -138,8 +151,8 @@ describe("TeslaClient", () => {
           const result = yield* client.authenticateFromAuthCodeGrant("valid-auth-code");
 
           expect(result).toEqual({
-            access_token: "new-access-token",
-            refresh_token: "new-refresh-token"
+            access_token: Redacted.make("new-access-token"),
+            refresh_token: Redacted.make("new-refresh-token")
           });
 
           const fs = yield* FileSystem.FileSystem;

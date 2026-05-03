@@ -1,7 +1,7 @@
-import { Config, Effect } from "effect";
+import { Config, Effect, Redacted } from "effect";
 
 const clientId = Effect.runSync(Config.string("TESLA_OAUTH2_CLIENT_ID"));
-const clientSecret = Effect.runSync(Config.string("TESLA_OAUTH2_CLIENT_SECRET"));
+const clientSecret = Effect.runSync(Config.redacted("TESLA_OAUTH2_CLIENT_SECRET"));
 const appDomain = Effect.runSync(Config.string("TESLA_APP_DOMAIN"));
 
 (async () => {
@@ -11,7 +11,7 @@ const appDomain = Effect.runSync(Config.string("TESLA_APP_DOMAIN"));
     body: JSON.stringify({
       grant_type: "client_credentials",
       client_id: clientId,
-      client_secret: clientSecret,
+      client_secret: Redacted.value(clientSecret),
       audience: "https://fleet-api.prd.na.vn.cloud.tesla.com",
       scope: "openid offline_access vehicle_device_data vehicle_location vehicle_charging_cmds"
     }),

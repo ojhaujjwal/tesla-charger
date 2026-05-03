@@ -1,12 +1,13 @@
-import { Duration, Effect, Layer, Schedule, Schema } from "effect";
+import { Duration, Effect, Layer, Redacted, Schedule, Schema } from "effect";
+import type { Redacted as RedactedType } from "effect/Redacted";
 import { DataAdapter, DataNotAvailableError, SourceNotAvailableError, type Field, type IDataAdapter } from "./types.js";
 import { HttpClient } from "@effect/platform";
 import { AppConfig } from "./../config.js";
 import { createHash } from "crypto";
 
 export type AlphaEssConfig = {
-  readonly appId: string;
-  readonly appSecret: string;
+  readonly appId: RedactedType<string>;
+  readonly appSecret: RedactedType<string>;
   readonly sysSn: string;
   readonly baseUrl: string;
 };
@@ -65,8 +66,8 @@ const ApiResponseSchema = Schema.Struct({
 
 export type ApiResponse = Schema.Schema.Type<typeof ApiResponseSchema>;
 
-const generateSignature = (appId: string, appSecret: string, timestamp: string): string => {
-  const input = `${appId}${appSecret}${timestamp}`;
+const generateSignature = (appId: RedactedType<string>, appSecret: RedactedType<string>, timestamp: string): string => {
+  const input = `${Redacted.value(appId)}${Redacted.value(appSecret)}${timestamp}`;
   //todo: use Effect Platform
   return createHash("sha512").update(input).digest("hex");
 };
@@ -122,7 +123,7 @@ export class AlphaEssCloudApiDataAdapter implements IDataAdapter {
       // Make API request
       const url = `${config.baseUrl}/api/getLastPowerData?sysSn=${config.sysSn}`;
       const headers = {
-        appId: config.appId,
+        appId: Redacted.value(config.appId),
         timeStamp: timestamp,
         sign: signature,
         "Content-Type": "application/json"

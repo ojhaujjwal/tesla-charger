@@ -1,4 +1,5 @@
-import { Effect, Layer, Schema } from "effect";
+import { Effect, Layer, Redacted, Schema } from "effect";
+import type { Redacted as RedactedType } from "effect/Redacted";
 import { HttpClient } from "@effect/platform";
 import { FileSystem } from "@effect/platform";
 import { SolarForecast, SolarForecastNotAvailableError, type SolarForecastResult } from "./types.js";
@@ -29,7 +30,7 @@ const MEMORY_CACHE_TTL_MS = 60 * 60 * 1000; // 60 minutes
 const MAX_CACHE_AGE_DAYS = 2;
 
 export type SolcastConfig = {
-  readonly apiKey: string;
+  readonly apiKey: RedactedType<string>;
   readonly rooftopResourceId: string;
 };
 
@@ -72,7 +73,7 @@ export const SolcastForecastLayer = (
 
           const response = yield* httpClient.get(url.toString(), {
             headers: {
-              Authorization: `Bearer ${config.apiKey}`
+              Authorization: `Bearer ${Redacted.value(config.apiKey)}`
             }
           });
 

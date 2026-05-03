@@ -1,6 +1,6 @@
 import { Context, Clock, Effect, Layer, PubSub } from "effect";
 import { TeslaClient } from "./tesla-client/index.js";
-import type { TeslaChargerEvent } from "./events.js";
+import type { TeslaChargerEvent } from "./domain/events.js";
 
 export type BatteryState = {
   batteryLevel: number;

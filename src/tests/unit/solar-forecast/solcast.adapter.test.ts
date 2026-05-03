@@ -1,5 +1,5 @@
 import { describe, it, expect } from "@effect/vitest";
-import { Effect, Exit, Layer } from "effect";
+import { Effect, Exit, Layer, Redacted } from "effect";
 import { HttpClient, HttpClientRequest, HttpClientResponse, FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { SolarForecast, SolarForecastNotAvailableError } from "../../../solar-forecast/types.js";
@@ -50,7 +50,7 @@ const withCleanCache = <A, E, R>(f: () => Effect.Effect<A, E, R>) =>
 
 describe("SolcastForecastAdapter", () => {
   const mockConfig = {
-    apiKey: "test-api-key",
+    apiKey: Redacted.make("test-api-key"),
     rooftopResourceId: "test-rooftop-id"
   };
 

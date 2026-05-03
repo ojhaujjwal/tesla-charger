@@ -4,7 +4,7 @@ import { Effect, Duration, Fiber, Layer, PubSub, TestClock } from "effect";
 import { TeslaClient, type TeslaClientService } from "../../tesla-client/index.js";
 import { ChargeStateQueryFailedError } from "../../tesla-client/errors.js";
 import { BatteryStateManager, BatteryStateManagerLayer } from "../../battery-state-manager.js";
-import type { TeslaChargerEvent } from "../../events.js";
+import type { TeslaChargerEvent } from "../../domain/events.js";
 
 describe("BatteryStateManager", () => {
   const teslaClientMock: MockedObject<TeslaClientService> = {

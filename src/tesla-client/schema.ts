@@ -1,8 +1,8 @@
 import { Schema } from "effect";
 
 export const TeslaTokenResponseSchema = Schema.Struct({
-  access_token: Schema.String,
-  refresh_token: Schema.String
+  access_token: Schema.Redacted(Schema.String),
+  refresh_token: Schema.Redacted(Schema.String)
 });
 
 export type TeslaTokenResponse = typeof TeslaTokenResponseSchema.Type;
@@ -15,8 +15,8 @@ export const TeslaErrorResponseSchema = Schema.Struct({
 export type TeslaErrorResponse = typeof TeslaErrorResponseSchema.Type;
 
 export const TeslaCachedTokenSchema = Schema.Struct({
-  access_token: Schema.String,
-  refresh_token: Schema.String
+  access_token: Schema.Redacted(Schema.String),
+  refresh_token: Schema.Redacted(Schema.String)
 });
 
 export type TeslaCachedToken = typeof TeslaCachedTokenSchema.Type;

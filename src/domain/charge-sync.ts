@@ -1,5 +1,3 @@
-import type { IEventLogger } from "../event-logger/types.js";
-import type { TeslaChargerEvent } from "../events.js";
 import { Duration, Effect, PubSub } from "effect";
 import type { ElectricVehicle } from "./electric-vehicle.js";
 import { VehicleAsleepError, VehicleCommandFailedError } from "./errors.js";
@@ -18,6 +16,7 @@ import {
   completeChargeStop,
   recordFluctuation as recordFluctuationStat
 } from "./charging-session.js";
+import type { TeslaChargerEvent } from "./events.js";
 
 const publishChargingEvent = (
   event: ChargingControlEvent,
@@ -50,7 +49,6 @@ export const syncTargetAmpere = <E>(
   config: ChargingConfig,
   isDryRun: boolean,
   vehicle: ElectricVehicle["Type"],
-  eventLogger: IEventLogger,
   pubSub: PubSub.PubSub<TeslaChargerEvent>,
   waitForRampUp: (waitSeconds: number) => Effect.Effect<void, E>
 ): Effect.Effect<
@@ -80,7 +78,6 @@ export const syncTargetAmpere = <E>(
     if (startResult.events.length > 0) {
       yield* isDryRun ? Effect.log("Starting charging (dry run)") : vehicle.startCharging();
       yield* isDryRun ? Effect.log(`Setting ampere to ${amp} (dry run)`) : vehicle.setAmpere(amp);
-      yield* eventLogger.onSetAmpere(amp);
       let currentState = startResult.state;
       let currentStats = sessionStats;
       if (startResult.recordFluctuation) {
@@ -97,7 +94,6 @@ export const syncTargetAmpere = <E>(
     const changeResult = requestAmpereChange(controlState, amp, config);
     if (changeResult.events.length > 0) {
       yield* isDryRun ? Effect.log(`Setting ampere to ${amp} (dry run)`) : vehicle.setAmpere(amp);
-      yield* eventLogger.onSetAmpere(amp);
       let currentState = changeResult.state;
       let currentStats = sessionStats;
       if (changeResult.recordFluctuation) {
@@ -114,6 +110,5 @@ export const syncTargetAmpere = <E>(
     }
 
     // No change
-    yield* eventLogger.onNoAmpereChange(amp);
     return { state: controlState, stats: sessionStats };
   });

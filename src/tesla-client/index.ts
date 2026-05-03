@@ -7,7 +7,8 @@ import {
   VehicleAsleepError,
   VehicleCommandFailedError
 } from "./errors.js";
-import { Context, Duration, Effect, Layer, pipe, Schedule, Schema, Stream, String } from "effect";
+import { Context, Duration, Effect, Layer, pipe, Redacted, Schedule, Schema, Stream, String } from "effect";
+import type { Redacted as RedactedType } from "effect/Redacted";
 import { Command, CommandExecutor, FileSystem, HttpClient } from "@effect/platform";
 import { raw } from "@effect/platform/HttpBody";
 import { ResponseError, type HttpClientError } from "@effect/platform/HttpClientError";
@@ -53,7 +54,7 @@ const runString = <E, R>(stream: Stream.Stream<Uint8Array, E, R>): Effect.Effect
 export const TeslaClientLayer = (config: {
   readonly appDomain: string;
   readonly clientId: string;
-  readonly clientSecret: string;
+  readonly clientSecret: RedactedType<string>;
   readonly tokenFilePath?: string;
   readonly accessTokenFilePath?: string;
   readonly vin: string;
@@ -83,7 +84,7 @@ export const TeslaClientLayer = (config: {
               JSON.stringify({
                 grant_type: "refresh_token",
                 client_id: config.clientId,
-                refresh_token: refresh_token
+                refresh_token: Redacted.value(refresh_token)
               })
             )
           })
@@ -118,14 +119,14 @@ export const TeslaClientLayer = (config: {
         return yield* Schema.decodeUnknown(Schema.parseJson(TeslaTokenResponseSchema))(yield* response.text);
       });
 
-      const saveTokens = (accessToken: string, refreshToken: string) =>
+      const saveTokens = (accessToken: RedactedType<string>, refreshToken: RedactedType<string>) =>
         Effect.gen(function* () {
           const encoded = JSON.stringify({
-            access_token: accessToken,
-            refresh_token: refreshToken
+            access_token: Redacted.value(accessToken),
+            refresh_token: Redacted.value(refreshToken)
           });
           yield* fs.writeFileString(config.tokenFilePath || "token.json", encoded);
-          yield* fs.writeFileString(config.accessTokenFilePath || ".access-token", accessToken);
+          yield* fs.writeFileString(config.accessTokenFilePath || ".access-token", Redacted.value(accessToken));
         });
 
       const runCommand = (command: string, commandArgs: string[]) =>
@@ -204,7 +205,7 @@ export const TeslaClientLayer = (config: {
         const response = yield* httpClient
           .get(`${FLEET_API_BASE_URL}/api/1/vehicles/${config.vin}/vehicle_data?endpoints=charge_state`, {
             headers: {
-              Authorization: `Bearer ${access_token}`,
+              Authorization: `Bearer ${Redacted.value(access_token)}`,
               Accept: "application/json"
             }
           })
@@ -270,7 +271,7 @@ export const TeslaClientLayer = (config: {
               JSON.stringify({
                 grant_type: "authorization_code",
                 client_id: config.clientId,
-                client_secret: config.clientSecret,
+                client_secret: Redacted.value(config.clientSecret),
                 audience: "https://fleet-api.prd.na.vn.cloud.tesla.com",
                 redirect_uri: `https://${config.appDomain}/tesla-charger`,
                 code: authorizationCode

@@ -1,4 +1,4 @@
-import { Duration, Effect, Exit, Fiber, Layer, TestClock, ConfigProvider } from "effect";
+import { Duration, Effect, Exit, Fiber, Layer, Redacted, TestClock, ConfigProvider } from "effect";
 import {
   AlphaEssCloudApiDataAdapter,
   AlphaEssCloudApiDataAdapterLayer,
@@ -35,8 +35,8 @@ const TestConfigLayer = Layer.setConfigProvider(
 
 describe("AlphaEssCloudApiDataAdapter", () => {
   const mockConfig: AlphaEssConfig = {
-    appId: "test-app-id",
-    appSecret: "test-app-secret",
+    appId: Redacted.make("test-app-id"),
+    appSecret: Redacted.make("test-app-secret"),
     sysSn: "test-sys-sn",
     baseUrl: "https://test.alphaess.com"
   };

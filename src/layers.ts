@@ -1,5 +1,6 @@
 import { AlphaEssCloudApiDataAdapterLayer } from "./data-adapter/alpha-ess-api.data-adapter.js";
 import { Effect, Layer } from "effect";
+import type { Redacted } from "effect/Redacted";
 import { TeslaClient, TeslaClientLayer } from "./tesla-client/index.js";
 import { ElectricVehicle } from "./domain/electric-vehicle.js";
 
@@ -8,7 +9,7 @@ export const serviceLayers = Layer.mergeAll(AlphaEssCloudApiDataAdapterLayer);
 export const createTeslaClientLayer = (config: {
   readonly appDomain: string;
   readonly clientId: string;
-  readonly clientSecret: string;
+  readonly clientSecret: Redacted<string>;
   readonly vin: string;
 }) => {
   const base = TeslaClientLayer(config);

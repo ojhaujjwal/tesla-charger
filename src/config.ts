@@ -10,20 +10,20 @@ export const AppConfig = {
   tesla: {
     appDomain: EffectConfig.string("TESLA_APP_DOMAIN"),
     oauth2ClientId: EffectConfig.string("TESLA_OAUTH2_CLIENT_ID"),
-    oauth2ClientSecret: EffectConfig.string("TESLA_OAUTH2_CLIENT_SECRET"),
+    oauth2ClientSecret: EffectConfig.redacted("TESLA_OAUTH2_CLIENT_SECRET"),
     vin: EffectConfig.string("TESLA_VIN")
   },
 
   influx: {
     url: EffectConfig.string("INFLUX_URL"),
-    token: EffectConfig.string("INFLUX_TOKEN"),
+    token: EffectConfig.redacted("INFLUX_TOKEN"),
     org: EffectConfig.string("INFLUX_ORG"),
     bucket: EffectConfig.string("INFLUX_BUCKET")
   },
 
   alphaEssAPI: {
-    appId: EffectConfig.string("ALPHA_ESS_API_APP_ID"),
-    appSecret: EffectConfig.string("ALPHA_ESS_API_APP_SECRET"),
+    appId: EffectConfig.redacted("ALPHA_ESS_API_APP_ID"),
+    appSecret: EffectConfig.redacted("ALPHA_ESS_API_APP_SECRET"),
     sysSn: EffectConfig.string("ALPHA_ESS_API_SYS_SN"),
     baseUrl: EffectConfig.string("ALPHA_ESS_API_BASE_URL").pipe(
       EffectConfig.withDefault("https://openapi.alphaess.com/")
@@ -31,7 +31,7 @@ export const AppConfig = {
   },
 
   solcast: {
-    apiKey: EffectConfig.string("SOLCAST_API_KEY"),
+    apiKey: EffectConfig.redacted("SOLCAST_API_KEY"),
     rooftopResourceId: EffectConfig.string("SOLCAST_ROOFTOP_RESOURCE_ID")
   },
 

@@ -1,15 +1,15 @@
 import { describe, it, vitest, beforeEach, expect } from "@effect/vitest";
 import type { MockedObject } from "@effect/vitest";
-import { Effect, Duration, Fiber, Layer, TestClock, PubSub, Queue } from "effect";
+import { Effect, Duration, Fiber, Layer, Redacted, TestClock, PubSub, Queue } from "effect";
 import { TeslaClient, type TeslaClientService } from "../../tesla-client/index.js";
+import { ElectricVehicle } from "../../domain/electric-vehicle.js";
 import { VehicleAsleepError } from "../../tesla-client/errors.js";
 import { DataAdapter, type IDataAdapter } from "../../data-adapter/types.js";
 import { ChargingSpeedController } from "../../charging-speed-controller/types.js";
 import type { ChargingConfig } from "../../domain/charging-session.js";
 import { App, AppLayer, type TimingConfig } from "../../app.js";
-import type { IEventLogger } from "../../event-logger/types.js";
 import { BatteryStateManager, type BatteryState } from "../../battery-state-manager.js";
-import type { TeslaChargerEvent } from "../../events.js";
+import type { TeslaChargerEvent } from "../../domain/events.js";
 
 describe("App", () => {
   const teslaClientMock: MockedObject<TeslaClientService> = {
@@ -32,12 +32,6 @@ describe("App", () => {
     determineChargingSpeed: vitest.fn()
   };
 
-  const eventLoggerMock: MockedObject<IEventLogger> = {
-    onSetAmpere: vitest.fn(),
-    onNoAmpereChange: vitest.fn(),
-    onSessionEnd: vitest.fn()
-  };
-
   let batteryState: BatteryState | null = null;
   const batteryStateManagerMock: MockedObject<BatteryStateManager> = {
     start: vitest.fn(),
@@ -48,6 +42,7 @@ describe("App", () => {
   const TestDataAdapter = Layer.succeed(DataAdapter, dataAdapterMock);
   const TestChargingSpeedController = Layer.succeed(ChargingSpeedController, chargingSpeedControllerMock);
   const TestBatteryStateManager = Layer.succeed(BatteryStateManager, batteryStateManagerMock);
+  const TestElectricVehicle = Layer.succeed(ElectricVehicle, teslaClientMock);
 
   const defaultChargingConfig: ChargingConfig = {
     waitPerAmereInSeconds: 2,
@@ -61,8 +56,8 @@ describe("App", () => {
     inactivityTimeInSeconds: 60
   };
 
-  const provideAppLayer = (
-    appEffect: Effect.Effect<void, unknown, App>,
+  const provideAppLayer = <R>(
+    appEffect: Effect.Effect<void, unknown, App | R>,
     timingConfig: TimingConfig = defaultTimingConfig
   ) =>
     appEffect.pipe(
@@ -70,12 +65,12 @@ describe("App", () => {
         AppLayer({
           chargingConfig: defaultChargingConfig,
           timingConfig,
-          isDryRun: false,
-          eventLogger: eventLoggerMock
+          isDryRun: false
         }).pipe(
           Layer.provideMerge(TestBatteryStateManager),
           Layer.provideMerge(TestChargingSpeedController),
           Layer.provideMerge(TestTeslaClient),
+          Layer.provideMerge(TestElectricVehicle),
           Layer.provideMerge(TestDataAdapter)
         )
       )
@@ -86,7 +81,7 @@ describe("App", () => {
     batteryState = null;
     // Default success mocks
     teslaClientMock.authenticateFromAuthCodeGrant.mockReturnValue(
-      Effect.succeed({ access_token: "t", refresh_token: "r", expires_in: 3600 })
+      Effect.succeed({ access_token: Redacted.make("t"), refresh_token: Redacted.make("r"), expires_in: 3600 })
     );
     teslaClientMock.refreshAccessToken.mockReturnValue(Effect.void);
     teslaClientMock.setupAccessTokenAutoRefreshRecurring.mockReturnValue(Effect.succeed(Duration.seconds(1)));
@@ -112,10 +107,6 @@ describe("App", () => {
     dataAdapterMock.getLowestValueInLastXMinutes.mockReturnValue(Effect.succeed(0));
 
     chargingSpeedControllerMock.determineChargingSpeed.mockReturnValue(Effect.succeed(10));
-
-    eventLoggerMock.onSetAmpere.mockReturnValue(Effect.void);
-    eventLoggerMock.onNoAmpereChange.mockReturnValue(Effect.void);
-    eventLoggerMock.onSessionEnd.mockReturnValue(Effect.void);
 
     // Mock BatteryStateManager.start to return a no-op effect
     batteryStateManagerMock.start.mockImplementation(() => {
@@ -478,8 +469,24 @@ describe("App", () => {
     }).pipe(provideAppLayer)
   );
 
-  it.effect("should call onSessionEnd with summary when stop() is called", () =>
+  it.effect("should publish SessionEnded with summary when stop() is called", () =>
     Effect.gen(function* () {
+      // Collect events published to the PubSub
+      const receivedEvents: TeslaChargerEvent[] = [];
+      batteryStateManagerMock.start.mockImplementation((pubSub: PubSub.PubSub<TeslaChargerEvent>) =>
+        Effect.gen(function* () {
+          const dequeue = yield* PubSub.subscribe(pubSub);
+          return yield* Queue.take(dequeue).pipe(
+            Effect.tap((event) =>
+              Effect.sync(() => {
+                receivedEvents.push(event);
+              })
+            ),
+            Effect.forever
+          );
+        }).pipe(Effect.scoped)
+      );
+
       // Setup charging speed to change multiple times to test ampereFluctuations
       let iteration = 0;
       chargingSpeedControllerMock.determineChargingSpeed.mockImplementation(() => {
@@ -567,10 +574,15 @@ describe("App", () => {
       // Stop the app
       yield* app.stop();
 
-      // Verify onSessionEnd was called with expected summary including correct ampereFluctuations
-      expect(eventLoggerMock.onSessionEnd).toHaveBeenCalledTimes(1);
-      const summary = eventLoggerMock.onSessionEnd.mock.calls[0][0];
-      expect(summary).toMatchObject({
+      // Allow subscriber fibers to process events
+      yield* TestClock.adjust(Duration.millis(1));
+
+      // Verify SessionEnded event was published with expected summary
+      const sessionEnded = receivedEvents.find(
+        (e): e is Extract<TeslaChargerEvent, { _tag: "SessionEnded" }> => e._tag === "SessionEnded"
+      );
+      expect(sessionEnded).toBeDefined();
+      expect(sessionEnded?.summary).toMatchObject({
         sessionDurationMs: expect.any(Number),
         totalEnergyChargedKwh: 5.5, // 5.5 - 0
         gridImportKwh: 2.0, // 2.0 - 0
