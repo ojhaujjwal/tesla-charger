@@ -14,7 +14,7 @@ import { BatteryStateManager, type BatteryState } from "../../../../battery-stat
 describe("WeatherAwareBufferController - Integration", () => {
   let mockDataAdapter: MockedObject<IDataAdapter>;
   let mockSolarForecast: MockedObject<SolarForecast["Type"]>;
-  let mockBatteryStateManager: MockedObject<BatteryStateManager>;
+  let mockBatteryStateManager: MockedObject<BatteryStateManager["Type"]>;
   let batteryState: BatteryState | null = null;
 
   beforeEach(() => {

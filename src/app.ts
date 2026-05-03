@@ -31,22 +31,23 @@ export type TimingConfig = {
   maxRuntimeHours?: number;
 };
 
-export type App = {
-  readonly start: () => Effect.Effect<
-    void,
-    | AuthenticationFailedError
-    | DataNotAvailableError
-    | SourceNotAvailableError
-    | NotChargingAccordingToExpectedSpeedError
-    | InadequateDataToDetermineSpeedError
-    | VehicleNotWakingUpError
-    | VehicleCommandFailedError,
-    ElectricVehicle
-  >;
-  readonly stop: () => Effect.Effect<void, never>;
-};
-
-export const App = Context.GenericTag<App>("@tesla-charger/App");
+export class App extends Context.Tag("@tesla-charger/App")<
+  App,
+  {
+    readonly start: () => Effect.Effect<
+      void,
+      | AuthenticationFailedError
+      | DataNotAvailableError
+      | SourceNotAvailableError
+      | NotChargingAccordingToExpectedSpeedError
+      | InadequateDataToDetermineSpeedError
+      | VehicleNotWakingUpError
+      | VehicleCommandFailedError,
+      ElectricVehicle
+    >;
+    readonly stop: () => Effect.Effect<void, never>;
+  }
+>() {}
 
 export const AppLayer = (config: {
   readonly chargingConfig: ChargingConfig;
@@ -324,7 +325,7 @@ export const AppLayer = (config: {
           yield* stop();
         });
 
-      const start: App["start"] = Effect.fn("start")(function* () {
+      const start: App["Type"]["start"] = Effect.fn("start")(function* () {
         appStatus = AppStatus.Running;
         yield* teslaClient.refreshAccessToken();
 

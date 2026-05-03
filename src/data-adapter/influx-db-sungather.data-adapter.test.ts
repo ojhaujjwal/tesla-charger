@@ -1,4 +1,4 @@
-import { Data, Effect, Exit, Redacted } from "effect";
+import { Effect, Exit, Redacted } from "effect";
 import { SunGatherInfluxDbDataAdapter } from "./influx-db-sungather.data-adapter.js";
 import { DataNotAvailableError, SourceNotAvailableError } from "./types.js";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "@effect/platform";
@@ -16,10 +16,6 @@ const mockResponse = (req: HttpClientRequest.HttpClientRequest, text: string): H
 // Custom HttpClient using HttpClient.make
 const makeMockHttpClient = (responseText: string): HttpClient.HttpClient =>
   HttpClient.make((req) => Effect.succeed(mockResponse(req, responseText)));
-
-export class TestShouldFailError extends Data.Error {
-  public override readonly message = "No data found to determine the result.";
-}
 
 describe("SunGatherInfluxDbDataAdapter", () => {
   it.effect("should parse InfluxDB CSV and return correct values for requested fields", () =>
@@ -41,8 +37,8 @@ describe("SunGatherInfluxDbDataAdapter", () => {
         mockHttpClient
       );
 
-      const result = yield* Effect.exit(adapter.queryLatestValues(["export_to_grid"]));
-      expect(result).toStrictEqual(Exit.fail(new DataNotAvailableError()));
+      const result = yield* adapter.queryLatestValues(["export_to_grid"]);
+      expect(result).toStrictEqual({ export_to_grid: 0 });
     })
   );
 

@@ -33,7 +33,7 @@ describe("App", () => {
   };
 
   let batteryState: BatteryState | null = null;
-  const batteryStateManagerMock: MockedObject<BatteryStateManager> = {
+  const batteryStateManagerMock: MockedObject<BatteryStateManager["Type"]> = {
     start: vitest.fn(),
     get: vitest.fn(() => batteryState)
   };

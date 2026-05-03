@@ -10,12 +10,13 @@ export type BatteryState = {
 
 const BATTERY_STATE_REFRESH_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes
 
-export type BatteryStateManager = {
-  readonly start: (pubSub: PubSub.PubSub<TeslaChargerEvent>) => Effect.Effect<void>;
-  readonly get: () => BatteryState | null;
-};
-
-export const BatteryStateManager = Context.GenericTag<BatteryStateManager>("@tesla-charger/BatteryStateManager");
+export class BatteryStateManager extends Context.Tag("@tesla-charger/BatteryStateManager")<
+  BatteryStateManager,
+  {
+    readonly start: (pubSub: PubSub.PubSub<TeslaChargerEvent>) => Effect.Effect<void>;
+    readonly get: () => BatteryState | null;
+  }
+>() {}
 
 export const BatteryStateManagerLayer = Layer.effect(
   BatteryStateManager,

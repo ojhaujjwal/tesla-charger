@@ -314,7 +314,7 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
   describe("WeatherAwareBufferController - Integration", () => {
     let mockDataAdapter: MockedObject<IDataAdapter>;
     let mockSolarForecast: MockedObject<SolarForecast["Type"]>;
-    let mockBatteryStateManager: MockedObject<BatteryStateManager>;
+    let mockBatteryStateManager: MockedObject<BatteryStateManager["Type"]>;
     let batteryState: BatteryState | null = null;
 
     beforeEach(() => {

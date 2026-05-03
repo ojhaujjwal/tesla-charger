@@ -14,6 +14,7 @@ import { raw } from "@effect/platform/HttpBody";
 import { ResponseError, type HttpClientError } from "@effect/platform/HttpClientError";
 import {
   TeslaCachedTokenSchema,
+  type TeslaCachedToken,
   TeslaTokenResponseSchema,
   TeslaChargeStateResponseSchema,
   type TeslaTokenResponse
@@ -45,7 +46,7 @@ export type TeslaClientService = ElectricVehicle["Type"] & {
   readonly getChargeState: () => Effect.Effect<ChargeState, ChargeStateQueryFailedError>;
 };
 
-export const TeslaClient = Context.GenericTag<TeslaClientService>("@tesla-charger/TeslaClient");
+export class TeslaClient extends Context.Tag("@tesla-charger/TeslaClient")<TeslaClient, TeslaClientService>() {}
 
 // Helper function to collect stream output as a string
 const runString = <E, R>(stream: Stream.Stream<Uint8Array, E, R>): Effect.Effect<string, E, R> =>
@@ -121,9 +122,9 @@ export const TeslaClientLayer = (config: {
 
       const saveTokens = (accessToken: RedactedType<string>, refreshToken: RedactedType<string>) =>
         Effect.gen(function* () {
-          const encoded = JSON.stringify({
-            access_token: Redacted.value(accessToken),
-            refresh_token: Redacted.value(refreshToken)
+          const encoded = yield* Schema.encode(Schema.parseJson(TeslaCachedTokenSchema))({
+            access_token: accessToken,
+            refresh_token: refreshToken
           });
           yield* fs.writeFileString(config.tokenFilePath || "token.json", encoded);
           yield* fs.writeFileString(config.accessTokenFilePath || ".access-token", Redacted.value(accessToken));
