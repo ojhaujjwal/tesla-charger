@@ -134,35 +134,34 @@ export const AppLayer = (config: {
           sessionStats = result.stats;
         }).pipe(Effect.provideService(TeslaChargerEventPubSub, teslaChargerPubSub));
 
-      const checkIfCorrectlyCharging = () =>
-        Effect.gen(function* () {
-          const { current_load: currentLoad, voltage } = yield* dataAdapter.queryLatestValues([
-            "current_load",
-            "voltage"
-          ]);
-          const currentLoadAmpere = currentLoad / voltage;
+      const checkIfCorrectlyCharging = Effect.fn("checkIfCorrectlyCharging")(function* () {
+        const { current_load: currentLoad, voltage } = yield* dataAdapter.queryLatestValues([
+          "current_load",
+          "voltage"
+        ]);
+        const currentLoadAmpere = currentLoad / voltage;
 
-          if (controlState.status !== "Charging") return;
-          const expectedAmpere = controlState.ampere;
-          if (expectedAmpere <= 0) return;
+        if (controlState.status !== "Charging") return;
+        const expectedAmpere = controlState.ampere;
+        if (expectedAmpere <= 0) return;
 
-          if (currentLoadAmpere < expectedAmpere) {
-            yield* Effect.logDebug("load power not expected", {
-              currentLoad,
-              voltage,
-              expectedAmpere
-            });
-          }
+        if (currentLoadAmpere < expectedAmpere) {
+          yield* Effect.logDebug("load power not expected", {
+            currentLoad,
+            voltage,
+            expectedAmpere
+          });
+        }
 
-          const batteryState = batteryStateManager.get();
-          if (batteryState && batteryState.batteryLevel >= batteryState.chargeLimitSoc) {
-            yield* Effect.log("Charge complete - battery level reached charge limit", {
-              batteryLevel: batteryState.batteryLevel,
-              chargeLimitSoc: batteryState.chargeLimitSoc
-            });
-            yield* stop();
-          }
-        });
+        const batteryState = batteryStateManager.get();
+        if (batteryState && batteryState.batteryLevel >= batteryState.chargeLimitSoc) {
+          yield* Effect.log("Charge complete - battery level reached charge limit", {
+            batteryLevel: batteryState.batteryLevel,
+            chargeLimitSoc: batteryState.chargeLimitSoc
+          });
+          yield* stop();
+        }
+      });
 
       const syncChargingRateBasedOnExcess = () => {
         const base = Effect.gen(function* () {
@@ -229,51 +228,46 @@ export const AppLayer = (config: {
         return retried;
       };
 
-      const computeAndEmitSessionSummary = () =>
-        Effect.gen(function* () {
-          const sessionDurationMs = sessionStats.sessionStartedAt
-            ? Date.now() - sessionStats.sessionStartedAt.getTime()
+      const computeAndEmitSessionSummary = Effect.fn("computeAndEmitSessionSummary")(function* () {
+        const sessionDurationMs = sessionStats.sessionStartedAt
+          ? Date.now() - sessionStats.sessionStartedAt.getTime()
+          : 0;
+
+        const finalChargeState = yield* teslaClient
+          .getChargeState()
+          .pipe(Effect.catchAll(() => Effect.succeed({ chargeEnergyAdded: sessionStats.chargeEnergyAddedAtStartKwh })));
+
+        const finalDataValues = yield* dataAdapter
+          .queryLatestValues(["daily_import", "voltage"])
+          .pipe(
+            Effect.catchAll(() => Effect.succeed({ daily_import: sessionStats.dailyImportValueAtStart, voltage: 230 }))
+          );
+
+        const totalEnergyChargedKwh = finalChargeState.chargeEnergyAdded - sessionStats.chargeEnergyAddedAtStartKwh;
+        const gridImportKwh = finalDataValues.daily_import - sessionStats.dailyImportValueAtStart;
+        const solarEnergyUsedKwh = Math.max(0, totalEnergyChargedKwh - gridImportKwh);
+
+        const sessionDurationHours = sessionDurationMs / 3_600_000;
+        const averageChargingSpeedAmps =
+          sessionDurationHours > 0 && finalDataValues.voltage > 0
+            ? (totalEnergyChargedKwh * 1000) / (finalDataValues.voltage * sessionDurationHours)
             : 0;
 
-          const finalChargeState = yield* teslaClient
-            .getChargeState()
-            .pipe(
-              Effect.catchAll(() => Effect.succeed({ chargeEnergyAdded: sessionStats.chargeEnergyAddedAtStartKwh }))
-            );
+        const costPerKwh = config.costPerKwh ?? 0.3;
+        const gridImportCost = gridImportKwh * costPerKwh;
 
-          const finalDataValues = yield* dataAdapter
-            .queryLatestValues(["daily_import", "voltage"])
-            .pipe(
-              Effect.catchAll(() =>
-                Effect.succeed({ daily_import: sessionStats.dailyImportValueAtStart, voltage: 230 })
-              )
-            );
+        const summary: SessionSummary = {
+          sessionDurationMs,
+          totalEnergyChargedKwh,
+          gridImportKwh,
+          solarEnergyUsedKwh,
+          averageChargingSpeedAmps,
+          ampereFluctuations: sessionStats.ampereFluctuations,
+          gridImportCost
+        };
 
-          const totalEnergyChargedKwh = finalChargeState.chargeEnergyAdded - sessionStats.chargeEnergyAddedAtStartKwh;
-          const gridImportKwh = finalDataValues.daily_import - sessionStats.dailyImportValueAtStart;
-          const solarEnergyUsedKwh = Math.max(0, totalEnergyChargedKwh - gridImportKwh);
-
-          const sessionDurationHours = sessionDurationMs / 3_600_000;
-          const averageChargingSpeedAmps =
-            sessionDurationHours > 0 && finalDataValues.voltage > 0
-              ? (totalEnergyChargedKwh * 1000) / (finalDataValues.voltage * sessionDurationHours)
-              : 0;
-
-          const costPerKwh = config.costPerKwh ?? 0.3;
-          const gridImportCost = gridImportKwh * costPerKwh;
-
-          const summary: SessionSummary = {
-            sessionDurationMs,
-            totalEnergyChargedKwh,
-            gridImportKwh,
-            solarEnergyUsedKwh,
-            averageChargingSpeedAmps,
-            ampereFluctuations: sessionStats.ampereFluctuations,
-            gridImportCost
-          };
-
-          yield* PubSub.publish(teslaChargerPubSub, { _tag: "SessionEnded", summary });
-        });
+        yield* PubSub.publish(teslaChargerPubSub, { _tag: "SessionEnded", summary });
+      });
 
       const stop = () =>
         Effect.gen(function* () {
@@ -315,15 +309,14 @@ export const AppLayer = (config: {
           }
         }).pipe(Effect.orDie);
 
-      const shutdownAfterMaxRuntimeHours = () =>
-        Effect.gen(function* () {
-          const maxHours = config.timingConfig.maxRuntimeHours;
-          if (maxHours === undefined) {
-            return yield* Effect.dieMessage("maxRuntimeHours is not set");
-          }
-          yield* Effect.sleep(Duration.hours(maxHours));
-          yield* stop();
-        });
+      const shutdownAfterMaxRuntimeHours = Effect.fn("shutdownAfterMaxRuntimeHours")(function* () {
+        const maxHours = config.timingConfig.maxRuntimeHours;
+        if (maxHours === undefined) {
+          return yield* Effect.dieMessage("maxRuntimeHours is not set");
+        }
+        yield* Effect.sleep(Duration.hours(maxHours));
+        yield* stop();
+      });
 
       const start: App["Type"]["start"] = Effect.fn("start")(function* () {
         appStatus = AppStatus.Running;
