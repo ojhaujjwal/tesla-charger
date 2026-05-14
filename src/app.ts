@@ -163,8 +163,8 @@ export const AppLayer = (config: {
         }
       });
 
-      const syncChargingRateBasedOnExcess = () => {
-        const base = Effect.gen(function* () {
+      const syncChargingRateBasedOnExcess = Effect.fn("syncChargingRateBasedOnExcess")(
+        function* () {
           const currentSpeed = controlState.status === "Charging" ? controlState.ampere : 0;
           const ampere = yield* chargingSpeedController.determineChargingSpeed(currentSpeed);
 
@@ -186,47 +186,46 @@ export const AppLayer = (config: {
           yield* Effect.sleep(config.timingConfig.syncIntervalInMs).pipe(Effect.withSpan("syncAmpere.postWaiting"));
 
           yield* checkIfCorrectlyCharging();
-        });
-
-        const retried = base.pipe(
-          Effect.tap(() =>
-            Effect.annotateCurrentSpan({
-              memory_usage_mb: memoryUsageMB()
-            })
-          ),
-          Effect.withSpan("syncChargingRateBasedOnExcess"),
-          Effect.retry({
-            times: 2,
-            while: (err) => {
-              if (err._tag !== "VehicleAsleepError") return false;
-              return Effect.sleep(Duration.millis(config.timingConfig.vehicleAwakeningTimeInMs)).pipe(
-                Effect.flatMap(() => teslaClient.wakeUpCar().pipe(Effect.map(() => true))),
-                Effect.catchAll(() => Effect.succeed(false))
-              );
-            }
-          }),
-          Effect.catchTag("VehicleAsleepError", () => Effect.fail(new VehicleNotWakingUpError({ wakeupAttempts: 2 }))),
-          Effect.retry({
-            times: 10,
-            while: (err) => {
-              if (err._tag !== "AbruptProductionDrop") return false;
-              return Effect.succeed(true).pipe(
-                Effect.tap(() =>
-                  Effect.log("AbruptProductionDropError", {
-                    initialProduction: err.initialProduction,
-                    currentProduction: err.currentProduction
-                  })
-                )
-              );
-            }
-          }),
-          Effect.catchTag("AbruptProductionDrop", () =>
-            Effect.dieMessage("Unexpectedly got AbruptProductionDrop 10 times consecutively.")
+        },
+        (effect) =>
+          effect.pipe(
+            Effect.tap(() =>
+              Effect.annotateCurrentSpan({
+                memory_usage_mb: memoryUsageMB()
+              })
+            ),
+            Effect.retry({
+              times: 2,
+              while: (err) => {
+                if (err._tag !== "VehicleAsleepError") return false;
+                return Effect.sleep(Duration.millis(config.timingConfig.vehicleAwakeningTimeInMs)).pipe(
+                  Effect.flatMap(() => teslaClient.wakeUpCar().pipe(Effect.map(() => true))),
+                  Effect.catchAll(() => Effect.succeed(false))
+                );
+              }
+            }),
+            Effect.catchTag("VehicleAsleepError", () =>
+              Effect.fail(new VehicleNotWakingUpError({ wakeupAttempts: 2 }))
+            ),
+            Effect.retry({
+              times: 10,
+              while: (err) => {
+                if (err._tag !== "AbruptProductionDrop") return false;
+                return Effect.succeed(true).pipe(
+                  Effect.tap(() =>
+                    Effect.log("AbruptProductionDropError", {
+                      initialProduction: err.initialProduction,
+                      currentProduction: err.currentProduction
+                    })
+                  )
+                );
+              }
+            }),
+            Effect.catchTag("AbruptProductionDrop", () =>
+              Effect.dieMessage("Unexpectedly got AbruptProductionDrop 10 times consecutively.")
+            )
           )
-        );
-
-        return retried;
-      };
+      );
 
       const computeAndEmitSessionSummary = Effect.fn("computeAndEmitSessionSummary")(function* () {
         const sessionDurationMs = sessionStats.sessionStartedAt
@@ -269,8 +268,8 @@ export const AppLayer = (config: {
         yield* PubSub.publish(teslaChargerPubSub, { _tag: "SessionEnded", summary });
       });
 
-      const stop = () =>
-        Effect.gen(function* () {
+      const stop = Effect.fn("stop")(
+        function* () {
           yield* Effect.log("Stopping app and interrupting all fibers", {
             ampereFluctuations: sessionStats.ampereFluctuations
           });
@@ -307,7 +306,9 @@ export const AppLayer = (config: {
           for (const fiber of interruptFibers) {
             yield* Fiber.interrupt(fiber);
           }
-        }).pipe(Effect.orDie);
+        },
+        (effect) => effect.pipe(Effect.orDie)
+      );
 
       const shutdownAfterMaxRuntimeHours = Effect.fn("shutdownAfterMaxRuntimeHours")(function* () {
         const maxHours = config.timingConfig.maxRuntimeHours;

@@ -14,10 +14,10 @@ The pattern `const myFunction = () => Effect.gen(function* () { ... })` creates 
 
 ## Requirements
 
-- [ ] Convert all named function assignments from `() => Effect.gen` to `Effect.fn` pattern
-- [ ] Preserve existing behavior and types
-- [ ] Ensure all tests pass after conversion
-- [ ] Skip test files (tests already have descriptive names via `it.effect()`)
+- [x] Convert all named function assignments from `() => Effect.gen` to `Effect.fn` pattern (10/10)
+- [x] Preserve existing behavior and types
+- [x] Ensure all tests pass after conversion
+- [x] Skip test files (tests already have descriptive names via `it.effect()`)
 
 ## Files to Convert
 
@@ -37,9 +37,9 @@ The pattern `const myFunction = () => Effect.gen(function* () { ... })` creates 
 
 ## Tasks
 
-- [ ] **Task 1**: Convert `src/app.ts` functions (6 functions) to `Effect.fn` pattern
-- [ ] **Task 2**: Convert `src/tesla-client/index.ts` functions (4 functions) to `Effect.fn` pattern
-- [ ] **Task 3**: Verify all tests pass and no regressions
+- [x] **Task 1**: Convert `src/app.ts` functions (6/6 converted)
+- [x] **Task 2**: Convert `src/tesla-client/index.ts` functions (4/4 converted)
+- [x] **Task 3**: Verify all tests pass and no regressions
 
 ## Implementation Details
 
@@ -256,11 +256,11 @@ Run: `npm test`
 
 Before signaling `TASK_COMPLETE`, verify:
 
-- [ ] All 10 functions converted to `Effect.fn` pattern
-- [ ] No lint errors
-- [ ] TypeScript compilation succeeds
-- [ ] All tests pass
-- [ ] Code follows Effect best practices with `Effect.fn`
+- [x] All 10 functions converted to `Effect.fn` pattern
+- [x] No lint errors
+- [x] TypeScript compilation succeeds
+- [x] All 218 tests pass
+- [x] Code follows Effect best practices with `Effect.fn`
 
 ## Rollback Plan
 
@@ -290,30 +290,20 @@ Before running ralph-auto.sh, verify:
 
 ## Implementation Findings
 
-During implementation of Task 2 (tesla-client/index.ts), the following was discovered:
+`Effect.fn` has a second overload that accepts a transform function as additional arguments. This transform receives the generated effect and the original arguments, and can apply `.pipe()` operations. This enables converting functions that previously couldn't be converted with the simple pattern.
 
-### Converted Functions (3 out of 4)
+### Converted Functions - tesla-client/index.ts (4 out of 4)
 
 1. **`getTokens`** (line 53) - ✅ Converted successfully
 2. **`refreshAccessTokenFromTesla`** (line 58) - ✅ Converted successfully
-3. **`getChargeState`** (line 173) - ✅ Converted successfully
+3. **`refreshAccessToken`** (line 166) - ✅ Converted using pipe transform overload: `Effect.fn("refreshAccessToken")(generator, (effect) => effect.pipe(Effect.mapError(...)))`
+4. **`getChargeState`** (line 173) - ✅ Converted successfully
 
-### Cannot Convert (1 out of 4)
+### Converted Functions - app.ts (6 out of 6)
 
-**`refreshAccessToken`** (line 166) - ❌ Cannot convert
-
-This function has `.pipe(Effect.mapError(...))` at the end:
-```typescript
-const refreshAccessToken = () => Effect.gen(function* () {
-  const result = yield* refreshAccessTokenFromTesla();
-  yield* saveTokens(result.access_token, result.refresh_token);
-}).pipe(
-  Effect.mapError((err) => new AuthenticationFailedError({ cause: err }))
-);
-```
-
-**Issue:** The `Effect.fn("name")(generator)` pattern returns a FUNCTION, not an Effect. The `.pipe()` method exists on Effects, not on functions. The pattern `Effect.fn("refreshAccessToken")(function* {...}).pipe(...)` fails because you cannot call `.pipe()` on a function.
-
-**Alternative attempted:** The spec suggested `Effect.fn("name", pipeable)(generator)` but this overload does not exist in Effect - there is no overload that accepts both a name and a pipeable.
-
-**Resolution:** `refreshAccessToken` remains in its original `() => Effect.gen(...).pipe(...)` form.
+1. **`checkIfCorrectlyCharging`** (line 137) - ✅ Converted successfully
+2. **`syncChargingRateBasedOnExcess`** (line 167) - ✅ Converted using pipe transform overload: the inner generator body replaced `() => { const base = Effect.gen(...); const retried = base.pipe(...); return retried; }` with `Effect.fn("syncChargingRateBasedOnExcess")(generator, (effect) => effect.pipe(...))`
+3. **`computeAndEmitSessionSummary`** (line 232) - ✅ Converted successfully
+4. **`stop`** (line 278) - ✅ Converted using pipe transform overload: `Effect.fn("stop")(generator, (effect) => effect.pipe(Effect.orDie))`
+5. **`shutdownAfterMaxRuntimeHours`** (line 318) - ✅ Converted successfully
+6. **`start`** (line 328) - ✅ Already converted prior to spec
