@@ -9,8 +9,8 @@ export const ExcessFeedInSolarControllerLayer = (config: { maxFeedInAllowed: num
       const dataAdapter = yield* DataAdapter;
 
       return {
-        determineChargingSpeed: (currentChargingSpeed: number) =>
-          Effect.gen(function* () {
+        determineChargingSpeed: Effect.fn("determineChargingSpeed")(
+          function* (currentChargingSpeed: number) {
             const {
               voltage,
               export_to_grid: exportingToGrid,
@@ -25,14 +25,16 @@ export const ExcessFeedInSolarControllerLayer = (config: { maxFeedInAllowed: num
             const excessSolarGoingWaste = excessSolarProduced - config.maxFeedInAllowed;
             yield* Effect.log("excessSolarGoingWaste", excessSolarGoingWaste);
 
-            // round to nearest multiple of 2
             return Math.ceil(excessSolarGoingWaste / voltage / 2) * 2;
-          }).pipe(
-            Effect.catchTags({
-              DataNotAvailable: (err) => Effect.fail(new InadequateDataToDetermineSpeedError({ cause: err })),
-              SourceNotAvailable: (err) => Effect.fail(new InadequateDataToDetermineSpeedError({ cause: err }))
-            })
-          )
+          },
+          (effect) =>
+            effect.pipe(
+              Effect.catchTags({
+                DataNotAvailable: (err) => Effect.fail(new InadequateDataToDetermineSpeedError({ cause: err })),
+                SourceNotAvailable: (err) => Effect.fail(new InadequateDataToDetermineSpeedError({ cause: err }))
+              })
+            )
+        )
       };
-    })
+    }).pipe(Effect.withSpan("ExcessFeedInSolarControllerLayer"))
   );

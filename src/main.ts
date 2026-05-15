@@ -122,7 +122,7 @@ const MainLayer = Layer.unwrapEffect(
       Layer.provideMerge(NodeContext.layer),
       Layer.provideMerge(NodeHttpClient.layer)
     );
-  })
+  }).pipe(Effect.withSpan("MainLayer"))
 );
 
 const program = Effect.gen(function* () {
@@ -136,7 +136,7 @@ const program = Effect.gen(function* () {
     })
   );
 
-  yield* Effect.fork(SentryFlushFiber);
+  yield* Effect.fork(SentryFlushFiber());
 
   yield* app.start().pipe(
     Effect.catchAll((err) =>
@@ -146,7 +146,7 @@ const program = Effect.gen(function* () {
       )
     )
   );
-}).pipe(Effect.provide(MainLayer), Effect.scoped);
+}).pipe(Effect.provide(MainLayer), Effect.scoped, Effect.withSpan("program"));
 
 const runProgram = Effect.gen(function* () {
   const nodeEnv = yield* Config.string("NODE_ENV").pipe(Config.withDefault("production"));
@@ -162,7 +162,8 @@ const runProgram = Effect.gen(function* () {
         SentryCore.captureException(new Error(Cause.pretty(cause)));
       }
     })
-  )
+  ),
+  Effect.withSpan("runProgram")
 );
 
 // 3. Execution

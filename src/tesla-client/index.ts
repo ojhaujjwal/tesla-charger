@@ -185,13 +185,14 @@ export const TeslaClientLayer = (config: {
           })
         );
 
-      const refreshAccessToken = Effect.fn("refreshAccessToken")(
-        function* () {
+      const refreshAccessToken = () =>
+        Effect.gen(function* () {
           const result = yield* refreshAccessTokenFromTesla();
           yield* saveTokens(result.access_token, result.refresh_token);
-        },
-        (effect) => effect.pipe(Effect.mapError((err) => new AuthenticationFailedError({ cause: err })))
-      );
+        }).pipe(
+          Effect.mapError((err) => new AuthenticationFailedError({ cause: err })),
+          Effect.withSpan("refreshAccessToken")
+        );
 
       const getChargeState = Effect.fn("getChargeState")(function* () {
         const { access_token } = yield* getTokens().pipe(
@@ -342,5 +343,5 @@ export const TeslaClientLayer = (config: {
           ),
         getChargeState
       };
-    })
+    }).pipe(Effect.withSpan("TeslaClientLayer"))
   );

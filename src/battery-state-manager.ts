@@ -24,29 +24,28 @@ export const BatteryStateManagerLayer = Layer.effect(
     const teslaClient = yield* TeslaClient;
     let batteryState: BatteryState | null = null;
 
-    const fetchAndStoreBatteryState = () =>
-      Effect.gen(function* () {
-        const result = yield* teslaClient.getChargeState().pipe(
-          Effect.catchAll((err) =>
-            Effect.gen(function* () {
-              yield* Effect.logWarning(`Failed to refresh battery state: ${err.message}`);
-              return null;
-            })
-          )
-        );
+    const fetchAndStoreBatteryState = Effect.fn("fetchAndStoreBatteryState")(function* () {
+      const result = yield* teslaClient.getChargeState().pipe(
+        Effect.catchAll((err) =>
+          Effect.gen(function* () {
+            yield* Effect.logWarning(`Failed to refresh battery state: ${err.message}`);
+            return null;
+          })
+        )
+      );
 
-        if (result) {
-          const now = yield* Clock.currentTimeMillis;
-          batteryState = {
-            batteryLevel: result.batteryLevel,
-            chargeLimitSoc: result.chargeLimitSoc,
-            queriedAtMs: now
-          };
-        }
-      });
+      if (result) {
+        const now = yield* Clock.currentTimeMillis;
+        batteryState = {
+          batteryLevel: result.batteryLevel,
+          chargeLimitSoc: result.chargeLimitSoc,
+          queriedAtMs: now
+        };
+      }
+    });
 
-    const start = (pubSub: PubSub.PubSub<TeslaChargerEvent>) =>
-      Effect.gen(function* () {
+    const start = Effect.fn("start")(
+      function* (pubSub: PubSub.PubSub<TeslaChargerEvent>) {
         // No initial fetch — the car may still be asleep at startup.
         // The first AmpereChanged event will trigger a fetch (since batteryState
         // is null, timeSinceLastQuery is Infinity and exceeds the cooldown).
@@ -77,7 +76,9 @@ export const BatteryStateManagerLayer = Layer.effect(
             }
           })
         );
-      }).pipe(Effect.scoped);
+      },
+      (effect) => effect.pipe(Effect.scoped)
+    );
 
     const get = () => batteryState;
 
@@ -85,5 +86,5 @@ export const BatteryStateManagerLayer = Layer.effect(
       start,
       get
     };
-  })
+  }).pipe(Effect.withSpan("BatteryStateManagerLayer"))
 );

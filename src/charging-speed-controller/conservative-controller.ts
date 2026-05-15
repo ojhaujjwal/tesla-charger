@@ -14,8 +14,8 @@ export const ConservativeControllerLayer = (
       const bufferPower = config.bufferPower ?? 100;
 
       return {
-        determineChargingSpeed: (currentChargingSpeed: number) =>
-          Effect.gen(function* () {
+        determineChargingSpeed: Effect.fn("determineChargingSpeed")(
+          function* (currentChargingSpeed: number) {
             const { voltage, current_load: currentLoad } = yield* dataAdapter.queryLatestValues([
               "voltage",
               "current_load"
@@ -36,12 +36,15 @@ export const ConservativeControllerLayer = (
             yield* Effect.log("[ConservativeController] calculated value:", { value });
 
             return value;
-          }).pipe(
-            Effect.catchTags({
-              DataNotAvailable: (err) => Effect.fail(new InadequateDataToDetermineSpeedError({ cause: err })),
-              SourceNotAvailable: (err) => Effect.fail(new InadequateDataToDetermineSpeedError({ cause: err }))
-            })
-          )
+          },
+          (effect) =>
+            effect.pipe(
+              Effect.catchTags({
+                DataNotAvailable: (err) => Effect.fail(new InadequateDataToDetermineSpeedError({ cause: err })),
+                SourceNotAvailable: (err) => Effect.fail(new InadequateDataToDetermineSpeedError({ cause: err }))
+              })
+            )
+        )
       };
-    })
+    }).pipe(Effect.withSpan("ConservativeControllerLayer"))
   );

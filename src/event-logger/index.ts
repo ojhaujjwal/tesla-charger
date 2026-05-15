@@ -27,4 +27,4 @@ export const startEventLogger = (pubSub: PubSub.PubSub<TeslaChargerEvent>): Effe
         }
       })
     );
-  }).pipe(Effect.scoped);
+  }).pipe(Effect.scoped, Effect.withSpan("startEventLogger"));

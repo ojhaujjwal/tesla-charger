@@ -13,8 +13,8 @@ export const FixedSpeedControllerLayer = (config: { fixedSpeed: number; bufferPo
       }
 
       return {
-        determineChargingSpeed: (currentChargingSpeed: number) =>
-          Effect.gen(function* () {
+        determineChargingSpeed: Effect.fn("determineChargingSpeed")(
+          function* (currentChargingSpeed: number) {
             const {
               voltage,
               export_to_grid: exportingToGrid,
@@ -24,22 +24,23 @@ export const FixedSpeedControllerLayer = (config: { fixedSpeed: number; bufferPo
             const netExport = exportingToGrid - importingFromGrid;
             const currentChargingPower = currentChargingSpeed * voltage;
 
-            // Calculate available power for charging
             const availablePower = netExport + currentChargingPower - config.bufferPower;
             const desiredChargingPower = config.fixedSpeed * voltage;
 
-            // Only charge at fixed speed if we have enough power available
             if (availablePower >= desiredChargingPower) {
               return config.fixedSpeed;
             }
 
             return 0;
-          }).pipe(
-            Effect.catchTags({
-              DataNotAvailable: (err) => Effect.fail(new InadequateDataToDetermineSpeedError({ cause: err })),
-              SourceNotAvailable: (err) => Effect.fail(new InadequateDataToDetermineSpeedError({ cause: err }))
-            })
-          )
+          },
+          (effect) =>
+            effect.pipe(
+              Effect.catchTags({
+                DataNotAvailable: (err) => Effect.fail(new InadequateDataToDetermineSpeedError({ cause: err })),
+                SourceNotAvailable: (err) => Effect.fail(new InadequateDataToDetermineSpeedError({ cause: err }))
+              })
+            )
+        )
       };
-    })
+    }).pipe(Effect.withSpan("FixedSpeedControllerLayer"))
   );

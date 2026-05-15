@@ -49,20 +49,17 @@ export const SolcastForecastLayer = (
       const httpClient = yield* HttpClient.HttpClient;
       const fileSystem = yield* FileSystem.FileSystem;
 
-      const fetchFromApi = (): Effect.Effect<SolarForecastResult, SolarForecastNotAvailableError> =>
-        Effect.gen(function* () {
+      const fetchFromApi = Effect.fn("fetchFromApi")(
+        function* () {
           if (rateLimitedToday) {
-            // If rate-limited, check if we have a valid cache first
             const fileCache = yield* loadFromFileCache();
             if (fileCache) {
-              // Update memory cache with file cache
               memoryCache = {
                 data: fileCache,
                 fetchedAt: Date.now()
               };
               return fileCache;
             }
-            // No valid cache available, fail
             return yield* new SolarForecastNotAvailableError({
               message: "Rate limited for today and no valid cache available"
             });
@@ -79,17 +76,14 @@ export const SolcastForecastLayer = (
 
           if (response.status === 429) {
             rateLimitedToday = true;
-            // Check if we have a valid cache before failing
             const fileCache = yield* loadFromFileCache();
             if (fileCache) {
-              // Update memory cache with file cache
               memoryCache = {
                 data: fileCache,
                 fetchedAt: Date.now()
               };
               return fileCache;
             }
-            // No valid cache available, fail
             return yield* new SolarForecastNotAvailableError({
               message: "Rate limited (429) and no valid cache available"
             });
@@ -108,13 +102,11 @@ export const SolcastForecastLayer = (
             periods: parsed.forecasts
           };
 
-          // Update memory cache
           memoryCache = {
             data: result,
             fetchedAt: Date.now()
           };
 
-          // Update file cache
           const fileCache: FileCache = {
             fetchedAt: new Date().toISOString(),
             forecasts: parsed.forecasts
@@ -122,21 +114,24 @@ export const SolcastForecastLayer = (
           yield* fileSystem.writeFileString(CACHE_FILE_PATH, JSON.stringify(fileCache));
 
           return result;
-        }).pipe(
-          Effect.catchAll((error) =>
-            error instanceof SolarForecastNotAvailableError
-              ? Effect.fail(error)
-              : Effect.fail(
-                  new SolarForecastNotAvailableError({
-                    message: `Failed to fetch forecast: ${error instanceof Error ? error.message : String(error)}`,
-                    cause: error
-                  })
-                )
+        },
+        (effect) =>
+          effect.pipe(
+            Effect.catchAll((error) =>
+              error instanceof SolarForecastNotAvailableError
+                ? Effect.fail(error)
+                : Effect.fail(
+                    new SolarForecastNotAvailableError({
+                      message: `Failed to fetch forecast: ${error instanceof Error ? error.message : String(error)}`,
+                      cause: error
+                    })
+                  )
+            )
           )
-        );
+      );
 
-      const loadFromFileCache = (): Effect.Effect<SolarForecastResult | null, never> =>
-        Effect.gen(function* () {
+      const loadFromFileCache = Effect.fn("loadFromFileCache")(
+        function* () {
           const exists = yield* fileSystem.exists(CACHE_FILE_PATH);
           if (!exists) {
             return null;
@@ -150,31 +145,32 @@ export const SolcastForecastLayer = (
           const ageDays = ageMs / (24 * 60 * 60 * 1000);
 
           if (ageDays >= MAX_CACHE_AGE_DAYS) {
-            return null; // Cache too old
+            return null;
           }
 
           return {
             periods: cache.forecasts
           };
-        }).pipe(
-          Effect.catchAll((error) =>
-            Effect.gen(function* () {
-              yield* Effect.logDebug(
-                `File cache read failed: ${error instanceof Error ? error.message : String(error)}`
-              );
-              return null;
-            })
+        },
+        (effect) =>
+          effect.pipe(
+            Effect.catchAll((error) =>
+              Effect.gen(function* () {
+                yield* Effect.logDebug(
+                  `File cache read failed: ${error instanceof Error ? error.message : String(error)}`
+                );
+                return null;
+              })
+            )
           )
-        );
+      );
 
-      const getForecast = (): Effect.Effect<SolarForecastResult, SolarForecastNotAvailableError> =>
-        Effect.gen(function* () {
-          // Check memory cache first
+      const getForecast = Effect.fn("getForecast")(
+        function* () {
           if (memoryCache && Date.now() - memoryCache.fetchedAt < MEMORY_CACHE_TTL_MS) {
             return memoryCache.data;
           }
 
-          // Check file cache
           const fileCache = yield* loadFromFileCache();
           if (fileCache) {
             const cacheContent = yield* fileSystem.readFileString(CACHE_FILE_PATH);
@@ -182,7 +178,6 @@ export const SolcastForecastLayer = (
             const fetchedAt = new Date(cache.fetchedAt).getTime();
             const ageMs = Date.now() - fetchedAt;
 
-            // If file cache is < 60 min old, use it directly
             if (ageMs < MEMORY_CACHE_TTL_MS) {
               memoryCache = {
                 data: fileCache,
@@ -191,7 +186,6 @@ export const SolcastForecastLayer = (
               return fileCache;
             }
 
-            // If file cache is >= 60 min but from today/yesterday, try API first
             if (ageMs < MAX_CACHE_AGE_DAYS * 24 * 60 * 60 * 1000) {
               const apiResult = yield* fetchFromApi().pipe(
                 Effect.catchAll((error) =>
@@ -205,34 +199,35 @@ export const SolcastForecastLayer = (
             }
           }
 
-          // No valid cache, must fetch from API
           const result = yield* fetchFromApi();
           return result;
-        }).pipe(
-          Effect.catchAll((error) => {
-            // If API fails, try to use file cache as fallback
-            return Effect.gen(function* () {
-              yield* Effect.logWarning(
-                `Failed to fetch forecast from API, falling back to file cache: ${error.message}`
-              );
-              return yield* loadFromFileCache().pipe(
-                Effect.flatMap((fileCache) =>
-                  fileCache
-                    ? Effect.succeed(fileCache)
-                    : Effect.fail(
-                        new SolarForecastNotAvailableError({
-                          message: "Unable to fetch forecast and no valid cache available",
-                          cause: error
-                        })
-                      )
-                )
-              );
-            });
-          })
-        );
+        },
+        (effect) =>
+          effect.pipe(
+            Effect.catchAll((error) => {
+              return Effect.gen(function* () {
+                yield* Effect.logWarning(
+                  `Failed to fetch forecast from API, falling back to file cache: ${error.message}`
+                );
+                return yield* loadFromFileCache().pipe(
+                  Effect.flatMap((fileCache) =>
+                    fileCache
+                      ? Effect.succeed(fileCache)
+                      : Effect.fail(
+                          new SolarForecastNotAvailableError({
+                            message: "Unable to fetch forecast and no valid cache available",
+                            cause: error
+                          })
+                        )
+                  )
+                );
+              });
+            })
+          )
+      );
 
       return SolarForecast.of({
         getForecast
       });
-    })
+    }).pipe(Effect.withSpan("SolcastForecastLayer"))
   );

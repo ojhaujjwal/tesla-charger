@@ -4,7 +4,7 @@ import { Effect, Layer } from "effect";
 import { NodeContext, NodeHttpClient, NodeRuntime } from "@effect/platform-node";
 import { AppConfig } from "./config.js";
 
-const program = Effect.gen(function* () {
+const program = Effect.fn("program")(function* () {
   const teslaClient = yield* TeslaClient;
 
   const authorizationCode = process.argv[2] || null;
@@ -48,7 +48,7 @@ const MainLayer = Layer.unwrapEffect(
       clientSecret,
       vin
     }).pipe(Layer.provide(NodeContext.layer), Layer.provide(NodeHttpClient.layer));
-  })
+  }).pipe(Effect.withSpan("GenerateRefreshTokenMainLayer"))
 );
 
-NodeRuntime.runMain(program.pipe(Effect.provide(MainLayer), Effect.orDie));
+NodeRuntime.runMain(program().pipe(Effect.provide(MainLayer), Effect.orDie));

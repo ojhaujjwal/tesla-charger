@@ -31,36 +31,32 @@ const fieldMap: Record<Field, InfluxField> = {
   battery_power: "battery_power"
 };
 
-const parseCsv = <F extends Field>(
-  rows: string[],
-  fields: readonly F[]
-): Effect.Effect<Record<string, number>, DataNotAvailableError> =>
-  Effect.gen(function* () {
-    if (rows.length === 0 || rows.length < 2) {
-      yield* Effect.logError("No data rows found in CSV");
-      return yield* new DataNotAvailableError();
-    }
+const parseCsv = Effect.fn("parseCsv")(function* <F extends Field>(rows: string[], fields: readonly F[]) {
+  if (rows.length === 0 || rows.length < 2) {
+    yield* Effect.logError("No data rows found in CSV");
+    return yield* new DataNotAvailableError();
+  }
 
-    const headers = rows[0].split(",");
-    const data = rows.slice(1, 1 + fields.length).map((row) => {
-      const values = row.split(",");
-      return headers.reduce<Record<string, string>>((acc, header, index) => {
-        acc[header] = values[index];
-        return acc;
-      }, {});
-    });
-
-    const result: Record<string, number> = {};
-
-    for (const row of data) {
-      const field = yield* Schema.decodeUnknown(InfluxFieldSchema)(row._field).pipe(
-        Effect.catchTag("ParseError", () => Effect.dieMessage(`Invalid field in CSV: ${row._field}`))
-      );
-      result[field] = parseFloat(row._value);
-    }
-
-    return result;
+  const headers = rows[0].split(",");
+  const data = rows.slice(1, 1 + fields.length).map((row) => {
+    const values = row.split(",");
+    return headers.reduce<Record<string, string>>((acc, header, index) => {
+      acc[header] = values[index];
+      return acc;
+    }, {});
   });
+
+  const result: Record<string, number> = {};
+
+  for (const row of data) {
+    const field = yield* Schema.decodeUnknown(InfluxFieldSchema)(row._field).pipe(
+      Effect.catchTag("ParseError", () => Effect.dieMessage(`Invalid field in CSV: ${row._field}`))
+    );
+    result[field] = parseFloat(row._value);
+  }
+
+  return result;
+});
 
 export class SunGatherInfluxDbDataAdapter implements IDataAdapter {
   private readonly TIMEOUT_MS = 10_000;
@@ -139,7 +135,8 @@ export class SunGatherInfluxDbDataAdapter implements IDataAdapter {
       Effect.retry({ times: 2, while: (err) => err._tag === "TimeoutException" }),
       Effect.catchTag("TimeoutException", () => Effect.fail(new SourceNotAvailableError())),
       Effect.catchTag("RequestError", () => Effect.fail(new SourceNotAvailableError())),
-      Effect.catchTag("ResponseError", () => Effect.fail(new SourceNotAvailableError()))
+      Effect.catchTag("ResponseError", () => Effect.fail(new SourceNotAvailableError())),
+      Effect.withSpan("queryLatestValues")
     );
   }
 
@@ -182,7 +179,8 @@ export class SunGatherInfluxDbDataAdapter implements IDataAdapter {
       Effect.retry({ times: 2, while: (err) => err._tag === "TimeoutException" }),
       Effect.catchTag("TimeoutException", () => Effect.fail(new SourceNotAvailableError())),
       Effect.catchTag("RequestError", () => Effect.fail(new SourceNotAvailableError())),
-      Effect.catchTag("ResponseError", () => Effect.fail(new SourceNotAvailableError()))
+      Effect.catchTag("ResponseError", () => Effect.fail(new SourceNotAvailableError())),
+      Effect.withSpan("getLowestValueInLastXMinutes")
     );
   }
 }
@@ -197,5 +195,5 @@ export const SunGatherInfluxDbDataAdapterLayer = Layer.effect(
       yield* AppConfig.influx.bucket,
       yield* HttpClient.HttpClient
     );
-  })
+  }).pipe(Effect.withSpan("SunGatherInfluxDbDataAdapterLayer"))
 );

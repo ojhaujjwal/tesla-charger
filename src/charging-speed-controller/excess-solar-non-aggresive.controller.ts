@@ -23,18 +23,15 @@ export const ExcessSolarNonAggresiveControllerLayer = (config: {
       const dataAdapter = yield* DataAdapter;
       const requiredConsistentReads = config.requiredConsistentReads ?? 3;
 
-      // State
       const readHistory: { speed: number; dataSignature: string }[] = [];
       let lastAppliedSpeed = 0;
       let lastDataSignature: string | null = null;
 
       return {
-        determineChargingSpeed: (currentChargingSpeed: number) =>
-          Effect.gen(function* () {
-            // Get candidate speed from base controller
+        determineChargingSpeed: Effect.fn("determineChargingSpeed")(
+          function* (currentChargingSpeed: number) {
             const candidateSpeed = yield* baseController.determineChargingSpeed(currentChargingSpeed);
 
-            // Get raw data to create a signature for detecting fresh vs stale data
             const rawData = yield* dataAdapter.queryLatestValues([
               "export_to_grid",
               "current_production",
@@ -42,11 +39,9 @@ export const ExcessSolarNonAggresiveControllerLayer = (config: {
             ]);
             const dataSignature = `${rawData.export_to_grid}:${rawData.current_production}:${rawData.current_load}`;
 
-            // Check if this is fresh data (different from last read)
             const isFreshData = dataSignature !== lastDataSignature;
             lastDataSignature = dataSignature;
 
-            // Only record fresh data into history
             if (isFreshData) {
               readHistory.push({ speed: candidateSpeed, dataSignature });
               if (readHistory.length > requiredConsistentReads) {
@@ -54,13 +49,11 @@ export const ExcessSolarNonAggresiveControllerLayer = (config: {
               }
             }
 
-            // For decreases: apply immediately (safety first)
             if (candidateSpeed < lastAppliedSpeed) {
               lastAppliedSpeed = candidateSpeed;
               return candidateSpeed;
             }
 
-            // For increases: only apply if we have enough FRESH readings that all support the increase
             if (candidateSpeed > lastAppliedSpeed) {
               const hasEnoughFreshReads = readHistory.length >= requiredConsistentReads;
               const allReadingsSupportIncrease = readHistory.every((r) => r.speed >= candidateSpeed);
@@ -71,18 +64,19 @@ export const ExcessSolarNonAggresiveControllerLayer = (config: {
                 return candidateSpeed;
               }
 
-              // Not enough fresh consistent readings yet
               return lastAppliedSpeed;
             }
 
-            // No change needed
             return lastAppliedSpeed;
-          }).pipe(
-            Effect.catchTags({
-              DataNotAvailable: (err) => Effect.fail(new InadequateDataToDetermineSpeedError({ cause: err })),
-              SourceNotAvailable: (err) => Effect.fail(new InadequateDataToDetermineSpeedError({ cause: err }))
-            })
-          )
+          },
+          (effect) =>
+            effect.pipe(
+              Effect.catchTags({
+                DataNotAvailable: (err) => Effect.fail(new InadequateDataToDetermineSpeedError({ cause: err })),
+                SourceNotAvailable: (err) => Effect.fail(new InadequateDataToDetermineSpeedError({ cause: err }))
+              })
+            )
+        )
       };
-    })
+    }).pipe(Effect.withSpan("ExcessSolarNonAggresiveControllerLayer"))
   );

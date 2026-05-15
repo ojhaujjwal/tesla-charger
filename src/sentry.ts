@@ -42,7 +42,7 @@ class SentryFlushFailedError extends Cause.RuntimeException {}
 class SentryFlushTimeoutError extends Cause.RuntimeException {}
 
 // Periodic flush fiber
-export const SentryFlushFiber = Effect.gen(function* () {
+export const SentryFlushFiber = Effect.fn("SentryFlushFiber")(function* () {
   while (true) {
     yield* Effect.sleep(10000);
     yield* Effect.tryPromise({

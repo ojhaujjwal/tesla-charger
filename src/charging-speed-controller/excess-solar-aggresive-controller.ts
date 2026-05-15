@@ -9,8 +9,8 @@ export const ExcessSolarAggresiveControllerLayer = (config: { bufferPower: numbe
       const dataAdapter = yield* DataAdapter;
 
       return {
-        determineChargingSpeed: (currentChargingSpeed: number) =>
-          Effect.gen(function* () {
+        determineChargingSpeed: Effect.fn("determineChargingSpeed")(
+          function* (currentChargingSpeed: number) {
             const { voltage, battery_power, export_to_grid, import_from_grid } = yield* dataAdapter.queryLatestValues([
               "voltage",
               "battery_power",
@@ -41,14 +41,16 @@ export const ExcessSolarAggresiveControllerLayer = (config: { bufferPower: numbe
               return 32;
             }
 
-            // round to nearest multiple of parameter
             return Math.max(0, Math.floor(excessSolar / voltage / config.multipleOf) * config.multipleOf);
-          }).pipe(
-            Effect.catchTags({
-              DataNotAvailable: (err) => Effect.fail(new InadequateDataToDetermineSpeedError({ cause: err })),
-              SourceNotAvailable: (err) => Effect.fail(new InadequateDataToDetermineSpeedError({ cause: err }))
-            })
-          )
+          },
+          (effect) =>
+            effect.pipe(
+              Effect.catchTags({
+                DataNotAvailable: (err) => Effect.fail(new InadequateDataToDetermineSpeedError({ cause: err })),
+                SourceNotAvailable: (err) => Effect.fail(new InadequateDataToDetermineSpeedError({ cause: err }))
+              })
+            )
+        )
       };
-    })
+    }).pipe(Effect.withSpan("ExcessSolarAggresiveControllerLayer"))
   );

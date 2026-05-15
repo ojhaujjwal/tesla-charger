@@ -112,8 +112,8 @@ export const AppLayer = (config: {
           )
         );
 
-      const syncAmpere = (targetAmpere: number) =>
-        Effect.gen(function* () {
+      const syncAmpere = Effect.fn("syncAmpere")(
+        function* (targetAmpere: number) {
           const vehicle = yield* ElectricVehicle;
           const pubSub = yield* TeslaChargerEventPubSub;
           const { current_production: currentProductionAtStart } = yield* dataAdapter.queryLatestValues([
@@ -132,7 +132,9 @@ export const AppLayer = (config: {
           );
           controlState = result.state;
           sessionStats = result.stats;
-        }).pipe(Effect.provideService(TeslaChargerEventPubSub, teslaChargerPubSub));
+        },
+        (eff) => eff.pipe(Effect.provideService(TeslaChargerEventPubSub, teslaChargerPubSub))
+      );
 
       const checkIfCorrectlyCharging = Effect.fn("checkIfCorrectlyCharging")(function* () {
         const { current_load: currentLoad, voltage } = yield* dataAdapter.queryLatestValues([
@@ -163,69 +165,66 @@ export const AppLayer = (config: {
         }
       });
 
-      const syncChargingRateBasedOnExcess = Effect.fn("syncChargingRateBasedOnExcess")(
-        function* () {
-          const currentSpeed = controlState.status === "Charging" ? controlState.ampere : 0;
-          const ampere = yield* chargingSpeedController.determineChargingSpeed(currentSpeed);
+      const syncChargingRateBasedOnExcessCore = Effect.fn("syncChargingRateBasedOnExcess")(function* () {
+        const currentSpeed = controlState.status === "Charging" ? controlState.ampere : 0;
+        const ampere = yield* chargingSpeedController.determineChargingSpeed(currentSpeed);
 
-          yield* Effect.logDebug("Charging speed determined.", {
-            current_speed: currentSpeed,
-            determined_speed: ampere
-          });
+        yield* Effect.logDebug("Charging speed determined.", {
+          current_speed: currentSpeed,
+          determined_speed: ampere
+        });
 
-          yield* syncAmpere(Math.min(32, ampere)).pipe(
-            Effect.tap(() =>
-              Effect.annotateCurrentSpan({
-                chargeState: controlState,
-                expectedAmpere: ampere
-              })
-            ),
-            Effect.withSpan("syncAmpere")
-          );
+        yield* syncAmpere(Math.min(32, ampere)).pipe(
+          Effect.tap(() =>
+            Effect.annotateCurrentSpan({
+              chargeState: controlState,
+              expectedAmpere: ampere
+            })
+          ),
+          Effect.withSpan("syncAmpere")
+        );
 
-          yield* Effect.sleep(config.timingConfig.syncIntervalInMs).pipe(Effect.withSpan("syncAmpere.postWaiting"));
+        yield* Effect.sleep(config.timingConfig.syncIntervalInMs).pipe(Effect.withSpan("syncAmpere.postWaiting"));
 
-          yield* checkIfCorrectlyCharging();
-        },
-        (effect) =>
-          effect.pipe(
-            Effect.tap(() =>
-              Effect.annotateCurrentSpan({
-                memory_usage_mb: memoryUsageMB()
-              })
-            ),
-            Effect.retry({
-              times: 2,
-              while: (err) => {
-                if (err._tag !== "VehicleAsleepError") return false;
-                return Effect.sleep(Duration.millis(config.timingConfig.vehicleAwakeningTimeInMs)).pipe(
-                  Effect.flatMap(() => teslaClient.wakeUpCar().pipe(Effect.map(() => true))),
-                  Effect.catchAll(() => Effect.succeed(false))
-                );
-              }
-            }),
-            Effect.catchTag("VehicleAsleepError", () =>
-              Effect.fail(new VehicleNotWakingUpError({ wakeupAttempts: 2 }))
-            ),
-            Effect.retry({
-              times: 10,
-              while: (err) => {
-                if (err._tag !== "AbruptProductionDrop") return false;
-                return Effect.succeed(true).pipe(
-                  Effect.tap(() =>
-                    Effect.log("AbruptProductionDropError", {
-                      initialProduction: err.initialProduction,
-                      currentProduction: err.currentProduction
-                    })
-                  )
-                );
-              }
-            }),
-            Effect.catchTag("AbruptProductionDrop", () =>
-              Effect.dieMessage("Unexpectedly got AbruptProductionDrop 10 times consecutively.")
-            )
+        yield* checkIfCorrectlyCharging();
+      });
+
+      const syncChargingRateBasedOnExcess = () =>
+        syncChargingRateBasedOnExcessCore().pipe(
+          Effect.tap(() =>
+            Effect.annotateCurrentSpan({
+              memory_usage_mb: memoryUsageMB()
+            })
+          ),
+          Effect.retry({
+            times: 2,
+            while: (err) => {
+              if (err._tag !== "VehicleAsleepError") return false;
+              return Effect.sleep(Duration.millis(config.timingConfig.vehicleAwakeningTimeInMs)).pipe(
+                Effect.flatMap(() => teslaClient.wakeUpCar().pipe(Effect.map(() => true))),
+                Effect.catchAll(() => Effect.succeed(false))
+              );
+            }
+          }),
+          Effect.catchTag("VehicleAsleepError", () => Effect.fail(new VehicleNotWakingUpError({ wakeupAttempts: 2 }))),
+          Effect.retry({
+            times: 10,
+            while: (err) => {
+              if (err._tag !== "AbruptProductionDrop") return false;
+              return Effect.succeed(true).pipe(
+                Effect.tap(() =>
+                  Effect.log("AbruptProductionDropError", {
+                    initialProduction: err.initialProduction,
+                    currentProduction: err.currentProduction
+                  })
+                )
+              );
+            }
+          }),
+          Effect.catchTag("AbruptProductionDrop", () =>
+            Effect.dieMessage("Unexpectedly got AbruptProductionDrop 10 times consecutively.")
           )
-      );
+        );
 
       const computeAndEmitSessionSummary = Effect.fn("computeAndEmitSessionSummary")(function* () {
         const sessionDurationMs = sessionStats.sessionStartedAt
@@ -372,5 +371,5 @@ export const AppLayer = (config: {
       });
 
       return { start, stop };
-    })
+    }).pipe(Effect.withSpan("AppLayer"))
   );

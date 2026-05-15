@@ -23,28 +23,23 @@ export const WeatherAwareBufferControllerLayer = (
       const solarForecast = yield* SolarForecast;
       const batteryStateManager = yield* BatteryStateManager;
 
-      // Ensure monthlyPeakFactors is set (auto-calculate if not provided)
       const monthlyPeakFactors = config.monthlyPeakFactors ?? calculateDefaultMonthlyPeakFactors(config.latitude);
 
-      // Log monthly peak factors at startup
       yield* Effect.logInfo("Weather-aware buffer controller initialized", {
         monthlyPeakFactors: monthlyPeakFactors,
         peakSolarCapacityKw: config.peakSolarCapacityKw,
         latitude: config.latitude
       });
 
-      // Cache simulation result (refresh when forecast changes)
       let cachedSimulation: import("./types.js").SimulationResult | undefined;
       let lastForecastHash: string | undefined;
 
       return {
-        determineChargingSpeed: (currentChargingSpeed: number) =>
-          Effect.gen(function* () {
-            // Get current time from Effect Clock (testable)
+        determineChargingSpeed: Effect.fn("determineChargingSpeed")(
+          function* (currentChargingSpeed: number) {
             const nowMs = yield* Clock.currentTimeMillis;
             const now = new Date(nowMs);
 
-            // Get forecast
             const forecast = yield* solarForecast.getForecast().pipe(
               Effect.catchAll(() =>
                 Effect.succeed({
@@ -53,10 +48,8 @@ export const WeatherAwareBufferControllerLayer = (
               )
             );
 
-            // Get battery state
             const batteryState = batteryStateManager.get();
 
-            // Run simulation if forecast or battery state changed
             const forecastHash = forecast.periods.map((p) => p.period_end).join(",");
             const batteryHash = batteryState
               ? `${batteryState.batteryLevel}-${batteryState.chargeLimitSoc}`
@@ -67,7 +60,6 @@ export const WeatherAwareBufferControllerLayer = (
               cachedSimulation = simulateCharge(config, forecast, batteryState, now);
               lastForecastHash = currentHash;
 
-              // Log shortfall warning if needed
               if (!cachedSimulation.canComplete && cachedSimulation.shortfallKwh > 0) {
                 const cutoffHour = config.deadlineHour ?? config.solarCutoffHour;
                 yield* Effect.logWarning(
@@ -78,19 +70,17 @@ export const WeatherAwareBufferControllerLayer = (
 
             const simulation = cachedSimulation;
 
-            // Get current period from forecast
             const currentPeriod = forecast.periods.find((p) => {
               const periodEnd = new Date(p.period_end);
-              return periodEnd >= now && periodEnd.getTime() - now.getTime() < 30 * 60 * 1000; // Within next 30 min
+              return periodEnd >= now && periodEnd.getTime() - now.getTime() < 30 * 60 * 1000;
             });
 
-            // Calculate dynamic buffer
             let finalBuffer = config.minBufferPower;
 
             if (currentPeriod) {
               const periodEnd = new Date(currentPeriod.period_end);
               const periodHourUtc = periodEnd.getUTCHours() + periodEnd.getUTCMinutes() / 60;
-              const localHour = periodHourUtc; // Treat as local solar time
+              const localHour = periodHourUtc;
 
               const expectedCap = expectedCapacityKw(periodEnd, localHour, {
                 ...config,
@@ -99,10 +89,8 @@ export const WeatherAwareBufferControllerLayer = (
 
               const confidence = periodConfidence(currentPeriod.pv_estimate, expectedCap);
 
-              // Weather-based buffer: inversely proportional to confidence
               const weatherBuffer = config.minBufferPower * (1 + (config.bufferMultiplierMax - 1) * (1 - confidence));
 
-              // Urgency modulation ONLY if deadlineHour is set
               if (config.deadlineHour !== undefined && batteryState) {
                 const urgencyFactor = simulation.utilizationRatio;
                 finalBuffer = weatherBuffer * (1 - urgencyFactor * 0.5);
@@ -110,11 +98,9 @@ export const WeatherAwareBufferControllerLayer = (
                 finalBuffer = weatherBuffer;
               }
 
-              // Floor at minBufferPower
               finalBuffer = Math.max(config.minBufferPower, finalBuffer);
             }
 
-            // Get grid data
             const {
               voltage,
               export_to_grid: exportingToGrid,
@@ -129,12 +115,15 @@ export const WeatherAwareBufferControllerLayer = (
             }
 
             return Math.max(0, Math.floor(excessSolar / voltage / config.multipleOf) * config.multipleOf);
-          }).pipe(
-            Effect.catchTags({
-              DataNotAvailable: (err) => Effect.fail(new InadequateDataToDetermineSpeedError({ cause: err })),
-              SourceNotAvailable: (err) => Effect.fail(new InadequateDataToDetermineSpeedError({ cause: err }))
-            })
-          )
+          },
+          (effect) =>
+            effect.pipe(
+              Effect.catchTags({
+                DataNotAvailable: (err) => Effect.fail(new InadequateDataToDetermineSpeedError({ cause: err })),
+                SourceNotAvailable: (err) => Effect.fail(new InadequateDataToDetermineSpeedError({ cause: err }))
+              })
+            )
+        )
       };
-    })
+    }).pipe(Effect.withSpan("WeatherAwareBufferControllerLayer"))
   );

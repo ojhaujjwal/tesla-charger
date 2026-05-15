@@ -165,7 +165,8 @@ export class AlphaEssCloudApiDataAdapter implements IDataAdapter {
       }),
       Effect.catchTag("TimeoutException", () => Effect.fail(new SourceNotAvailableError())),
       Effect.catchTag("RequestError", () => Effect.fail(new SourceNotAvailableError())),
-      Effect.catchTag("ResponseError", () => Effect.fail(new SourceNotAvailableError()))
+      Effect.catchTag("ResponseError", () => Effect.fail(new SourceNotAvailableError())),
+      Effect.withSpan("queryLatestValues")
     );
   }
 
@@ -188,5 +189,5 @@ export const AlphaEssCloudApiDataAdapterLayer = Layer.effect(
       },
       yield* HttpClient.HttpClient
     );
-  })
+  }).pipe(Effect.withSpan("AlphaEssCloudApiDataAdapterLayer"))
 );
