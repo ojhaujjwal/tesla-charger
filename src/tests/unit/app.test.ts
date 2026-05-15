@@ -57,7 +57,7 @@ describe("App", () => {
   };
 
   const provideAppLayer = <R>(
-    appEffect: Effect.Effect<void, unknown, App | R>,
+    appEffect: Effect.Effect<void, never, App | R>,
     timingConfig: TimingConfig = defaultTimingConfig
   ) =>
     appEffect.pipe(

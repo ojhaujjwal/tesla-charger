@@ -7,9 +7,22 @@ import {
   VehicleAsleepError,
   VehicleCommandFailedError
 } from "./errors.js";
-import { Context, Duration, Effect, Layer, pipe, Redacted, Schedule, Schema, Stream, String } from "effect";
+import {
+  Context,
+  Duration,
+  Effect,
+  Layer,
+  ParseResult,
+  pipe,
+  Redacted,
+  Schedule,
+  Schema,
+  Stream,
+  String
+} from "effect";
 import type { Redacted as RedactedType } from "effect/Redacted";
 import { Command, CommandExecutor, FileSystem, HttpClient } from "@effect/platform";
+import type { PlatformError } from "@effect/platform/Error";
 import { raw } from "@effect/platform/HttpBody";
 import { ResponseError, type HttpClientError } from "@effect/platform/HttpClientError";
 import {
@@ -33,7 +46,12 @@ export type ChargeState = {
 };
 
 export type TeslaClientService = ElectricVehicle["Type"] & {
-  readonly authenticateFromAuthCodeGrant: (authorizationCode: string) => Effect.Effect<TeslaTokenResponse, unknown>;
+  readonly authenticateFromAuthCodeGrant: (
+    authorizationCode: string
+  ) => Effect.Effect<
+    TeslaTokenResponse,
+    HttpClientError | ParseResult.ParseError | PlatformError | UnableToFetchAccessTokenError
+  >;
   readonly refreshAccessToken: () => Effect.Effect<void, AuthenticationFailedError>;
   readonly setupAccessTokenAutoRefreshRecurring: (
     timeoutInSeconds: number

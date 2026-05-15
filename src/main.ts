@@ -1,7 +1,10 @@
 import { NodeContext, NodeHttpClient, NodeRuntime } from "@effect/platform-node";
 import { Cause, Chunk, Config, Effect, Layer, Logger, LogLevel, Option } from "effect";
+import type { Redacted } from "effect/Redacted";
 import { AppConfig } from "./config.js";
-import { createTeslaClientLayer } from "./layers.js";
+import { AlphaEssCloudApiDataAdapterLayer } from "./data-adapter/alpha-ess-api.data-adapter.js";
+import { TeslaClient, TeslaClientLayer } from "./tesla-client/index.js";
+import { ElectricVehicle } from "./domain/electric-vehicle.js";
 import { App, AppLayer, type TimingConfig } from "./app.js";
 import type { ChargingConfig } from "./domain/charging-session.js";
 import { BatteryStateManagerLayer } from "./battery-state-manager.js";
@@ -14,7 +17,21 @@ import { WeatherAwareBufferControllerLayer } from "./charging-speed-controller/w
 import { SolcastForecastLayer } from "./solar-forecast/solcast.adapter.js";
 import { SentryLive, SentryFlushFiber, flushSentry, captureException, initSentry } from "./sentry.js";
 import * as SentryCore from "@sentry/core";
-import { serviceLayers } from "./layers.js";
+const serviceLayers = Layer.mergeAll(AlphaEssCloudApiDataAdapterLayer);
+
+const createTeslaClientLayer = (config: {
+  readonly appDomain: string;
+  readonly clientId: string;
+  readonly clientSecret: Redacted<string>;
+  readonly vin: string;
+}) => {
+  const base = TeslaClientLayer(config);
+  const ev = Layer.effect(
+    ElectricVehicle,
+    Effect.map(TeslaClient, (client): ElectricVehicle["Type"] => client)
+  );
+  return Layer.mergeAll(base, ev.pipe(Layer.provide(base)));
+};
 
 // Initialize Sentry before building Effect layers
 initSentry();

@@ -31,7 +31,8 @@
     "tesla-charger/no-plain-it-with-effect": "error",
     "tesla-charger/no-oxlint-disable": "error",
     "tesla-charger/no-vitest-modifiers": "error",
-    "tesla-charger/no-ts-ignore": "error"
+    "tesla-charger/no-ts-ignore": "error",
+    "tesla-charger/no-unknown-effect-error": "error"
   },
   "overrides": [
     {

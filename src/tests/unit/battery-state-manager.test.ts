@@ -20,7 +20,7 @@ describe("BatteryStateManager", () => {
 
   const TestTeslaClient = Layer.succeed(TeslaClient, teslaClientMock);
 
-  const provideBatteryStateManagerLayer = (effect: Effect.Effect<void, unknown, BatteryStateManager>) =>
+  const provideBatteryStateManagerLayer = (effect: Effect.Effect<void, never, BatteryStateManager>) =>
     effect.pipe(Effect.provide(BatteryStateManagerLayer.pipe(Layer.provideMerge(TestTeslaClient))));
 
   beforeEach(() => {
