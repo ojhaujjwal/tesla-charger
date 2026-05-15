@@ -2,7 +2,7 @@
 
 ## Overview
 
-Break `src/app.ts` (461 lines) into domain (pure, no Effect) and application (Effect + services) layers, following Domain-Driven Design principles. Split the monolithic `ChargingState` into two concerns: `ChargingControlState` (used to control the car: start, stop, change ampere) and `ChargingSessionStats` (used to track events for computing the session summary). The `App` tag's public interface (`start()`/`stop()`) remains unchanged, so `app.test.ts` continues to function as functional/integration tests with zero to minimal changes. Remove the unused `lastCommandAt` field.
+Break `src/app.ts` (461 lines) into domain (pure, no Effect) and application (Effect + services) layers, following Domain-Driven Design principles. Split the monolithic `ChargingState` into two concerns: `ChargingControlState` (a DDD aggregate with a 5-state state machine) and `ChargingSessionStats` (used to track events for computing the session summary). `ChargingControlState` protects domain invariants by modeling transitional states (`Starting`, `ChangingAmpere`, `Stopping`) and returning domain events + wait times alongside state transitions. The `App` tag's public interface (`start()`/`stop()`) remains unchanged, so `app.test.ts` continues to function as functional/integration tests with zero to minimal changes. Remove the unused `lastCommandAt` field.
 
 ## Background
 
@@ -33,23 +33,136 @@ Break `src/app.ts` (461 lines) into domain (pure, no Effect) and application (Ef
 
 Create pure domain modules (no Effect dependency) and update backward-compatible re-exports.
 
-**1a. Create `src/domain/charging-session.ts`** (~80 lines)
+**1a. Create `src/domain/charging-session.ts`** (~130 lines)
 
-Two separate types replace the old monolithic `ChargingState`. `AppStatus` and `TimingConfig` move here too. All transition functions are pure (immutable, no side effects):
+Two separate types replace the old monolithic `ChargingState`. `AppStatus` and `TimingConfig` move here too. `ChargingControlState` is a DDD aggregate with a 5-state state machine that protects invariants. All functions are pure (immutable, no side effects):
 
 ```typescript
-// ── Charging control state ──
-// Used to start/stop/change the car's charging speed.
+// ── Charging control state (DDD aggregate) ──
+// Five-state machine: Idle → Starting → Charging → ChangingAmpere → Stopping
 
-export type ChargingControlState = {
-  readonly running: boolean;
-  readonly ampere: number;
-};
+export type ChargingControlState =
+  | { readonly status: "Idle" }
+  | { readonly status: "Starting"; readonly targetAmpere: number }
+  | { readonly status: "Charging"; readonly ampere: number }
+  | { readonly status: "ChangingAmpere"; readonly current: number; readonly target: number }
+  | { readonly status: "Stopping" };
 
 export const createInitialChargingControlState = (): ChargingControlState => ({
-  running: false,
-  ampere: 0
+  status: "Idle"
 });
+
+// ── Domain events ──
+
+export type ChargingControlEvent =
+  | { readonly type: "ChargingStarted" }
+  | { readonly type: "ChargingStopped" }
+  | { readonly type: "AmpereChangeInitiated"; readonly previous: number; readonly current: number }
+  | { readonly type: "AmpereChangeFinished" };
+
+// ── Transition result ──
+// Every transition returns this; app checks events.length > 0 to decide action.
+
+export type TransitionResult = {
+  readonly state: ChargingControlState;
+  readonly events: ChargingControlEvent[];
+  readonly waitSeconds: number;
+  readonly recordFluctuation: boolean;
+};
+
+// ── State transition functions ──
+// Each returns { state, events, waitSeconds, recordFluctuation }.
+// Invalid transitions (e.g. requestChargeStart from Charging) return state unchanged with empty events.
+
+export const requestChargeStart = (
+  state: ChargingControlState,
+  targetAmpere: number,
+  config: TimingConfig
+): TransitionResult => {
+  if (state.status !== "Idle") {
+    return { state, events: [], waitSeconds: 0, recordFluctuation: false };
+  }
+  const amp = Math.min(32, targetAmpere);
+  const waitSeconds = amp * config.waitPerAmereInSeconds + config.extraWaitOnChargeStartInSeconds;
+  return {
+    state: { status: "Starting", targetAmpere: amp },
+    events: [{ type: "ChargingStarted" }],
+    waitSeconds,
+    recordFluctuation: true
+  };
+};
+
+export const requestChargeStop = (
+  state: ChargingControlState,
+  config: Pick<TimingConfig, "extraWaitOnChargeStopInSeconds">
+): TransitionResult => {
+  if (state.status !== "Charging" && state.status !== "Starting" && state.status !== "ChangingAmpere") {
+    return { state, events: [], waitSeconds: 0, recordFluctuation: false };
+  }
+  return {
+    state: { status: "Stopping" },
+    events: [],
+    waitSeconds: config.extraWaitOnChargeStopInSeconds,
+    recordFluctuation: false
+  };
+};
+
+export const requestAmpereChange = (
+  state: ChargingControlState,
+  targetAmpere: number,
+  config: Pick<TimingConfig, "waitPerAmereInSeconds">
+): TransitionResult => {
+  if (state.status !== "Charging") {
+    return { state, events: [], waitSeconds: 0, recordFluctuation: false };
+  }
+  const amp = Math.min(32, targetAmpere);
+  if (state.ampere === amp) {
+    return { state, events: [], waitSeconds: 0, recordFluctuation: false };
+  }
+  const ampDiff = Math.abs(amp - state.ampere);
+  return {
+    state: { status: "ChangingAmpere", current: state.ampere, target: amp },
+    events: [{ type: "AmpereChangeInitiated", previous: state.ampere, current: amp }],
+    waitSeconds: ampDiff * config.waitPerAmereInSeconds,
+    recordFluctuation: true
+  };
+};
+
+export const completeChargeStart = (state: ChargingControlState): TransitionResult => {
+  if (state.status !== "Starting") {
+    return { state, events: [], waitSeconds: 0, recordFluctuation: false };
+  }
+  return {
+    state: { status: "Charging", ampere: state.targetAmpere },
+    events: [],
+    waitSeconds: 0,
+    recordFluctuation: false
+  };
+};
+
+export const completeAmpereChange = (state: ChargingControlState): TransitionResult => {
+  if (state.status !== "ChangingAmpere") {
+    return { state, events: [], waitSeconds: 0, recordFluctuation: false };
+  }
+  return {
+    state: { status: "Charging", ampere: state.target },
+    events: [{ type: "AmpereChangeFinished" }],
+    waitSeconds: 0,
+    recordFluctuation: false
+  };
+};
+
+export const completeChargeStop = (state: ChargingControlState): TransitionResult => {
+  if (state.status !== "Stopping") {
+    return { state, events: [], waitSeconds: 0, recordFluctuation: false };
+  }
+  return {
+    state: { status: "Idle" },
+    events: [{ type: "ChargingStopped" }],
+    waitSeconds: 0,
+    recordFluctuation: false
+  };
+};
 
 // ── Session stats ──
 // Used to track events for computing the session summary.
@@ -66,38 +179,6 @@ export const createInitialChargingSessionStats = (): ChargingSessionStats => ({
   sessionStartedAt: null,
   chargeEnergyAddedAtStartKwh: 0,
   dailyImportValueAtStart: 0
-});
-
-// ── App lifecycle enum ──
-
-export enum AppStatus { Pending, Running, Stopped }
-
-// ── Predicates (pure boolean checks) ──
-
-export const shouldStartCharging = (ampere: number, isRunning: boolean): boolean =>
-  ampere >= 3 && !isRunning;
-
-export const shouldStopCharging = (ampere: number, isRunning: boolean): boolean =>
-  ampere < 3 && isRunning;
-
-export const needsAmpereChange = (currentAmpere: number, targetAmpere: number): boolean =>
-  currentAmpere !== targetAmpere;
-
-// ── Control state transitions ──
-
-export const withChargeStarted = (state: ChargingControlState): ChargingControlState => ({
-  ...state,
-  running: true
-});
-
-export const withChargeStopped = (state: ChargingControlState): ChargingControlState => ({
-  ampere: 0,
-  running: false
-});
-
-export const withAmpereSet = (state: ChargingControlState, ampere: number): ChargingControlState => ({
-  ...state,
-  ampere
 });
 
 // ── Session stats transitions ──
@@ -128,6 +209,10 @@ export const withSessionStarted = (stats: ChargingSessionStats): ChargingSession
   sessionStartedAt: new Date()
 });
 
+// ── App lifecycle enum ──
+
+export enum AppStatus { Pending, Running, Stopped }
+
 // ── TimingConfig (moved from app.ts) ──
 
 export type TimingConfig = {
@@ -140,6 +225,8 @@ export type TimingConfig = {
   readonly maxRuntimeHours?: number;
 };
 ```
+
+Note: `calculateRampUpWaitSeconds` is no longer exported separately — ramp-up wait is calculated internally by `requestChargeStart` and `requestAmpereChange` using the `TimingConfig`. The `src/domain/timing.ts` module can be removed or kept as a package-private helper.
 
 **1b. Create `src/domain/session-summary.ts`** (~45 lines)
 
@@ -215,14 +302,30 @@ Replace inline `SessionSummary` type with re-export from domain:
 ```typescript
 import type { Effect } from "effect";
 
-export type { SessionSummary } from "../../domain/session-summary.js";
+export type { SessionSummary } from "../domain/session-summary.js";
 
 export type IEventLogger = {
   onSetAmpere: (ampere: number) => Effect.Effect<void>;
   onNoAmpereChange: (currentChargingAmpere: number) => Effect.Effect<void>;
-  onSessionEnd: (summary: import("../../domain/session-summary.js").SessionSummary) => Effect.Effect<void>;
+  onSessionEnd: (summary: import("../domain/session-summary.js").SessionSummary) => Effect.Effect<void>;
 };
 ```
+
+**1e. Update `src/events.ts`**
+
+Replace the old `AmpereChanged` event with the new domain event types emitted via PubSub. The `BatteryStateManager` subscribes to both `AmpereChangeInitiated` and `AmpereChangeFinished` (both signal active charging):
+
+```typescript
+export type ChargingControlEvent =
+  | { readonly _tag: "ChargingStarted" }
+  | { readonly _tag: "ChargingStopped" }
+  | { readonly _tag: "AmpereChangeInitiated"; readonly previous: number; readonly current: number }
+  | { readonly _tag: "AmpereChangeFinished"; readonly current: number };
+
+export type TeslaChargerEvent = ChargingControlEvent;
+```
+
+Note: `_tag` is used here (not `type`) because Effect's PubSub pattern uses `_tag` for discriminated unions.
 
 ### Task 2: Create application modules
 
@@ -818,9 +921,9 @@ The rewritten app.ts:
 |---|---|---|---|
 | `syncTargetAmpere` | read + write | write (fluctuations) | `Ref<ChargingControlState>`, `Ref<ChargingSessionStats>` |
 | `runChargingSyncLoop` | read → pass to sub-fns | pass-through | `Ref<ChargingControlState>`, `Ref<ChargingSessionStats>` |
-| `verifyCharging` | read only (`running`, `ampere`) | none | `ChargingControlState` value |
+| `verifyCharging` | read only (`status`, `ampere`) | none | `ChargingControlState` value |
 | `beginSession` | none | write (stats init) | `Ref<ChargingSessionStats>` |
-| `endSession` | read only (`running`) | read all stats | `Ref<ChargingControlState>`, `Ref<ChargingSessionStats>` |
+| `endSession` | read only (`status`) | read all stats | `Ref<ChargingControlState>`, `Ref<ChargingSessionStats>` |
 
 ## Testing Plan
 
@@ -835,13 +938,24 @@ Expected import path changes (if any):
 - `import { App, AppLayer, type TimingConfig } from "../../app.js"` — same path (re-exported)
 - `import type { IEventLogger, SessionSummary } from "../../event-logger/types.js"` — same path (re-exported)
 
-### New Unit Tests (not required for this refactoring, but recommended as follow-up)
+### New Domain Unit Tests
 
-Domain functions can be unit-tested independently:
-- `withChargeStarted`, `withChargeStopped`, `withAmpereSet` on `ChargingControlState`
-- `recordFluctuation`, `withDailyImportRecorded`, `withChargeEnergyRecorded`, `withSessionStarted` on `ChargingSessionStats`
-- `computeSessionSummary` with various inputs
-- `calculateRampUpWaitSeconds` with various amp differences
+`ChargingControlState` transition functions (test valid + invalid transitions):
+- `requestChargeStart` from Idle → Starting with events, wait, fluctuation; from Charging → no-op
+- `requestChargeStop` from Charging/Starting/ChangingAmpere → Stopping; from Idle → no-op
+- `requestAmpereChange` from Charging → ChangingAmpere with events, wait, fluctuation; same ampere → no-op
+- `completeChargeStart` from Starting → Charging; from Idle → no-op
+- `completeAmpereChange` from ChangingAmpere → Charging with event; from Idle → no-op
+- `completeChargeStop` from Stopping → Idle with event; from Idle → no-op
+- `waitSeconds` calculations correct for each ramp scenario
+- `recordFluctuation` returned true for start and change, false for stop and completions
+
+`ChargingSessionStats` transitions:
+- `recordFluctuation`, `withDailyImportRecorded`, `withChargeEnergyRecorded`, `withSessionStarted`
+
+`computeSessionSummary` with various inputs
+
+`calculateRampUpWaitSeconds` with various amp differences (if kept as utility)
 
 ## Verification Checklist
 
