@@ -1,19 +1,13 @@
 import { Effect, Exit, Redacted } from "effect";
-import { SunGatherInfluxDbDataAdapter } from "./influx-db-sungather.data-adapter.js";
-import { SourceNotAvailableError } from "./types.js";
+import { SunGatherInfluxDbDataAdapter } from "../../../data-adapter/influx-db-sungather.data-adapter.js";
+import { SourceNotAvailableError } from "../../../data-adapter/types.js";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "@effect/platform";
 import { describe, it, expect } from "@effect/vitest";
 import { RequestError } from "@effect/platform/HttpClientError";
 
-// Helper to create a mock HttpResponse
 const mockResponse = (req: HttpClientRequest.HttpClientRequest, text: string): HttpClientResponse.HttpClientResponse =>
-  HttpClientResponse.fromWeb(
-    req,
-    // Simulate a response from a server
-    new Response(text)
-  );
+  HttpClientResponse.fromWeb(req, new Response(text));
 
-// Custom HttpClient using HttpClient.make
 const makeMockHttpClient = (responseText: string): HttpClient.HttpClient =>
   HttpClient.make((req) => Effect.succeed(mockResponse(req, responseText)));
 

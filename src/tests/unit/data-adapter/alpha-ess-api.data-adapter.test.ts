@@ -3,13 +3,12 @@ import {
   AlphaEssCloudApiDataAdapter,
   AlphaEssCloudApiDataAdapterLayer,
   type AlphaEssConfig
-} from "./alpha-ess-api.data-adapter.js";
-import { DataAdapter, DataNotAvailableError, SourceNotAvailableError } from "./types.js";
+} from "../../../data-adapter/alpha-ess-api.data-adapter.js";
+import { DataAdapter, DataNotAvailableError, SourceNotAvailableError } from "../../../data-adapter/types.js";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "@effect/platform";
 import { describe, it, expect } from "@effect/vitest";
 import { RequestError, ResponseError } from "@effect/platform/HttpClientError";
 
-// Helper to create a mock HttpResponse
 const mockResponse = (req: HttpClientRequest.HttpClientRequest, body: string): HttpClientResponse.HttpClientResponse =>
   HttpClientResponse.fromWeb(
     req,
@@ -18,7 +17,6 @@ const mockResponse = (req: HttpClientRequest.HttpClientRequest, body: string): H
     })
   );
 
-// Custom HttpClient using HttpClient.make
 const makeMockHttpClient = (responseJson: unknown): HttpClient.HttpClient =>
   HttpClient.make((req) => Effect.succeed(mockResponse(req, JSON.stringify(responseJson))));
 
@@ -52,7 +50,6 @@ describe("AlphaEssCloudApiDataAdapter", () => {
           pbat: 0,
           pgrid: 0
         } as const,
-        // expected
         {
           current_production: 5000,
           current_load: 5000,
@@ -69,7 +66,6 @@ describe("AlphaEssCloudApiDataAdapter", () => {
           pbat: -2000,
           pgrid: 0
         } as const,
-        // expected
         {
           current_production: 5000,
           current_load: 3000,
@@ -86,7 +82,6 @@ describe("AlphaEssCloudApiDataAdapter", () => {
           pbat: 0,
           pgrid: -2900
         } as const,
-        // expected
         {
           current_production: 5000,
           current_load: 2100,
@@ -104,7 +99,6 @@ describe("AlphaEssCloudApiDataAdapter", () => {
           pbat: -5000,
           pgrid: 800
         } as const,
-        // expected
         {
           current_production: 1200,
           current_load: 7000,
@@ -127,8 +121,8 @@ describe("AlphaEssCloudApiDataAdapter", () => {
           ]);
 
           expect(result).toEqual({
-            voltage: 235, // hardcoded value
-            daily_import: 0, // Not supported, returns 0
+            voltage: 235,
+            daily_import: 0,
             ...expectedData
           });
         }).pipe(
@@ -213,7 +207,6 @@ describe("AlphaEssCloudApiDataAdapter", () => {
 
       const result = yield* Effect.exit(adapter.queryLatestValues(["current_production"]));
 
-      // Should die with RuntimeException due to schema validation failure
       if (Exit.isFailure(result)) {
         expect(result.cause._tag).toBe("Die");
       } else {
@@ -233,7 +226,7 @@ describe("AlphaEssCloudApiDataAdapter", () => {
       const adapter = new AlphaEssCloudApiDataAdapter(mockConfig, failingHttpClient);
 
       const fiber = yield* Effect.fork(adapter.queryLatestValues(["current_production"]));
-      yield* TestClock.adjust(Duration.seconds(70)); // Total retry time is ~62s
+      yield* TestClock.adjust(Duration.seconds(70));
       const result = yield* Fiber.await(fiber);
 
       expect(result).toStrictEqual(Exit.fail(new SourceNotAvailableError()));
