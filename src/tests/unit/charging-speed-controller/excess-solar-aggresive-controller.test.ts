@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "@effect/vitest";
 import { vi } from "vitest";
 import { type MockedObject } from "vitest";
 import { ExcessSolarAggresiveControllerLayer } from "../../../charging-speed-controller/excess-solar-aggresive-controller.js";
+import { DynamicChargingConfig } from "../../../charging-speed-controller/dynamic-config.js";
 import { DataAdapter, type IDataAdapter } from "../../../data-adapter/types.js";
 import { Effect, Layer } from "effect";
 import { ChargingSpeedController } from "../../../charging-speed-controller/types.js";
@@ -17,7 +18,15 @@ describe("ExcessSolarAggresiveController", () => {
   });
 
   const TestLayer = (config: { bufferPower: number; multipleOf: number } = { bufferPower: 100, multipleOf: 5 }) =>
-    ExcessSolarAggresiveControllerLayer(config).pipe(Layer.provideMerge(Layer.succeed(DataAdapter, mockDataAdapter)));
+    ExcessSolarAggresiveControllerLayer({ multipleOf: config.multipleOf }).pipe(
+      Layer.provideMerge(
+        Layer.succeed(DynamicChargingConfig, {
+          getBufferPower: Effect.succeed(config.bufferPower),
+          setBufferPower: () => Effect.void
+        })
+      ),
+      Layer.provideMerge(Layer.succeed(DataAdapter, mockDataAdapter))
+    );
 
   describe("determineChargingSpeed", () => {
     it.effect("should limit charging speed to 32A", () =>

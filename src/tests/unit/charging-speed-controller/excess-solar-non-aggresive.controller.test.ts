@@ -4,6 +4,7 @@ import { type MockedObject } from "vitest";
 import { ExcessSolarNonAggresiveControllerLayer } from "../../../charging-speed-controller/excess-solar-non-aggresive.controller.js";
 import { Effect, Layer } from "effect";
 import { ChargingSpeedController } from "../../../charging-speed-controller/types.js";
+import { DynamicChargingConfig } from "../../../charging-speed-controller/dynamic-config.js";
 import { DataAdapter, type IDataAdapter } from "../../../data-adapter/types.js";
 
 describe("ExcessSolarNonAggresiveController", () => {
@@ -57,7 +58,15 @@ describe("ExcessSolarNonAggresiveController", () => {
     return ExcessSolarNonAggresiveControllerLayer({
       baseControllerLayer,
       requiredConsistentReads
-    }).pipe(Layer.provideMerge(Layer.succeed(DataAdapter, mockDataAdapter)));
+    }).pipe(
+      Layer.provideMerge(Layer.succeed(DataAdapter, mockDataAdapter)),
+      Layer.provideMerge(
+        Layer.succeed(DynamicChargingConfig, {
+          getBufferPower: Effect.succeed(100),
+          setBufferPower: () => Effect.void
+        })
+      )
+    );
   };
 
   it.effect("should return 0 initially when first reading is 0", () =>

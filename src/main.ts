@@ -13,6 +13,7 @@ import { ConservativeControllerLayer } from "./charging-speed-controller/conserv
 import { ExcessFeedInSolarControllerLayer } from "./charging-speed-controller/excess-feed-in-solar-controller.js";
 import { ExcessSolarAggresiveControllerLayer } from "./charging-speed-controller/excess-solar-aggresive-controller.js";
 import { ExcessSolarNonAggresiveControllerLayer } from "./charging-speed-controller/excess-solar-non-aggresive.controller.js";
+import { DynamicChargingConfigLayer } from "./charging-speed-controller/dynamic-config.js";
 import { WeatherAwareBufferControllerLayer } from "./charging-speed-controller/weather-aware-buffer/index.js";
 import { SolcastForecastLayer } from "./solar-forecast/solcast.adapter.js";
 import { SentryLive, SentryFlushFiber, flushSentry, captureException, initSentry } from "./sentry.js";
@@ -112,10 +113,9 @@ const MainLayer = Layer.unwrapEffect(
       const bufferPower = yield* AppConfig.excessSolar.bufferPower;
       controllerLayer = ExcessSolarNonAggresiveControllerLayer({
         baseControllerLayer: ExcessSolarAggresiveControllerLayer({
-          bufferPower,
           multipleOf: 3
         })
-      });
+      }).pipe(Layer.provideMerge(DynamicChargingConfigLayer(bufferPower)));
     }
 
     const teslaLayer = createTeslaClientLayer({

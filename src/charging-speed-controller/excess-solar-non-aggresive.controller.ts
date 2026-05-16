@@ -1,5 +1,6 @@
 import { Effect, Layer } from "effect";
 import { ChargingSpeedController, InadequateDataToDetermineSpeedError } from "./types.js";
+import { DynamicChargingConfig } from "./dynamic-config.js";
 import { DataAdapter } from "../data-adapter/types.js";
 
 /**
@@ -13,7 +14,7 @@ import { DataAdapter } from "../data-adapter/types.js";
  * This prevents reacting to stale data that the inverter might return multiple times.
  */
 export const ExcessSolarNonAggresiveControllerLayer = (config: {
-  baseControllerLayer: Layer.Layer<ChargingSpeedController, never, DataAdapter>;
+  baseControllerLayer: Layer.Layer<ChargingSpeedController, never, DataAdapter | DynamicChargingConfig>;
   requiredConsistentReads?: number;
 }) =>
   Layer.effect(
