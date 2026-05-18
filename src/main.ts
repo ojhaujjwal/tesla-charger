@@ -1,6 +1,5 @@
-import { NodeContext, NodeHttpClient, NodeRuntime } from "@effect/platform-node";
-import { Cause, Chunk, Config, Effect, Layer, Logger, LogLevel, Option } from "effect";
-import type { Redacted } from "effect/Redacted";
+import { NodeHttpClient, NodeRuntime, NodeServices } from "@effect/platform-node";
+import { Config, Effect, Layer, Option, Redacted, References } from "effect";
 import { AppConfig } from "./config.js";
 import { AlphaEssCloudApiDataAdapterLayer } from "./data-adapter/alpha-ess-api.data-adapter.js";
 import { TeslaClient, TeslaClientLayer } from "./tesla-client/index.js";
@@ -16,26 +15,22 @@ import { ExcessSolarNonAggresiveControllerLayer } from "./charging-speed-control
 import { DynamicChargingConfigLayer } from "./charging-speed-controller/dynamic-config.js";
 import { WeatherAwareBufferControllerLayer } from "./charging-speed-controller/weather-aware-buffer/index.js";
 import { SolcastForecastLayer } from "./solar-forecast/solcast.adapter.js";
-import { SentryLive, SentryFlushFiber, flushSentry, captureException, initSentry } from "./sentry.js";
-import * as SentryCore from "@sentry/core";
+
 const serviceLayers = Layer.mergeAll(AlphaEssCloudApiDataAdapterLayer);
 
 const createTeslaClientLayer = (config: {
   readonly appDomain: string;
   readonly clientId: string;
-  readonly clientSecret: Redacted<string>;
+  readonly clientSecret: Redacted.Redacted<string>;
   readonly vin: string;
 }) => {
   const base = TeslaClientLayer(config);
   const ev = Layer.effect(
     ElectricVehicle,
-    Effect.map(TeslaClient, (client): ElectricVehicle["Type"] => client)
+    Effect.map(TeslaClient, (client): ElectricVehicle["Service"] => client)
   );
   return Layer.mergeAll(base, ev.pipe(Layer.provide(base)));
 };
-
-// Initialize Sentry before building Effect layers
-initSentry();
 
 const maxRuntimeHours = process.argv.includes("--max-runtime-hours")
   ? parseInt(process.argv[process.argv.indexOf("--max-runtime-hours") + 1])
@@ -53,7 +48,7 @@ const timingConfigBase = {
   inactivityTimeInSeconds: 15 * 60
 };
 
-const MainLayer = Layer.unwrapEffect(
+const MainLayer = Layer.unwrap(
   Effect.gen(function* () {
     const timingConfig: TimingConfig = {
       ...timingConfigBase,
@@ -135,9 +130,8 @@ const MainLayer = Layer.unwrapEffect(
       Layer.provideMerge(BatteryStateManagerLayer),
       Layer.provideMerge(serviceLayers),
       Layer.provideMerge(teslaLayer),
-      Layer.provideMerge(SentryLive),
-      Layer.provideMerge(NodeContext.layer),
-      Layer.provideMerge(NodeHttpClient.layer)
+      Layer.provideMerge(NodeServices.layer),
+      Layer.provideMerge(NodeHttpClient.layerFetch)
     );
   }).pipe(Effect.withSpan("MainLayer"))
 );
@@ -148,17 +142,14 @@ const program = Effect.gen(function* () {
   yield* Effect.addFinalizer(() =>
     Effect.gen(function* () {
       yield* app.stop();
-      yield* Effect.logInfo("Finalizing, flushing Sentry...");
-      yield* flushSentry().pipe(Effect.catchAll(() => Effect.logDebug("Sentry flush timed out")));
+      yield* Effect.logInfo("Finalizing, shutting down...");
     })
   );
 
-  yield* Effect.fork(SentryFlushFiber());
-
   yield* app.start().pipe(
-    Effect.catchAll((err) =>
+    Effect.catch((err) =>
       Effect.log(err).pipe(
-        Effect.tap(() => captureException(err)),
+        Effect.tap(() => Effect.logError("App crashed", err)),
         Effect.flatMap(() => app.stop())
       )
     )
@@ -167,22 +158,12 @@ const program = Effect.gen(function* () {
 
 const runProgram = Effect.gen(function* () {
   const nodeEnv = yield* Config.string("NODE_ENV").pipe(Config.withDefault("production"));
-  return yield* program.pipe(Logger.withMinimumLogLevel(nodeEnv === "production" ? LogLevel.Info : LogLevel.Debug));
+  const logLevel = nodeEnv === "production" ? ("Info" as const) : ("Debug" as const);
+  return yield* program.pipe(Effect.provideService(References.MinimumLogLevel, logLevel));
 }).pipe(
-  Effect.tapDefect((cause) =>
-    Effect.sync(() => {
-      const defects = Chunk.toReadonlyArray(Cause.defects(cause));
-      for (const defect of defects) {
-        SentryCore.captureException(defect);
-      }
-      if (defects.length === 0) {
-        SentryCore.captureException(new Error(Cause.pretty(cause)));
-      }
-    })
-  ),
+  Effect.tapDefect((cause) => Effect.logError("Defect detected", cause)),
   Effect.withSpan("runProgram")
 );
 
 // 3. Execution
-NodeRuntime.runMain(runProgram, { disablePrettyLogger: true });
-// test
+NodeRuntime.runMain(runProgram, { disableErrorReporting: true });

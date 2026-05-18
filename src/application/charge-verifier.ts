@@ -5,7 +5,7 @@ import { Effect } from "effect";
 
 export const verifyCharging = (
   dataAdapter: IDataAdapter,
-  batteryStateManager: BatteryStateManager["Type"],
+  batteryStateManager: BatteryStateManager["Service"],
   controlState: ChargingControlState,
   onBatteryComplete: Effect.Effect<void>
 ): Effect.Effect<void, DataNotAvailableError | SourceNotAvailableError> =>

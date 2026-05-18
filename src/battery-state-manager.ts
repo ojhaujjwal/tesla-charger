@@ -10,13 +10,13 @@ export type BatteryState = {
 
 const BATTERY_STATE_REFRESH_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes
 
-export class BatteryStateManager extends Context.Tag("@tesla-charger/BatteryStateManager")<
+export class BatteryStateManager extends Context.Service<
   BatteryStateManager,
   {
     readonly start: (pubSub: PubSub.PubSub<TeslaChargerEvent>) => Effect.Effect<void>;
     readonly get: () => BatteryState | null;
   }
->() {}
+>()("@tesla-charger/BatteryStateManager") {}
 
 export const BatteryStateManagerLayer = Layer.effect(
   BatteryStateManager,
@@ -26,7 +26,7 @@ export const BatteryStateManagerLayer = Layer.effect(
 
     const fetchAndStoreBatteryState = Effect.fn("fetchAndStoreBatteryState")(function* () {
       const result = yield* teslaClient.getChargeState().pipe(
-        Effect.catchAll((err) =>
+        Effect.catch((err) =>
           Effect.gen(function* () {
             yield* Effect.logWarning(`Failed to refresh battery state: ${err.message}`);
             return null;
@@ -55,7 +55,7 @@ export const BatteryStateManagerLayer = Layer.effect(
 
         return yield* Effect.forever(
           Effect.gen(function* () {
-            const event = yield* subscription.take;
+            const event = yield* PubSub.take(subscription);
 
             // Trigger battery state refresh on events that signal active charging
             if (

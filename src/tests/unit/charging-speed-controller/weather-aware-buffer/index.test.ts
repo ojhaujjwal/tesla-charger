@@ -1,7 +1,8 @@
+import * as TestClock from "effect/testing/TestClock";
 import { describe, it, expect, beforeEach } from "@effect/vitest";
 import { vi } from "vitest";
 import type { MockedObject } from "vitest";
-import { Effect, Layer, TestClock, Duration } from "effect";
+import { Effect, Layer, Duration } from "effect";
 import {
   WeatherAwareBufferControllerLayer,
   type WeatherAwareBufferConfig
@@ -13,8 +14,8 @@ import { BatteryStateManager, type BatteryState } from "../../../../battery-stat
 
 describe("WeatherAwareBufferController - Integration", () => {
   let mockDataAdapter: MockedObject<IDataAdapter>;
-  let mockSolarForecast: MockedObject<SolarForecast["Type"]>;
-  let mockBatteryStateManager: MockedObject<BatteryStateManager["Type"]>;
+  let mockSolarForecast: MockedObject<SolarForecast["Service"]>;
+  let mockBatteryStateManager: MockedObject<BatteryStateManager["Service"]>;
   let batteryState: BatteryState | null = null;
 
   beforeEach(() => {

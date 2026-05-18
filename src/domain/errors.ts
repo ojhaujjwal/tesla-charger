@@ -7,6 +7,7 @@ export class VehicleAsleepError extends Data.TaggedError("VehicleAsleepError") {
 export class VehicleCommandFailedError extends Data.TaggedError("VehicleCommandFailed")<{
   readonly message: string;
   readonly stderr?: string;
+  readonly cause?: unknown;
 }> {}
 
 export class ChargeStateQueryFailedError extends Data.TaggedError("ChargeStateQueryFailed")<{

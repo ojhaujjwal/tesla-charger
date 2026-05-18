@@ -23,9 +23,9 @@ export const beginSession = (
   pubSub: PubSub.PubSub<TeslaChargerEvent>
 ): Effect.Effect<
   {
-    tokenRefreshFiber: Fiber.RuntimeFiber<void, AuthenticationFailedError>;
-    batteryStateManagerFiber: Fiber.RuntimeFiber<void, never>;
-    eventLoggerFiber: Fiber.RuntimeFiber<void, never>;
+    tokenRefreshFiber: Fiber.Fiber<void, AuthenticationFailedError>;
+    batteryStateManagerFiber: Fiber.Fiber<void, never>;
+    eventLoggerFiber: Fiber.Fiber<void, never>;
   },
   AuthenticationFailedError | DataNotAvailableError | SourceNotAvailableError
 > =>
@@ -33,7 +33,7 @@ export const beginSession = (
     yield* teslaClient.refreshAccessToken();
     const tokenRefreshFiber = yield* teslaClient.setupAccessTokenAutoRefreshRecurring(60 * 60 * 2).pipe(
       Effect.flatMap(() => Effect.void),
-      Effect.fork
+      Effect.forkChild
     );
 
     yield* Effect.sleep(1000);
@@ -41,14 +41,14 @@ export const beginSession = (
     const initialData = yield* dataAdapter.queryLatestValues(["daily_import"]);
     yield* Ref.update(statsRef, (s) => withDailyImportRecorded(withSessionStarted(s), initialData.daily_import));
 
-    const initialChargeState = yield* teslaClient.getChargeState().pipe(Effect.catchAll(() => Effect.succeed(null)));
+    const initialChargeState = yield* teslaClient.getChargeState().pipe(Effect.catch(() => Effect.succeed(null)));
 
     if (initialChargeState) {
       yield* Ref.update(statsRef, (s) => withChargeEnergyRecorded(s, initialChargeState.chargeEnergyAdded));
     }
 
-    const batteryStateManagerFiber = yield* batteryStateManager.start(pubSub).pipe(Effect.fork);
-    const eventLoggerFiber = yield* startEventLogger(pubSub).pipe(Effect.fork);
+    const batteryStateManagerFiber = yield* batteryStateManager.start(pubSub).pipe(Effect.forkChild);
+    const eventLoggerFiber = yield* startEventLogger(pubSub).pipe(Effect.forkChild);
 
     return { tokenRefreshFiber, batteryStateManagerFiber, eventLoggerFiber };
   });
@@ -62,7 +62,7 @@ export const endSession = (params: {
   isDryRun: boolean;
   costPerKwh: number;
   timingConfig: TimingConfig;
-  fibers: ReadonlyArray<Fiber.RuntimeFiber<unknown, unknown>>;
+  fibers: ReadonlyArray<Fiber.Fiber<unknown, unknown>>;
 }): Effect.Effect<void, VehicleAsleepError | VehicleCommandFailedError> =>
   Effect.gen(function* () {
     const { teslaClient, dataAdapter } = params;
@@ -80,7 +80,7 @@ export const endSession = (params: {
           if (err._tag === "VehicleAsleepError") {
             return Effect.sleep(Duration.millis(params.timingConfig.vehicleAwakeningTimeInMs)).pipe(
               Effect.flatMap(() => teslaClient.wakeUpCar().pipe(Effect.map(() => true))),
-              Effect.catchAll((err) => Effect.log(err).pipe(Effect.map(() => false)))
+              Effect.catch((err) => Effect.log(err).pipe(Effect.map(() => false)))
             );
           }
           return true;
@@ -90,11 +90,11 @@ export const endSession = (params: {
 
     const finalChargeState = yield* teslaClient
       .getChargeState()
-      .pipe(Effect.catchAll(() => Effect.succeed({ chargeEnergyAdded: stats.chargeEnergyAddedAtStartKwh })));
+      .pipe(Effect.catch(() => Effect.succeed({ chargeEnergyAdded: stats.chargeEnergyAddedAtStartKwh })));
 
     const finalDataValues = yield* dataAdapter
       .queryLatestValues(["daily_import", "voltage"])
-      .pipe(Effect.catchAll(() => Effect.succeed({ daily_import: stats.dailyImportValueAtStart, voltage: 230 })));
+      .pipe(Effect.catch(() => Effect.succeed({ daily_import: stats.dailyImportValueAtStart, voltage: 230 })));
 
     const summary: SessionSummary = computeSessionSummary({
       stats,
@@ -105,7 +105,7 @@ export const endSession = (params: {
     });
 
     yield* PubSub.publish(params.pubSub, { _tag: "SessionEnded", summary });
-    yield* Effect.yieldNow();
+    yield* Effect.yieldNow;
     yield* PubSub.shutdown(params.pubSub);
 
     for (const fiber of params.fibers) {

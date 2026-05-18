@@ -1,6 +1,7 @@
 import { describe, it, vitest, beforeEach, expect } from "@effect/vitest";
 import type { MockedObject } from "@effect/vitest";
-import { Effect, Duration, Fiber, Layer, Redacted, TestClock, PubSub, Queue } from "effect";
+import { Effect, Duration, Fiber, Layer, Redacted, PubSub } from "effect";
+import * as TestClock from "effect/testing/TestClock";
 import { TeslaClient, type TeslaClientService } from "../../tesla-client/index.js";
 import { ElectricVehicle } from "../../domain/electric-vehicle.js";
 import { VehicleAsleepError } from "../../tesla-client/errors.js";
@@ -28,12 +29,12 @@ describe("App", () => {
     getLowestValueInLastXMinutes: vitest.fn()
   };
 
-  const chargingSpeedControllerMock: MockedObject<ChargingSpeedController["Type"]> = {
+  const chargingSpeedControllerMock: MockedObject<ChargingSpeedController["Service"]> = {
     determineChargingSpeed: vitest.fn()
   };
 
   let batteryState: BatteryState | null = null;
-  const batteryStateManagerMock: MockedObject<BatteryStateManager["Type"]> = {
+  const batteryStateManagerMock: MockedObject<BatteryStateManager["Service"]> = {
     start: vitest.fn(),
     get: vitest.fn(() => batteryState)
   };
@@ -121,7 +122,7 @@ describe("App", () => {
   it.effect("should authenticate and set up auto-refresh", () =>
     Effect.gen(function* () {
       const app = yield* App;
-      const fiber = yield* Effect.fork(app.start());
+      const fiber = yield* Effect.forkChild(app.start());
 
       // Pass startup sleep (1000ms)
       yield* TestClock.adjust(Duration.seconds(1));
@@ -138,7 +139,7 @@ describe("App", () => {
   it.effect("should start charging and set ampere when speed > 0", () =>
     Effect.gen(function* () {
       const app = yield* App;
-      const fiber = yield* Effect.fork(app.start());
+      const fiber = yield* Effect.forkChild(app.start());
 
       // Pass startup sleep
       yield* TestClock.adjust(Duration.seconds(1));
@@ -160,8 +161,8 @@ describe("App", () => {
       const receivedEvents: TeslaChargerEvent[] = [];
       batteryStateManagerMock.start.mockImplementation((pubSub: PubSub.PubSub<TeslaChargerEvent>) =>
         Effect.gen(function* () {
-          const dequeue = yield* PubSub.subscribe(pubSub);
-          return yield* Queue.take(dequeue).pipe(
+          const subscription = yield* PubSub.subscribe(pubSub);
+          return yield* PubSub.take(subscription).pipe(
             Effect.tap((event) =>
               Effect.sync(() => {
                 receivedEvents.push(event);
@@ -173,7 +174,7 @@ describe("App", () => {
       );
 
       const app = yield* App;
-      const fiber = yield* Effect.fork(app.start());
+      const fiber = yield* Effect.forkChild(app.start());
 
       // Pass startup sleep
       yield* TestClock.adjust(Duration.seconds(1));
@@ -201,8 +202,8 @@ describe("App", () => {
       const receivedEvents: TeslaChargerEvent[] = [];
       batteryStateManagerMock.start.mockImplementation((pubSub: PubSub.PubSub<TeslaChargerEvent>) =>
         Effect.gen(function* () {
-          const dequeue = yield* PubSub.subscribe(pubSub);
-          return yield* Queue.take(dequeue).pipe(
+          const subscription = yield* PubSub.subscribe(pubSub);
+          return yield* PubSub.take(subscription).pipe(
             Effect.tap((event) =>
               Effect.sync(() => {
                 receivedEvents.push(event);
@@ -214,7 +215,7 @@ describe("App", () => {
       );
 
       const app = yield* App;
-      const fiber = yield* Effect.fork(app.start());
+      const fiber = yield* Effect.forkChild(app.start());
 
       // Pass startup sleep
       yield* TestClock.adjust(Duration.seconds(1));
@@ -245,7 +246,7 @@ describe("App", () => {
       });
 
       const app = yield* App;
-      const fiber = yield* Effect.fork(app.start());
+      const fiber = yield* Effect.forkChild(app.start());
 
       // Pass startup
       yield* TestClock.adjust(Duration.seconds(1));
@@ -278,7 +279,7 @@ describe("App", () => {
       );
 
       const app = yield* App;
-      const fiber = yield* Effect.fork(app.start());
+      const fiber = yield* Effect.forkChild(app.start());
 
       // Pass startup
       yield* TestClock.adjust(Duration.seconds(1));
@@ -341,7 +342,7 @@ describe("App", () => {
       });
 
       const app = yield* App;
-      const fiber = yield* Effect.fork(app.start());
+      const fiber = yield* Effect.forkChild(app.start());
 
       // Pass startup (1s)
       yield* TestClock.adjust(Duration.seconds(2));
@@ -396,8 +397,8 @@ describe("App", () => {
       expect(teslaClientMock.setAmpere).toHaveBeenCalledTimes(3); // 6, 10, 8 (Loop 2 skipped)
       expect(teslaClientMock.setAmpere).toHaveBeenLastCalledWith(8);
 
-      const status = yield* Fiber.status(fiber);
-      expect(status._tag).not.toBe("Done"); // Still running
+      const status = fiber.pollUnsafe();
+      expect(status?._tag).not.toBe("Done"); // Still running
 
       yield* Fiber.interrupt(fiber);
     }).pipe(provideAppLayer)
@@ -447,7 +448,7 @@ describe("App", () => {
       });
 
       const app = yield* App;
-      const fiber = yield* Effect.fork(app.start());
+      const fiber = yield* Effect.forkChild(app.start());
 
       // Pass startup sleep (1s)
       yield* TestClock.adjust(Duration.seconds(1));
@@ -475,8 +476,8 @@ describe("App", () => {
       const receivedEvents: TeslaChargerEvent[] = [];
       batteryStateManagerMock.start.mockImplementation((pubSub: PubSub.PubSub<TeslaChargerEvent>) =>
         Effect.gen(function* () {
-          const dequeue = yield* PubSub.subscribe(pubSub);
-          return yield* Queue.take(dequeue).pipe(
+          const subscription = yield* PubSub.subscribe(pubSub);
+          return yield* PubSub.take(subscription).pipe(
             Effect.tap((event) =>
               Effect.sync(() => {
                 receivedEvents.push(event);
@@ -550,7 +551,7 @@ describe("App", () => {
       });
 
       const app = yield* App;
-      const fiber = yield* Effect.fork(app.start());
+      const fiber = yield* Effect.forkChild(app.start());
 
       // Pass startup
       yield* TestClock.adjust(Duration.seconds(1));

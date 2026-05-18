@@ -1,22 +1,16 @@
-# Tesla Charger - Agent Guide
+## Tesla Charger - Agent Guide
 This project uses the following tools:
-- node for runtime
+- Node for runtime
 - Vitest for running tests
-- Effect TypeScript Library. Run `effect-solutions show basics` for basics on how Effect works.
-- See `@specs/guides/testing-with-effect.md` for testing patterns.
+- Effect TypeScript Library.
 
-<!-- effect-solutions:start -->
+## Validations
+Run 'npm run ci' after changing any code.
 
-## Effect Best Practices
+## This project uses "effect"
+Before writing any code, YOU MUST read repos/effect-smol/LLMS.md fully.
 
-**IMPORTANT:** Always consult effect-solutions before writing Effect code.
+## Testing with Effect and Vitest
 
-1. Run `effect-solutions list` to see available guides
-2. Run `effect-solutions show <topic>...` for relevant patterns (supports multiple topics)
-3. Search `./repos/effect-smol` for real implementations
-
-Topics: quick-start, project-setup, tsconfig, basics, services-and-layers, data-modeling, error-handling, config, testing, cli.
-
-Never guess at Effect patterns - check the guide first.
-
-<!-- effect-solutions:end -->
+See [specs/guides/testing-with-effect.md](specs/guides/testing-with-effect.md) for testing best practices.\
+⚠️ NEVER use `bun test` to run tests — always use `bun run test --run`.

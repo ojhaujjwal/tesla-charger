@@ -9,7 +9,7 @@ import { DataAdapter, type IDataAdapter } from "../../../data-adapter/types.js";
 
 describe("ExcessSolarNonAggresiveController", () => {
   let mockBaseController: {
-    determineChargingSpeed: MockedObject<ChargingSpeedController["Type"]>["determineChargingSpeed"];
+    determineChargingSpeed: MockedObject<ChargingSpeedController["Service"]>["determineChargingSpeed"];
   };
   let mockDataAdapter: MockedObject<IDataAdapter>;
 

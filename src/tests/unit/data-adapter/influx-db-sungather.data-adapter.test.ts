@@ -1,9 +1,8 @@
-import { Effect, Exit, Redacted } from "effect";
+import { Cause, Effect, Exit, Option, Redacted } from "effect";
 import { SunGatherInfluxDbDataAdapter } from "../../../data-adapter/influx-db-sungather.data-adapter.js";
 import { SourceNotAvailableError } from "../../../data-adapter/types.js";
-import { HttpClient, HttpClientRequest, HttpClientResponse } from "@effect/platform";
+import { HttpClient, HttpClientRequest, HttpClientResponse, HttpClientError } from "effect/unstable/http";
 import { describe, it, expect } from "@effect/vitest";
-import { RequestError } from "@effect/platform/HttpClientError";
 
 const mockResponse = (req: HttpClientRequest.HttpClientRequest, text: string): HttpClientResponse.HttpClientResponse =>
   HttpClientResponse.fromWeb(req, new Response(text));
@@ -38,8 +37,10 @@ describe("SunGatherInfluxDbDataAdapter", () => {
 
   it.effect("should fail with SourceNotAvailableError if http client returns RequestError", () =>
     Effect.gen(function* () {
-      const failingHttpClient: HttpClient.HttpClient = HttpClient.make((req) =>
-        Effect.fail(new RequestError({ reason: "Transport", request: req }))
+      const failingHttpClient: HttpClient.HttpClient = HttpClient.make((req, _url, _signal, _fiber) =>
+        Effect.fail(
+          new HttpClientError.HttpClientError({ reason: new HttpClientError.TransportError({ request: req }) })
+        )
       );
 
       const adapter = new SunGatherInfluxDbDataAdapter(
@@ -51,7 +52,13 @@ describe("SunGatherInfluxDbDataAdapter", () => {
       );
 
       const result = yield* Effect.exit(adapter.queryLatestValues(["export_to_grid"]));
-      expect(result).toStrictEqual(Exit.fail(new SourceNotAvailableError()));
+      const error = Exit.match(result, {
+        onSuccess: () => {
+          throw new Error("Expected failure");
+        },
+        onFailure: (cause) => Option.getOrThrow(Cause.findErrorOption(cause))
+      });
+      expect(error).toBeInstanceOf(SourceNotAvailableError);
     })
   );
 });

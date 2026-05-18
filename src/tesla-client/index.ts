@@ -7,32 +7,16 @@ import {
   VehicleAsleepError,
   VehicleCommandFailedError
 } from "./errors.js";
-import {
-  Context,
-  Duration,
-  Effect,
-  Layer,
-  ParseResult,
-  pipe,
-  Redacted,
-  Schedule,
-  Schema,
-  Stream,
-  String
-} from "effect";
-import type { Redacted as RedactedType } from "effect/Redacted";
-import { Command, CommandExecutor, FileSystem, HttpClient } from "@effect/platform";
-import type { PlatformError } from "@effect/platform/Error";
-import { raw } from "@effect/platform/HttpBody";
-import { ResponseError, type HttpClientError } from "@effect/platform/HttpClientError";
+import { Context, Duration, Effect, FileSystem, Layer, Redacted, Schedule, Schema, Stream, pipe } from "effect";
+import { HttpClient, HttpBody, HttpClientError } from "effect/unstable/http";
+import type { PlatformError } from "effect/PlatformError";
+import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import {
   TeslaCachedTokenSchema,
   TeslaTokenResponseSchema,
   TeslaChargeStateResponseSchema,
   type TeslaTokenResponse
 } from "./schema.js";
-
-const isResponseError = (error: HttpClientError): error is ResponseError => error._tag === "ResponseError";
 
 const OAUTH2_TOKEN_BASE_URL = "https://fleet-auth.prd.vn.cloud.tesla.com/oauth2/v3/token";
 const FLEET_API_BASE_URL = "https://fleet-api.prd.na.vn.cloud.tesla.com";
@@ -45,17 +29,17 @@ export type ChargeState = {
   readonly chargeEnergyAdded: number;
 };
 
-export type TeslaClientService = ElectricVehicle["Type"] & {
+export type TeslaClientService = ElectricVehicle["Service"] & {
   readonly authenticateFromAuthCodeGrant: (
     authorizationCode: string
   ) => Effect.Effect<
     TeslaTokenResponse,
-    HttpClientError | ParseResult.ParseError | PlatformError | UnableToFetchAccessTokenError
+    HttpClientError.HttpClientError | Schema.SchemaError | PlatformError | UnableToFetchAccessTokenError
   >;
   readonly refreshAccessToken: () => Effect.Effect<void, AuthenticationFailedError>;
   readonly setupAccessTokenAutoRefreshRecurring: (
     timeoutInSeconds: number
-  ) => Effect.Effect<Duration.Duration, AuthenticationFailedError>;
+  ) => Effect.Effect<void, AuthenticationFailedError>;
   readonly startCharging: () => CommandResult;
   readonly stopCharging: () => CommandResult;
   readonly setAmpere: (ampere: number) => CommandResult;
@@ -63,16 +47,22 @@ export type TeslaClientService = ElectricVehicle["Type"] & {
   readonly getChargeState: () => Effect.Effect<ChargeState, ChargeStateQueryFailedError>;
 };
 
-export class TeslaClient extends Context.Tag("@tesla-charger/TeslaClient")<TeslaClient, TeslaClientService>() {}
+export class TeslaClient extends Context.Service<TeslaClient, TeslaClientService>()("@tesla-charger/TeslaClient") {}
 
 // Helper function to collect stream output as a string
 const runString = <E, R>(stream: Stream.Stream<Uint8Array, E, R>): Effect.Effect<string, E, R> =>
-  stream.pipe(Stream.decodeText(), Stream.runFold(String.empty, String.concat));
+  stream.pipe(
+    Stream.decodeText(),
+    Stream.runFold(
+      () => "",
+      (acc, s) => acc + s
+    )
+  );
 
 export const TeslaClientLayer = (config: {
   readonly appDomain: string;
   readonly clientId: string;
-  readonly clientSecret: RedactedType<string>;
+  readonly clientSecret: Redacted.Redacted<string>;
   readonly tokenFilePath?: string;
   readonly accessTokenFilePath?: string;
   readonly vin: string;
@@ -82,11 +72,10 @@ export const TeslaClientLayer = (config: {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const httpClient = yield* HttpClient.HttpClient;
-      const commandExecutor = yield* CommandExecutor.CommandExecutor;
 
       const getTokens = Effect.fn("getTokens")(function* () {
         const json = yield* fs.readFileString(config.tokenFilePath || "token.json");
-        return yield* Schema.decodeUnknown(Schema.parseJson(TeslaCachedTokenSchema))(json);
+        return yield* Schema.decodeUnknownEffect(Schema.fromJsonString(TeslaCachedTokenSchema))(json);
       });
 
       const refreshAccessTokenFromTesla = Effect.fn("refreshAccessTokenFromTesla")(function* () {
@@ -98,7 +87,7 @@ export const TeslaClientLayer = (config: {
               "Content-Type": "application/json",
               Accept: "application/json"
             },
-            body: raw(
+            body: HttpBody.raw(
               JSON.stringify({
                 grant_type: "refresh_token",
                 client_id: config.clientId,
@@ -109,13 +98,10 @@ export const TeslaClientLayer = (config: {
           .pipe(
             Effect.timeout(Duration.seconds(5)),
             Effect.retry({
-              schedule: Schedule.compose(Schedule.recurs(5), Schedule.exponential(Duration.seconds(1), 2)),
-              while: (error) =>
-                error._tag === "RequestError" ||
-                error._tag === "TimeoutException" ||
-                (isResponseError(error) && error.response.status >= 500)
+              schedule: Schedule.exponential(Duration.seconds(1), 2).pipe(Schedule.take(6)),
+              while: (error) => error._tag === "HttpClientError" || error._tag === "TimeoutError"
             }),
-            Effect.catchTag("TimeoutException", (err) =>
+            Effect.catchTag("TimeoutError", (err) =>
               Effect.fail(
                 new UnableToFetchAccessTokenError({
                   message: "Request timed out after 5 seconds",
@@ -126,7 +112,7 @@ export const TeslaClientLayer = (config: {
           );
 
         if (response.status !== 200) {
-          const body = yield* response.text.pipe(Effect.catchAll(() => Effect.succeed("Unable to read response body")));
+          const body = yield* response.text.pipe(Effect.catch(() => Effect.succeed("Unable to read response body")));
           return yield* new UnableToFetchAccessTokenError({
             message: `Token refresh failed with status ${response.status}`,
             statusCode: response.status,
@@ -134,34 +120,43 @@ export const TeslaClientLayer = (config: {
           });
         }
 
-        return yield* Schema.decodeUnknown(Schema.parseJson(TeslaTokenResponseSchema))(yield* response.text);
+        return yield* Schema.decodeUnknownEffect(Schema.fromJsonString(TeslaTokenResponseSchema))(yield* response.text);
       });
 
-      const saveTokens = (accessToken: RedactedType<string>, refreshToken: RedactedType<string>) =>
+      const saveTokens = (accessToken: Redacted.Redacted<string>, refreshToken: Redacted.Redacted<string>) =>
         Effect.gen(function* () {
-          const encoded = yield* Schema.encode(Schema.parseJson(TeslaCachedTokenSchema))({
-            access_token: accessToken,
-            refresh_token: refreshToken
+          const encoded = JSON.stringify({
+            access_token: Redacted.value(accessToken),
+            refresh_token: Redacted.value(refreshToken)
           });
           yield* fs.writeFileString(config.tokenFilePath || "token.json", encoded);
           yield* fs.writeFileString(config.accessTokenFilePath || ".access-token", Redacted.value(accessToken));
         });
 
+      const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+
       const runCommand = (command: string, commandArgs: string[]) =>
         Effect.gen(function* () {
-          const commandOutcome = yield* Command.start(Command.make(command, ...commandArgs));
+          const cmd = ChildProcess.make(command, commandArgs);
+          const handle = yield* childProcessSpawner.spawn(cmd);
           const [exitCode, stdout, stderr] = yield* Effect.all(
-            [commandOutcome.exitCode, runString(commandOutcome.stdout), runString(commandOutcome.stderr)],
+            [handle.exitCode, runString(handle.stdout), runString(handle.stderr)],
             { concurrency: 3 }
           );
           return { exitCode, stdout, stderr };
-        }).pipe(Effect.scoped, Effect.provide(Layer.succeed(CommandExecutor.CommandExecutor, commandExecutor)));
+        }).pipe(Effect.scoped);
 
-      const execTeslaControl = (
-        commandArgs: string[]
-      ): Effect.Effect<void, VehicleAsleepError | VehicleCommandFailedError, never> =>
+      const execTeslaControl = (commandArgs: string[]) =>
         pipe(
           runCommand("tesla-control", commandArgs),
+          Effect.catch((error) =>
+            Effect.fail(
+              new VehicleCommandFailedError({
+                message: `Execution failed: ${error?.message || String(error)}`,
+                cause: error
+              })
+            )
+          ),
           Effect.tap(() =>
             Effect.annotateCurrentSpan({
               command: commandArgs
@@ -188,19 +183,13 @@ export const TeslaClientLayer = (config: {
           ),
 
           Effect.retry({
-            schedule: Schedule.compose(Schedule.recurs(9), Schedule.exponential(Duration.seconds(0.1), 1.5)),
+            schedule: Schedule.exponential(Duration.seconds(0.1), 1.5).pipe(Schedule.take(10)),
             while: (error) => error._tag === "ContextDeadlineExceeded"
           }),
 
           Effect.catchTag("ContextDeadlineExceeded", () =>
             Effect.fail(new VehicleCommandFailedError({ message: "Command timed out after 10 attempts" }))
-          ),
-          Effect.catchTags({
-            BadArgument: (error) =>
-              Effect.fail(new VehicleCommandFailedError({ message: `Execution failed: ${error.message}` })),
-            SystemError: (error) =>
-              Effect.fail(new VehicleCommandFailedError({ message: `Execution failed: ${error.message}` }))
-          })
+          )
         );
 
       const refreshAccessToken = () =>
@@ -233,8 +222,8 @@ export const TeslaClientLayer = (config: {
           .pipe(
             Effect.timeout(Duration.seconds(10)),
             Effect.retry({
-              schedule: Schedule.compose(Schedule.recurs(3), Schedule.exponential(Duration.seconds(1), 2)),
-              while: (error) => error._tag === "RequestError" || error._tag === "TimeoutException"
+              schedule: Schedule.exponential(Duration.seconds(1), 2).pipe(Schedule.take(4)),
+              while: (error) => error._tag === "HttpClientError" || error._tag === "TimeoutError"
             }),
             Effect.mapError(
               (err) =>
@@ -246,7 +235,7 @@ export const TeslaClientLayer = (config: {
           );
 
         if (response.status !== 200) {
-          const errorText = yield* response.text.pipe(Effect.catchAll(() => Effect.succeed("Unknown error")));
+          const errorText = yield* response.text.pipe(Effect.catch(() => Effect.succeed("Unknown error")));
           return yield* new ChargeStateQueryFailedError({
             message: `Fleet API returned status ${response.status}: ${errorText}`
           });
@@ -262,7 +251,9 @@ export const TeslaClientLayer = (config: {
           )
         );
 
-        const parsed = yield* Schema.decodeUnknown(Schema.parseJson(TeslaChargeStateResponseSchema))(responseBody).pipe(
+        const parsed = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(TeslaChargeStateResponseSchema))(
+          responseBody
+        ).pipe(
           Effect.mapError(
             (err) =>
               new ChargeStateQueryFailedError({
@@ -288,7 +279,7 @@ export const TeslaClientLayer = (config: {
               "Content-Type": "application/json",
               Accept: "application/json"
             },
-            body: raw(
+            body: HttpBody.raw(
               JSON.stringify({
                 grant_type: "authorization_code",
                 client_id: config.clientId,
@@ -301,7 +292,7 @@ export const TeslaClientLayer = (config: {
           })
           .pipe(
             Effect.timeout(Duration.seconds(5)),
-            Effect.catchTag("TimeoutException", (err) =>
+            Effect.catchTag("TimeoutError", (err) =>
               Effect.fail(
                 new UnableToFetchAccessTokenError({
                   message: "Authorization code grant request timed out",
@@ -320,7 +311,7 @@ export const TeslaClientLayer = (config: {
         }
 
         const responseBody = yield* response.text;
-        return yield* Schema.decodeUnknown(Schema.parseJson(TeslaTokenResponseSchema))(responseBody).pipe(
+        return yield* Schema.decodeUnknownEffect(Schema.fromJsonString(TeslaTokenResponseSchema))(responseBody).pipe(
           Effect.mapError(
             (err) =>
               new UnableToFetchAccessTokenError({

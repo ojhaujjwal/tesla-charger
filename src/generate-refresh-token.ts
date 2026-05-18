@@ -1,7 +1,7 @@
 import querystring from "querystring";
 import { TeslaClient, TeslaClientLayer } from "./tesla-client/index.js";
 import { Effect, Layer } from "effect";
-import { NodeContext, NodeHttpClient, NodeRuntime } from "@effect/platform-node";
+import { NodeServices, NodeHttpClient, NodeRuntime } from "@effect/platform-node";
 import { AppConfig } from "./config.js";
 
 const program = Effect.fn("program")(function* () {
@@ -35,7 +35,7 @@ const program = Effect.fn("program")(function* () {
   yield* teslaClient.authenticateFromAuthCodeGrant(authorizationCode);
 });
 
-const MainLayer = Layer.unwrapEffect(
+const MainLayer = Layer.unwrap(
   Effect.gen(function* () {
     const appDomain = yield* AppConfig.tesla.appDomain;
     const clientId = yield* AppConfig.tesla.oauth2ClientId;
@@ -47,7 +47,7 @@ const MainLayer = Layer.unwrapEffect(
       clientId,
       clientSecret,
       vin
-    }).pipe(Layer.provide(NodeContext.layer), Layer.provide(NodeHttpClient.layer));
+    }).pipe(Layer.provide(NodeServices.layer), Layer.provide(NodeHttpClient.layerFetch));
   }).pipe(Effect.withSpan("GenerateRefreshTokenMainLayer"))
 );
 

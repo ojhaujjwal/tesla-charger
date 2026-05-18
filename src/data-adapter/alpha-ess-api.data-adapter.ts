@@ -1,7 +1,7 @@
 import { Duration, Effect, Layer, Redacted, Schedule, Schema } from "effect";
 import type { Redacted as RedactedType } from "effect/Redacted";
 import { DataAdapter, DataNotAvailableError, SourceNotAvailableError, type Field, type IDataAdapter } from "./types.js";
-import { HttpClient } from "@effect/platform";
+import { HttpClient } from "effect/unstable/http";
 import { AppConfig } from "./../config.js";
 import { createHash } from "crypto";
 
@@ -135,8 +135,8 @@ export class AlphaEssCloudApiDataAdapter implements IDataAdapter {
       yield* Effect.logDebug("Alpha ESS API Response:", responseBody);
 
       // Parse and validate response
-      const parsed = yield* Schema.decodeUnknown(ApiResponseSchema)(responseBody).pipe(
-        Effect.catchTag("ParseError", () => Effect.dieMessage(`Unrecognized response from Alpha ESS API`))
+      const parsed = yield* Schema.decodeUnknownEffect(ApiResponseSchema)(responseBody).pipe(
+        Effect.catchTag("SchemaError", () => Effect.die(new Error(`Unrecognized response from Alpha ESS API`)))
       );
 
       if (parsed.code !== 200 || !parsed.data) {
@@ -150,22 +150,19 @@ export class AlphaEssCloudApiDataAdapter implements IDataAdapter {
       }
 
       if (!isFieldRecord(result, fields)) {
-        return yield* Effect.dieMessage("Failed to build result record");
+        return yield* Effect.die(new Error("Failed to build result record"));
       }
 
       return result;
     }).pipe(
       Effect.timeout(Duration.millis(this.TIMEOUT_MS)),
       Effect.retry({
-        schedule: Schedule.compose(
-          Schedule.recurs(5), // Max 5 retries (6 total attempts)
-          Schedule.exponential(Duration.seconds(2), 2) // Backoff: 2s, 4s, 8s, 16s, 32s
-        ),
-        while: (err) => err._tag === "TimeoutException" || (err._tag === "RequestError" && err.reason === "Transport")
+        schedule: Schedule.exponential(Duration.seconds(2), 2).pipe(Schedule.take(6)),
+        while: (err: { readonly _tag: string; readonly reason?: { readonly _tag: string } }) =>
+          err._tag === "TimeoutError" || (err._tag === "HttpClientError" && err.reason?._tag === "TransportError")
       }),
-      Effect.catchTag("TimeoutException", () => Effect.fail(new SourceNotAvailableError())),
-      Effect.catchTag("RequestError", () => Effect.fail(new SourceNotAvailableError())),
-      Effect.catchTag("ResponseError", () => Effect.fail(new SourceNotAvailableError())),
+      Effect.catchTag("TimeoutError", () => Effect.fail(new SourceNotAvailableError())),
+      Effect.catchTag("HttpClientError", () => Effect.fail(new SourceNotAvailableError())),
       Effect.withSpan("queryLatestValues")
     );
   }

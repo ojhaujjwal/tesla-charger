@@ -17,9 +17,9 @@ export class SolarForecastNotAvailableError extends Data.TaggedError("SolarForec
   readonly cause?: unknown;
 }> {}
 
-export class SolarForecast extends Context.Tag("SolarForecast")<
+export class SolarForecast extends Context.Service<
   SolarForecast,
   {
     readonly getForecast: () => Effect.Effect<SolarForecastResult, SolarForecastNotAvailableError>;
   }
->() {}
+>()("SolarForecast") {}

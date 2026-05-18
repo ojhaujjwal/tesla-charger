@@ -1,8 +1,8 @@
 export { VehicleAsleepError, VehicleCommandFailedError, ChargeStateQueryFailedError } from "../domain/errors.js";
 
-import type { PlatformError } from "@effect/platform/Error";
-import type { ParseError } from "effect/ParseResult";
-import type { HttpClientError } from "@effect/platform/HttpClientError";
+import type { PlatformError } from "effect/PlatformError";
+import type { Schema } from "effect";
+import type { HttpClientError } from "effect/unstable/http";
 import { Data } from "effect";
 
 // Internal retryable error (not exposed externally)
@@ -16,5 +16,5 @@ export class UnableToFetchAccessTokenError extends Data.TaggedError("UnableToFet
 }> {}
 
 export class AuthenticationFailedError extends Data.TaggedError("AuthenticationFailedError")<{
-  cause: HttpClientError | PlatformError | UnableToFetchAccessTokenError | ParseError;
+  cause: HttpClientError.HttpClientError | PlatformError | UnableToFetchAccessTokenError | Schema.SchemaError;
 }> {}

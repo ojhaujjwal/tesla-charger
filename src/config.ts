@@ -36,24 +36,24 @@ export const AppConfig = {
   },
 
   controller: {
-    fixedSpeedAmpere: EffectConfig.integer("FIXED_SPEED_AMPERE").pipe(EffectConfig.withDefault(5)),
-    maxAllowedFeedInPower: EffectConfig.integer("MAX_ALLOWED_FEED_IN_POWER").pipe(EffectConfig.withDefault(5000))
+    fixedSpeedAmpere: EffectConfig.int("FIXED_SPEED_AMPERE").pipe(EffectConfig.withDefault(5)),
+    maxAllowedFeedInPower: EffectConfig.int("MAX_ALLOWED_FEED_IN_POWER").pipe(EffectConfig.withDefault(5000))
   },
 
   excessSolar: {
-    bufferPower: EffectConfig.integer("EXCESS_SOLAR_BUFFER_POWER").pipe(EffectConfig.withDefault(1000))
+    bufferPower: EffectConfig.int("EXCESS_SOLAR_BUFFER_POWER").pipe(EffectConfig.withDefault(1000))
   },
 
   weatherAware: {
-    minBufferPower: EffectConfig.integer("EXCESS_SOLAR_BUFFER_POWER").pipe(EffectConfig.withDefault(500)),
+    minBufferPower: EffectConfig.int("EXCESS_SOLAR_BUFFER_POWER").pipe(EffectConfig.withDefault(500)),
     bufferMultiplierMax: EffectConfig.number("BUFFER_MULTIPLIER_MAX").pipe(EffectConfig.withDefault(3)),
     carBatteryCapacityKwh: EffectConfig.number("CAR_BATTERY_CAPACITY_KWH").pipe(EffectConfig.withDefault(60)),
     peakSolarCapacityKw: EffectConfig.number("SOLCAST_CAPACITY_KW").pipe(EffectConfig.withDefault(9)),
     latitude: EffectConfig.number("SOLCAST_LATITUDE"),
     longitude: EffectConfig.number("SOLCAST_LONGITUDE"),
     defaultDailyProductionKwh: EffectConfig.number("DEFAULT_DAILY_PRODUCTION_KWH").pipe(EffectConfig.withDefault(60)),
-    solarCutoffHour: EffectConfig.integer("SOLAR_CUTOFF_HOUR").pipe(EffectConfig.withDefault(18)),
-    deadlineHour: EffectConfig.integer("DEADLINE_HOUR")
+    solarCutoffHour: EffectConfig.int("SOLAR_CUTOFF_HOUR").pipe(EffectConfig.withDefault(18)),
+    deadlineHour: EffectConfig.int("DEADLINE_HOUR")
   },
 
   cost: {

@@ -1,7 +1,7 @@
 import { Context, Data, Effect, Schema } from "effect";
 
 // Define the Field schema
-export const FieldSchema = Schema.Union(
+export const FieldSchema = Schema.Union([
   Schema.Literal("voltage"),
   Schema.Literal("current_production"),
   Schema.Literal("current_load"),
@@ -9,7 +9,7 @@ export const FieldSchema = Schema.Union(
   Schema.Literal("export_to_grid"),
   Schema.Literal("import_from_grid"),
   Schema.Literal("battery_power")
-);
+]);
 
 export type Field = Schema.Schema.Type<typeof FieldSchema>;
 
@@ -20,7 +20,7 @@ export class SourceNotAvailableError extends Data.TaggedError("SourceNotAvailabl
   public override readonly message = "Could not connect to the Data Source. Check if the source is running.";
 }
 
-export class DataAdapter extends Context.Tag("DataAdapter")<
+export class DataAdapter extends Context.Service<
   DataAdapter,
   {
     readonly queryLatestValues: <F extends Field>(
@@ -31,6 +31,6 @@ export class DataAdapter extends Context.Tag("DataAdapter")<
       minutes: number
     ) => Effect.Effect<number, DataNotAvailableError | SourceNotAvailableError>;
   }
->() {}
+>()("DataAdapter") {}
 
-export type IDataAdapter = Context.Tag.Service<typeof DataAdapter>;
+export type IDataAdapter = DataAdapter["Service"];

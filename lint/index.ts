@@ -19,6 +19,7 @@ import noConsole from "./rules/no-console.js";
 import noPlainItWithEffect from "./rules/no-plain-it-with-effect.js";
 import noVitestModifiers from "./rules/no-vitest-modifiers.js";
 import noTsIgnore from "./rules/no-ts-ignore.js";
+import noTsNocheck from "./rules/no-ts-nocheck.js";
 import noUnknownEffectError from "./rules/no-unknown-effect-error.js";
 
 export default definePlugin({
@@ -44,6 +45,7 @@ export default definePlugin({
     "no-plain-it-with-effect": noPlainItWithEffect,
     "no-vitest-modifiers": noVitestModifiers,
     "no-ts-ignore": noTsIgnore,
+    "no-ts-nocheck": noTsNocheck,
     "no-unknown-effect-error": noUnknownEffectError
   }
 });

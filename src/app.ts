@@ -35,7 +35,7 @@ export type TimingConfig = {
   maxRuntimeHours?: number;
 };
 
-export class App extends Context.Tag("@tesla-charger/App")<
+export class App extends Context.Service<
   App,
   {
     readonly start: () => Effect.Effect<
@@ -51,7 +51,7 @@ export class App extends Context.Tag("@tesla-charger/App")<
     >;
     readonly stop: () => Effect.Effect<void, never>;
   }
->() {}
+>()("@tesla-charger/App") {}
 
 type MainLoopErrors =
   | DataNotAvailableError
@@ -83,11 +83,11 @@ export const AppLayer = (config: {
       const statsRef = yield* Ref.make(createInitialChargingSessionStats());
       const appStatusRef = yield* Ref.make(AppStatus.Pending);
 
-      let tokenRefreshFiber: Fiber.RuntimeFiber<void, FiberErrors> | undefined;
-      let batteryStateManagerFiber: Fiber.RuntimeFiber<void, FiberErrors> | undefined;
-      let eventLoggerFiber: Fiber.RuntimeFiber<void, FiberErrors> | undefined;
-      let mainSyncFiber: Fiber.RuntimeFiber<void, FiberErrors> | undefined;
-      let runtimeMonitorFiber: Fiber.RuntimeFiber<void, FiberErrors> | undefined;
+      let tokenRefreshFiber: Fiber.Fiber<void, FiberErrors> | undefined;
+      let batteryStateManagerFiber: Fiber.Fiber<void, FiberErrors> | undefined;
+      let eventLoggerFiber: Fiber.Fiber<void, FiberErrors> | undefined;
+      let mainSyncFiber: Fiber.Fiber<void, FiberErrors> | undefined;
+      let runtimeMonitorFiber: Fiber.Fiber<void, FiberErrors> | undefined;
 
       const stop = Effect.fn("stop")(
         function* () {
@@ -114,7 +114,7 @@ export const AppLayer = (config: {
         (eff) => eff.pipe(Effect.orDie)
       );
 
-      const start: App["Type"]["start"] = () =>
+      const start: App["Service"]["start"] = () =>
         Effect.gen(function* () {
           yield* Ref.set(appStatusRef, AppStatus.Running);
 
@@ -215,7 +215,7 @@ export const AppLayer = (config: {
                   if (err._tag !== "VehicleAsleepError") return false;
                   return Effect.sleep(Duration.millis(config.timingConfig.vehicleAwakeningTimeInMs)).pipe(
                     Effect.flatMap(() => teslaClient.wakeUpCar().pipe(Effect.map(() => true))),
-                    Effect.catchAll(() => Effect.succeed(false))
+                    Effect.catch(() => Effect.succeed(false))
                   );
                 }
               }),
@@ -237,7 +237,7 @@ export const AppLayer = (config: {
                 }
               }),
               Effect.catchTag("AbruptProductionDrop", () =>
-                Effect.dieMessage("Unexpectedly got AbruptProductionDrop 10 times consecutively.")
+                Effect.die(new Error("Unexpectedly got AbruptProductionDrop 10 times consecutively."))
               )
             );
 
@@ -245,22 +245,23 @@ export const AppLayer = (config: {
             while: (status) => status === AppStatus.Running
           }).pipe(
             Effect.flatMap(() => Effect.void),
-            Effect.fork
+            Effect.forkChild
           );
 
           if (config.timingConfig.maxRuntimeHours) {
             runtimeMonitorFiber = yield* shutdownAfterMaxRuntime(config.timingConfig.maxRuntimeHours, stop()).pipe(
-              Effect.fork
+              Effect.forkChild
             );
           }
 
-          yield* Fiber.joinAll([
+          const fibers: Fiber.Fiber<void, FiberErrors>[] = [
             tokenRefreshFiber,
             batteryStateManagerFiber,
             eventLoggerFiber,
-            mainSyncFiber,
-            ...(runtimeMonitorFiber ? [runtimeMonitorFiber] : [])
-          ]);
+            mainSyncFiber
+          ];
+          if (runtimeMonitorFiber) fibers.push(runtimeMonitorFiber);
+          yield* Fiber.joinAll(fibers);
         }).pipe(
           Effect.provideService(TeslaClient, teslaClient),
           Effect.provideService(DataAdapter, dataAdapter),

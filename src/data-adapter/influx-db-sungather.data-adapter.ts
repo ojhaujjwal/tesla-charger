@@ -1,11 +1,10 @@
 import { Duration, Effect, Layer, Redacted, Schema } from "effect";
 import type { Redacted as RedactedType } from "effect/Redacted";
-import { HttpClient } from "@effect/platform";
+import { HttpClient, HttpBody } from "effect/unstable/http";
 import { type IDataAdapter, type Field, DataNotAvailableError, SourceNotAvailableError, DataAdapter } from "./types.js";
-import { raw } from "@effect/platform/HttpBody";
 import { AppConfig } from "../config.js";
 
-export const InfluxFieldSchema = Schema.Union(
+export const InfluxFieldSchema = Schema.Union([
   Schema.Literal("phase_a_voltage"),
   Schema.Literal("total_active_power"),
   Schema.Literal("load_power"),
@@ -13,7 +12,7 @@ export const InfluxFieldSchema = Schema.Union(
   Schema.Literal("export_to_grid"),
   Schema.Literal("import_from_grid"),
   Schema.Literal("battery_power")
-);
+]);
 
 export type InfluxField = Schema.Schema.Type<typeof InfluxFieldSchema>;
 
@@ -49,8 +48,8 @@ const parseCsv = Effect.fn("parseCsv")(function* <F extends Field>(rows: string[
   const result: Record<string, number> = {};
 
   for (const row of data) {
-    const field = yield* Schema.decodeUnknown(InfluxFieldSchema)(row._field).pipe(
-      Effect.catchTag("ParseError", () => Effect.dieMessage(`Invalid field in CSV: ${row._field}`))
+    const field = yield* Schema.decodeUnknownEffect(InfluxFieldSchema)(row._field).pipe(
+      Effect.catchTag("SchemaError", () => Effect.die(new Error(`Invalid field in CSV: ${row._field}`)))
     );
     result[field] = parseFloat(row._value);
   }
@@ -96,14 +95,14 @@ export class SunGatherInfluxDbDataAdapter implements IDataAdapter {
 
     const client = this.httpClient;
 
-    return Effect.gen(function* () {
+    return Effect.gen({ self: this }, function* () {
       const response = yield* client.post(url, {
         headers: {
           "Content-Type": "application/vnd.flux",
           Accept: "application/csv",
           Authorization: `Token ${Redacted.value(influxToken)}`
         },
-        body: raw(body)
+        body: HttpBody.raw(body)
       });
 
       const lines = (yield* response.text).trim().split("\n");
@@ -126,16 +125,15 @@ export class SunGatherInfluxDbDataAdapter implements IDataAdapter {
       }
 
       if (!isFieldRecord(mappedResult, fields)) {
-        return yield* Effect.dieMessage("Failed to build mapped result");
+        return yield* Effect.die(new Error("Failed to build mapped result"));
       }
 
       return mappedResult;
     }).pipe(
       Effect.timeout(Duration.millis(this.TIMEOUT_MS)),
-      Effect.retry({ times: 2, while: (err) => err._tag === "TimeoutException" }),
-      Effect.catchTag("TimeoutException", () => Effect.fail(new SourceNotAvailableError())),
-      Effect.catchTag("RequestError", () => Effect.fail(new SourceNotAvailableError())),
-      Effect.catchTag("ResponseError", () => Effect.fail(new SourceNotAvailableError())),
+      Effect.retry({ times: 2, while: (err) => err._tag === "TimeoutError" }),
+      Effect.catchTag("TimeoutError", () => Effect.fail(new SourceNotAvailableError())),
+      Effect.catchTag("HttpClientError", () => Effect.fail(new SourceNotAvailableError())),
       Effect.withSpan("queryLatestValues")
     );
   }
@@ -145,14 +143,14 @@ export class SunGatherInfluxDbDataAdapter implements IDataAdapter {
 
     const client = this.httpClient;
 
-    return Effect.gen(this, function* () {
+    return Effect.gen({ self: this }, function* () {
       const response = yield* client.post(`${this.influxUrl}/api/v2/query?org=${this.org}&pretty=true`, {
         headers: {
           "Content-Type": "application/vnd.flux",
           Accept: "application/csv",
           Authorization: `Token ${Redacted.value(this.influxToken)}`
         },
-        body: raw(`
+        body: HttpBody.raw(`
               from(bucket: "${this.bucket}")
                 |> range(start: -${minutes}m)
                 |> filter(fn: (r) => r._field == "${mappedField}")
@@ -176,10 +174,9 @@ export class SunGatherInfluxDbDataAdapter implements IDataAdapter {
       return result[mappedField];
     }).pipe(
       Effect.timeout(Duration.millis(this.TIMEOUT_MS)),
-      Effect.retry({ times: 2, while: (err) => err._tag === "TimeoutException" }),
-      Effect.catchTag("TimeoutException", () => Effect.fail(new SourceNotAvailableError())),
-      Effect.catchTag("RequestError", () => Effect.fail(new SourceNotAvailableError())),
-      Effect.catchTag("ResponseError", () => Effect.fail(new SourceNotAvailableError())),
+      Effect.retry({ times: 2, while: (err) => err._tag === "TimeoutError" }),
+      Effect.catchTag("TimeoutError", () => Effect.fail(new SourceNotAvailableError())),
+      Effect.catchTag("HttpClientError", () => Effect.fail(new SourceNotAvailableError())),
       Effect.withSpan("getLowestValueInLastXMinutes")
     );
   }

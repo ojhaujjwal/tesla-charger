@@ -1,12 +1,12 @@
 import { Context, Effect, Layer, Ref } from "effect";
 
-export class DynamicChargingConfig extends Context.Tag("@tesla-charger/DynamicChargingConfig")<
+export class DynamicChargingConfig extends Context.Service<
   DynamicChargingConfig,
   {
     readonly getBufferPower: Effect.Effect<number>;
     readonly setBufferPower: (n: number) => Effect.Effect<void>;
   }
->() {}
+>()("@tesla-charger/DynamicChargingConfig") {}
 
 export const DynamicChargingConfigLayer = (initialBufferPower: number) =>
   Layer.effect(

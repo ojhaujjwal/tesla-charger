@@ -8,7 +8,7 @@ export type TeslaChargerEvent =
   | { readonly _tag: "AmpereChangeFinished"; readonly current: number }
   | { readonly _tag: "SessionEnded"; readonly summary: SessionSummary };
 
-export class TeslaChargerEventPubSub extends Context.Tag("@tesla-charger/Domain/TeslaChargerEventPubSub")<
+export class TeslaChargerEventPubSub extends Context.Service<
   TeslaChargerEventPubSub,
   PubSub.PubSub<TeslaChargerEvent>
->() {}
+>()("@tesla-charger/Domain/TeslaChargerEventPubSub") {}

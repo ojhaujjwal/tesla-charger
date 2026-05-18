@@ -1,6 +1,6 @@
 import { describe, it, expect } from "@effect/vitest";
-import { Effect, Exit, Layer, Redacted } from "effect";
-import { HttpClient, HttpClientRequest, HttpClientResponse, FileSystem } from "@effect/platform";
+import { Cause, Effect, Exit, FileSystem, Layer, Option, Redacted } from "effect";
+import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
 import { NodeFileSystem } from "@effect/platform-node";
 import { SolarForecast, SolarForecastNotAvailableError } from "../../../solar-forecast/types.js";
 import { SolcastForecastLayer } from "../../../solar-forecast/solcast.adapter.js";
@@ -43,7 +43,7 @@ const withCleanCache = <A, E, R>(f: () => Effect.Effect<A, E, R>) =>
         if (exists) {
           yield* fs.remove(CACHE_FILE_PATH);
         }
-      }).pipe(Effect.catchAll(() => Effect.void))
+      }).pipe(Effect.catch(() => Effect.void))
     );
     return yield* f();
   });
@@ -113,7 +113,7 @@ describe("SolcastForecastAdapter", () => {
     );
 
   describe("getForecast", () => {
-    it.scoped("should return forecast periods from API on first call", () => {
+    it.effect("should return forecast periods from API on first call", () => {
       const callTracker = { count: 0 };
       return withCleanCache(() =>
         Effect.gen(function* () {
@@ -134,7 +134,7 @@ describe("SolcastForecastAdapter", () => {
       ).pipe(Effect.provide(getTestLayer(makeMockHttpClient(mockSolcastResponse, 200, callTracker))));
     });
 
-    it.scoped("should return cached forecast from memory when age < 60 minutes", () => {
+    it.effect("should return cached forecast from memory when age < 60 minutes", () => {
       const callTracker = { count: 0 };
       return withCleanCache(() =>
         Effect.gen(function* () {
@@ -150,7 +150,7 @@ describe("SolcastForecastAdapter", () => {
       ).pipe(Effect.provide(getTestLayer(makeMockHttpClient(mockSolcastResponse, 200, callTracker))));
     });
 
-    it.scoped("should return file cache on startup if age < 60 minutes and not call API", () => {
+    it.effect("should return file cache on startup if age < 60 minutes and not call API", () => {
       const fileCacheContent = JSON.stringify({
         fetchedAt: new Date().toISOString(), // Fresh cache
         forecasts: differentCacheResponse.forecasts // Different from API to prove cache is used
@@ -181,7 +181,7 @@ describe("SolcastForecastAdapter", () => {
       );
     });
 
-    it.scoped("should fall back to file cache if API returns 429 rate limit", () => {
+    it.effect("should fall back to file cache if API returns 429 rate limit", () => {
       const fileCacheContent = JSON.stringify({
         fetchedAt: new Date(Date.now() - 90 * 60 * 1000).toISOString(), // 90 min ago (stale memory cache, valid file cache)
         forecasts: differentCacheResponse.forecasts // Different from API to prove cache is used
@@ -212,7 +212,7 @@ describe("SolcastForecastAdapter", () => {
       );
     });
 
-    it.scoped("should fetch from API if file cache is >= 2 days old and use API data", () => {
+    it.effect("should fetch from API if file cache is >= 2 days old and use API data", () => {
       const oldFileCacheContent = JSON.stringify({
         fetchedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(), // 3 days ago
         forecasts: differentCacheResponse.forecasts // Different from API to prove API is used
@@ -243,20 +243,20 @@ describe("SolcastForecastAdapter", () => {
       );
     });
 
-    it.scoped("should return SolarForecastNotAvailableError if API fails and no valid cache exists", () => {
+    it.effect("should return SolarForecastNotAvailableError if API fails and no valid cache exists", () => {
       const callTracker = { count: 0 };
       return withCleanCache(() =>
         Effect.gen(function* () {
           const forecast = yield* SolarForecast;
           const result = yield* Effect.exit(forecast.getForecast());
 
-          expect(result).toEqual(
-            Exit.fail(
-              new SolarForecastNotAvailableError({
-                message: "Unable to fetch forecast and no valid cache available"
-              })
-            )
-          );
+          const error = Exit.match(result, {
+            onSuccess: () => {
+              throw new Error("Expected failure");
+            },
+            onFailure: (cause) => Option.getOrThrow(Cause.findErrorOption(cause))
+          });
+          expect(error).toBeInstanceOf(SolarForecastNotAvailableError);
           // API should have been called (attempted)
           expect(callTracker.count).toBe(1);
         })

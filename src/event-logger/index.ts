@@ -1,4 +1,4 @@
-import { Effect, PubSub, Queue } from "effect";
+import { Effect, PubSub } from "effect";
 import type { TeslaChargerEvent } from "../domain/events.js";
 
 export const startEventLogger = (pubSub: PubSub.PubSub<TeslaChargerEvent>): Effect.Effect<void> =>
@@ -6,7 +6,7 @@ export const startEventLogger = (pubSub: PubSub.PubSub<TeslaChargerEvent>): Effe
     const subscription = yield* PubSub.subscribe(pubSub);
     return yield* Effect.forever(
       Effect.gen(function* () {
-        const event = yield* Queue.take(subscription);
+        const event = yield* PubSub.take(subscription);
         switch (event._tag) {
           case "AmpereChangeInitiated":
             yield* Effect.log(`Setting charging rate to ${event.current}A`);

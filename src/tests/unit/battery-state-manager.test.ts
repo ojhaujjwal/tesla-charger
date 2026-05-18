@@ -1,6 +1,7 @@
 import { describe, it, vitest, beforeEach, expect } from "@effect/vitest";
 import type { MockedObject } from "@effect/vitest";
-import { Effect, Duration, Fiber, Layer, PubSub, TestClock } from "effect";
+import * as TestClock from "effect/testing/TestClock";
+import { Effect, Duration, Fiber, Layer, PubSub } from "effect";
 import { TeslaClient, type TeslaClientService } from "../../tesla-client/index.js";
 import { ChargeStateQueryFailedError } from "../../tesla-client/errors.js";
 import { BatteryStateManager, BatteryStateManagerLayer } from "../../battery-state-manager.js";
@@ -38,7 +39,7 @@ describe("BatteryStateManager", () => {
 
       const batteryStateManager = yield* BatteryStateManager;
       const pubSub = yield* PubSub.unbounded<TeslaChargerEvent>();
-      const fiber = yield* batteryStateManager.start(pubSub).pipe(Effect.fork);
+      const fiber = yield* batteryStateManager.start(pubSub).pipe(Effect.forkChild);
 
       // Wait a bit — no fetch at startup
       yield* TestClock.adjust(Duration.millis(100));
@@ -76,7 +77,7 @@ describe("BatteryStateManager", () => {
 
       const batteryStateManager = yield* BatteryStateManager;
       const pubSub = yield* PubSub.unbounded<TeslaChargerEvent>();
-      const fiber = yield* batteryStateManager.start(pubSub).pipe(Effect.fork);
+      const fiber = yield* batteryStateManager.start(pubSub).pipe(Effect.forkChild);
 
       yield* TestClock.adjust(Duration.millis(100));
 
@@ -104,7 +105,7 @@ describe("BatteryStateManager", () => {
     Effect.gen(function* () {
       const batteryStateManager = yield* BatteryStateManager;
       const pubSub = yield* PubSub.unbounded<TeslaChargerEvent>();
-      const fiber = yield* batteryStateManager.start(pubSub).pipe(Effect.fork);
+      const fiber = yield* batteryStateManager.start(pubSub).pipe(Effect.forkChild);
 
       yield* TestClock.adjust(Duration.millis(100));
 
@@ -148,7 +149,7 @@ describe("BatteryStateManager", () => {
 
       const batteryStateManager = yield* BatteryStateManager;
       const pubSub = yield* PubSub.unbounded<TeslaChargerEvent>();
-      const fiber = yield* batteryStateManager.start(pubSub).pipe(Effect.fork);
+      const fiber = yield* batteryStateManager.start(pubSub).pipe(Effect.forkChild);
 
       yield* TestClock.adjust(Duration.millis(100));
 
@@ -201,7 +202,7 @@ describe("BatteryStateManager", () => {
 
       const batteryStateManager = yield* BatteryStateManager;
       const pubSub = yield* PubSub.unbounded<TeslaChargerEvent>();
-      const fiber = yield* batteryStateManager.start(pubSub).pipe(Effect.fork);
+      const fiber = yield* batteryStateManager.start(pubSub).pipe(Effect.forkChild);
 
       yield* TestClock.adjust(Duration.millis(100));
 
@@ -245,7 +246,7 @@ describe("BatteryStateManager", () => {
     Effect.gen(function* () {
       const batteryStateManager = yield* BatteryStateManager;
       const pubSub = yield* PubSub.unbounded<TeslaChargerEvent>();
-      const fiber = yield* batteryStateManager.start(pubSub).pipe(Effect.fork);
+      const fiber = yield* batteryStateManager.start(pubSub).pipe(Effect.forkChild);
 
       // Wait a bit
       yield* TestClock.adjust(Duration.millis(100));
@@ -260,8 +261,8 @@ describe("BatteryStateManager", () => {
       yield* TestClock.adjust(Duration.millis(100));
 
       // Fiber should be done (listener stopped)
-      const status = yield* Fiber.status(fiber);
-      expect(status._tag).toBe("Done");
+      const status = fiber.pollUnsafe();
+      expect(status).not.toBeUndefined();
     }).pipe(provideBatteryStateManagerLayer)
   );
 });

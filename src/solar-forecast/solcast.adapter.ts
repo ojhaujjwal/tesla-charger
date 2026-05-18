@@ -1,7 +1,6 @@
-import { Effect, Layer, Redacted, Schema } from "effect";
+import { Effect, FileSystem, Layer, Redacted, Schema } from "effect";
 import type { Redacted as RedactedType } from "effect/Redacted";
-import { HttpClient } from "@effect/platform";
-import { FileSystem } from "@effect/platform";
+import { HttpClient } from "effect/unstable/http";
 import { SolarForecast, SolarForecastNotAvailableError, type SolarForecastResult } from "./types.js";
 
 // Schema for Solcast API response
@@ -96,7 +95,7 @@ export const SolcastForecastLayer = (
               message: `API returned status ${response.status}. Body: ${responseText}`
             });
           }
-          const parsed = yield* Schema.decodeUnknown(Schema.parseJson(SolcastResponseSchema))(responseText);
+          const parsed = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(SolcastResponseSchema))(responseText);
 
           const result: SolarForecastResult = {
             periods: parsed.forecasts
@@ -117,7 +116,7 @@ export const SolcastForecastLayer = (
         },
         (effect) =>
           effect.pipe(
-            Effect.catchAll((error) =>
+            Effect.catch((error) =>
               error instanceof SolarForecastNotAvailableError
                 ? Effect.fail(error)
                 : Effect.fail(
@@ -138,7 +137,7 @@ export const SolcastForecastLayer = (
           }
 
           const content = yield* fileSystem.readFileString(CACHE_FILE_PATH);
-          const cache = yield* Schema.decodeUnknown(Schema.parseJson(FileCacheSchema))(content);
+          const cache = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(FileCacheSchema))(content);
 
           const fetchedAt = new Date(cache.fetchedAt).getTime();
           const ageMs = Date.now() - fetchedAt;
@@ -154,7 +153,7 @@ export const SolcastForecastLayer = (
         },
         (effect) =>
           effect.pipe(
-            Effect.catchAll((error) =>
+            Effect.catch((error) =>
               Effect.gen(function* () {
                 yield* Effect.logDebug(
                   `File cache read failed: ${error instanceof Error ? error.message : String(error)}`
@@ -174,7 +173,7 @@ export const SolcastForecastLayer = (
           const fileCache = yield* loadFromFileCache();
           if (fileCache) {
             const cacheContent = yield* fileSystem.readFileString(CACHE_FILE_PATH);
-            const cache = yield* Schema.decodeUnknown(Schema.parseJson(FileCacheSchema))(cacheContent);
+            const cache = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(FileCacheSchema))(cacheContent);
             const fetchedAt = new Date(cache.fetchedAt).getTime();
             const ageMs = Date.now() - fetchedAt;
 
@@ -188,7 +187,7 @@ export const SolcastForecastLayer = (
 
             if (ageMs < MAX_CACHE_AGE_DAYS * 24 * 60 * 60 * 1000) {
               const apiResult = yield* fetchFromApi().pipe(
-                Effect.catchAll((error) =>
+                Effect.catch((error) =>
                   Effect.gen(function* () {
                     yield* Effect.logWarning(`API fetch failed, using stale file cache: ${error.message}`);
                     return fileCache;
@@ -204,7 +203,7 @@ export const SolcastForecastLayer = (
         },
         (effect) =>
           effect.pipe(
-            Effect.catchAll((error) => {
+            Effect.catch((error) => {
               return Effect.gen(function* () {
                 yield* Effect.logWarning(
                   `Failed to fetch forecast from API, falling back to file cache: ${error.message}`

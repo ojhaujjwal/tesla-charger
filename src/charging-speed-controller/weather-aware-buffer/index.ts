@@ -41,7 +41,7 @@ export const WeatherAwareBufferControllerLayer = (
             const now = new Date(nowMs);
 
             const forecast = yield* solarForecast.getForecast().pipe(
-              Effect.catchAll(() =>
+              Effect.catch(() =>
                 Effect.succeed({
                   periods: []
                 })

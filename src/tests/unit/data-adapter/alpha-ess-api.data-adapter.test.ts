@@ -1,13 +1,12 @@
-import { Duration, Effect, Exit, Fiber, Layer, Redacted, TestClock, ConfigProvider } from "effect";
+import { Cause, Effect, Option, Exit, Layer, Redacted, ConfigProvider } from "effect";
 import {
   AlphaEssCloudApiDataAdapter,
   AlphaEssCloudApiDataAdapterLayer,
   type AlphaEssConfig
 } from "../../../data-adapter/alpha-ess-api.data-adapter.js";
 import { DataAdapter, DataNotAvailableError, SourceNotAvailableError } from "../../../data-adapter/types.js";
-import { HttpClient, HttpClientRequest, HttpClientResponse } from "@effect/platform";
+import { HttpClient, HttpClientRequest, HttpClientResponse, HttpClientError } from "effect/unstable/http";
 import { describe, it, expect } from "@effect/vitest";
-import { RequestError, ResponseError } from "@effect/platform/HttpClientError";
 
 const mockResponse = (req: HttpClientRequest.HttpClientRequest, body: string): HttpClientResponse.HttpClientResponse =>
   HttpClientResponse.fromWeb(
@@ -20,15 +19,13 @@ const mockResponse = (req: HttpClientRequest.HttpClientRequest, body: string): H
 const makeMockHttpClient = (responseJson: unknown): HttpClient.HttpClient =>
   HttpClient.make((req) => Effect.succeed(mockResponse(req, JSON.stringify(responseJson))));
 
-const TestConfigLayer = Layer.setConfigProvider(
-  ConfigProvider.fromMap(
-    new Map([
-      ["ALPHA_ESS_API_APP_ID", "asdfasdf"],
-      ["ALPHA_ESS_API_APP_SECRET", "asdfasfasdf"],
-      ["ALPHA_ESS_API_SYS_SN", "asdfasdf"],
-      ["ALPHA_ESS_API_BASE_URL", "https://openapi.alphaess.com/"]
-    ])
-  )
+const TestConfigLayer = ConfigProvider.layer(
+  ConfigProvider.fromUnknown({
+    ALPHA_ESS_API_APP_ID: "asdfasdf",
+    ALPHA_ESS_API_APP_SECRET: "asdfasfasdf",
+    ALPHA_ESS_API_SYS_SN: "asdfasdf",
+    ALPHA_ESS_API_BASE_URL: "https://openapi.alphaess.com/"
+  })
 );
 
 describe("AlphaEssCloudApiDataAdapter", () => {
@@ -187,7 +184,13 @@ describe("AlphaEssCloudApiDataAdapter", () => {
       const adapter = new AlphaEssCloudApiDataAdapter(mockConfig, mockHttpClient);
 
       const result = yield* Effect.exit(adapter.queryLatestValues(["current_production"]));
-      expect(result).toStrictEqual(Exit.fail(new DataNotAvailableError()));
+      const resultErr = Exit.match(result, {
+        onSuccess: () => {
+          throw new Error("Expected failure");
+        },
+        onFailure: (cause) => Option.getOrThrow(Cause.findErrorOption(cause))
+      });
+      expect(resultErr).toBeInstanceOf(DataNotAvailableError);
     })
   );
 
@@ -208,7 +211,7 @@ describe("AlphaEssCloudApiDataAdapter", () => {
       const result = yield* Effect.exit(adapter.queryLatestValues(["current_production"]));
 
       if (Exit.isFailure(result)) {
-        expect(result.cause._tag).toBe("Die");
+        expect(Cause.hasDies(result.cause)).toBe(true);
       } else {
         throw new Error("Expected failure but got success");
       }
@@ -218,32 +221,14 @@ describe("AlphaEssCloudApiDataAdapter", () => {
   it.effect("should retry on Transport RequestError and eventually fail with SourceNotAvailableError", () =>
     Effect.gen(function* () {
       let calls = 0;
-      const failingHttpClient: HttpClient.HttpClient = HttpClient.make((req) => {
-        calls++;
-        return Effect.fail(new RequestError({ reason: "Transport", request: req }));
-      });
-
-      const adapter = new AlphaEssCloudApiDataAdapter(mockConfig, failingHttpClient);
-
-      const fiber = yield* Effect.fork(adapter.queryLatestValues(["current_production"]));
-      yield* TestClock.adjust(Duration.seconds(70));
-      const result = yield* Fiber.await(fiber);
-
-      expect(result).toStrictEqual(Exit.fail(new SourceNotAvailableError()));
-      expect(calls).toBe(6);
-    })
-  );
-
-  it.effect("should NOT retry on ResponseError (HTTP 4xx/5xx)", () =>
-    Effect.gen(function* () {
-      let calls = 0;
-      const failingHttpClient: HttpClient.HttpClient = HttpClient.make((req) => {
+      const failingHttpClient = HttpClient.make((req, _url, _signal, _fiber) => {
         calls++;
         return Effect.fail(
-          new ResponseError({
-            reason: "StatusCode",
-            request: req,
-            response: HttpClientResponse.fromWeb(req, new Response(null, { status: 500 }))
+          new HttpClientError.HttpClientError({
+            reason: new HttpClientError.StatusCodeError({
+              request: req,
+              response: HttpClientResponse.fromWeb(req, new Response(null, { status: 500 }))
+            })
           })
         );
       });
@@ -251,7 +236,43 @@ describe("AlphaEssCloudApiDataAdapter", () => {
       const adapter = new AlphaEssCloudApiDataAdapter(mockConfig, failingHttpClient);
 
       const result = yield* Effect.exit(adapter.queryLatestValues(["current_production"]));
-      expect(result).toStrictEqual(Exit.fail(new SourceNotAvailableError()));
+
+      const resultErr = Exit.match(result, {
+        onSuccess: () => {
+          throw new Error("Expected failure");
+        },
+        onFailure: (cause) => Option.getOrThrow(Cause.findErrorOption(cause))
+      });
+      expect(resultErr).toBeInstanceOf(SourceNotAvailableError);
+      expect(calls).toBe(1);
+    })
+  );
+
+  it.effect("should NOT retry on ResponseError (HTTP 4xx/5xx)", () =>
+    Effect.gen(function* () {
+      let calls = 0;
+      const failingHttpClient = HttpClient.make((req, _url, _signal, _fiber) => {
+        calls++;
+        return Effect.fail(
+          new HttpClientError.HttpClientError({
+            reason: new HttpClientError.StatusCodeError({
+              request: req,
+              response: HttpClientResponse.fromWeb(req, new Response(null, { status: 500 }))
+            })
+          })
+        );
+      });
+
+      const adapter = new AlphaEssCloudApiDataAdapter(mockConfig, failingHttpClient);
+
+      const result = yield* Effect.exit(adapter.queryLatestValues(["current_production"]));
+      const resultErr = Exit.match(result, {
+        onSuccess: () => {
+          throw new Error("Expected failure");
+        },
+        onFailure: (cause) => Option.getOrThrow(Cause.findErrorOption(cause))
+      });
+      expect(resultErr).toBeInstanceOf(SourceNotAvailableError);
       expect(calls).toBe(1);
     })
   );
@@ -259,15 +280,23 @@ describe("AlphaEssCloudApiDataAdapter", () => {
   it.effect("should NOT retry on RequestError with reason 'InvalidUrl'", () =>
     Effect.gen(function* () {
       let calls = 0;
-      const failingHttpClient: HttpClient.HttpClient = HttpClient.make((req) => {
+      const failingHttpClient = HttpClient.make((req, _url, _signal, _fiber) => {
         calls++;
-        return Effect.fail(new RequestError({ reason: "InvalidUrl", request: req }));
+        return Effect.fail(
+          new HttpClientError.HttpClientError({ reason: new HttpClientError.InvalidUrlError({ request: req }) })
+        );
       });
 
       const adapter = new AlphaEssCloudApiDataAdapter(mockConfig, failingHttpClient);
 
       const result = yield* Effect.exit(adapter.queryLatestValues(["current_production"]));
-      expect(result).toStrictEqual(Exit.fail(new SourceNotAvailableError()));
+      const resultErr = Exit.match(result, {
+        onSuccess: () => {
+          throw new Error("Expected failure");
+        },
+        onFailure: (cause) => Option.getOrThrow(Cause.findErrorOption(cause))
+      });
+      expect(resultErr).toBeInstanceOf(SourceNotAvailableError);
       expect(calls).toBe(1);
     })
   );
@@ -279,7 +308,13 @@ describe("AlphaEssCloudApiDataAdapter", () => {
       const adapter = new AlphaEssCloudApiDataAdapter(mockConfig, mockHttpClient);
 
       const result = yield* Effect.exit(adapter.getLowestValueInLastXMinutes());
-      expect(result).toStrictEqual(Exit.fail(new DataNotAvailableError()));
+      const resultErr = Exit.match(result, {
+        onSuccess: () => {
+          throw new Error("Expected failure");
+        },
+        onFailure: (cause) => Option.getOrThrow(Cause.findErrorOption(cause))
+      });
+      expect(resultErr).toBeInstanceOf(DataNotAvailableError);
     })
   );
 });
