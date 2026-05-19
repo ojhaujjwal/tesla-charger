@@ -53,6 +53,12 @@
       "rules": {
         "tesla-charger/no-process": "off"
       }
+    },
+    {
+      "files": ["src/http-server-layer.ts"],
+      "rules": {
+        "tesla-charger/no-node-imports": "off"
+      }
     }
   ]
 }

@@ -9,6 +9,7 @@ import { DataAdapter, type IDataAdapter } from "../../data-adapter/types.js";
 import { ChargingSpeedController } from "../../charging-speed-controller/types.js";
 import type { ChargingConfig } from "../../domain/charging-session.js";
 import { App, AppLayer, type TimingConfig } from "../../app.js";
+import { AppRuntimeLayer } from "../../app-runtime.js";
 import { BatteryStateManager, type BatteryState } from "../../battery-state-manager.js";
 import type { TeslaChargerEvent } from "../../domain/events.js";
 
@@ -68,6 +69,7 @@ describe("App", () => {
           timingConfig,
           isDryRun: false
         }).pipe(
+          Layer.provideMerge(AppRuntimeLayer),
           Layer.provideMerge(TestBatteryStateManager),
           Layer.provideMerge(TestChargingSpeedController),
           Layer.provideMerge(TestTeslaClient),

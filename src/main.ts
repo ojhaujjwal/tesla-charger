@@ -1,6 +1,8 @@
 import { NodeHttpClient, NodeRuntime, NodeServices } from "@effect/platform-node";
 import { Config, Effect, Layer, Option, Redacted, References } from "effect";
+import { HttpRouter } from "effect/unstable/http";
 import { AppConfig } from "./config.js";
+import { httpServerLayer } from "./http-server-layer.js";
 import { AlphaEssCloudApiDataAdapterLayer } from "./data-adapter/alpha-ess-api.data-adapter.js";
 import { TeslaClient, TeslaClientLayer } from "./tesla-client/index.js";
 import { ElectricVehicle } from "./domain/electric-vehicle.js";
@@ -14,6 +16,8 @@ import { ExcessSolarAggresiveControllerLayer } from "./charging-speed-controller
 import { ExcessSolarNonAggresiveControllerLayer } from "./charging-speed-controller/excess-solar-non-aggresive.controller.js";
 import { DynamicChargingConfigLayer } from "./charging-speed-controller/dynamic-config.js";
 import { WeatherAwareBufferControllerLayer } from "./charging-speed-controller/weather-aware-buffer/index.js";
+import { AppRuntimeLayer } from "./app-runtime.js";
+import { ApiRoutes } from "./http-api.js";
 import { SolcastForecastLayer } from "./solar-forecast/solcast.adapter.js";
 
 const serviceLayers = Layer.mergeAll(AlphaEssCloudApiDataAdapterLayer);
@@ -61,16 +65,22 @@ const MainLayer = Layer.unwrap(
     const teslaVin = yield* AppConfig.tesla.vin;
     const costPerKwh = yield* AppConfig.cost.perKwh;
 
+    const bufferPower = yield* AppConfig.excessSolar.bufferPower;
+
     let controllerLayer;
 
     if (process.argv.includes("--fixed-lowest-speed")) {
       const fixedSpeed = yield* AppConfig.controller.fixedSpeedAmpere;
-      controllerLayer = FixedSpeedControllerLayer({ fixedSpeed, bufferPower: 300 });
+      controllerLayer = FixedSpeedControllerLayer({ fixedSpeed, bufferPower: 300 }).pipe(
+        Layer.provideMerge(DynamicChargingConfigLayer(bufferPower))
+      );
     } else if (process.argv.includes("--conservative")) {
-      controllerLayer = ConservativeControllerLayer();
+      controllerLayer = ConservativeControllerLayer().pipe(Layer.provideMerge(DynamicChargingConfigLayer(bufferPower)));
     } else if (process.argv.includes("--excess-feed-in-solar")) {
       const maxFeedInAllowed = yield* AppConfig.controller.maxAllowedFeedInPower;
-      controllerLayer = ExcessFeedInSolarControllerLayer({ maxFeedInAllowed });
+      controllerLayer = ExcessFeedInSolarControllerLayer({ maxFeedInAllowed }).pipe(
+        Layer.provideMerge(DynamicChargingConfigLayer(bufferPower))
+      );
     } else if (process.argv.includes("--weather-aware")) {
       const minBufferPower = yield* AppConfig.weatherAware.minBufferPower;
       const bufferMultiplierMax = yield* AppConfig.weatherAware.bufferMultiplierMax;
@@ -102,10 +112,10 @@ const MainLayer = Layer.unwrap(
             apiKey: solcastApiKey,
             rooftopResourceId: solcastRooftopResourceId
           })
-        )
+        ),
+        Layer.provideMerge(DynamicChargingConfigLayer(bufferPower))
       );
     } else {
-      const bufferPower = yield* AppConfig.excessSolar.bufferPower;
       controllerLayer = ExcessSolarNonAggresiveControllerLayer({
         baseControllerLayer: ExcessSolarAggresiveControllerLayer({
           multipleOf: 3
@@ -128,6 +138,7 @@ const MainLayer = Layer.unwrap(
     }).pipe(
       Layer.provideMerge(controllerLayer),
       Layer.provideMerge(BatteryStateManagerLayer),
+      Layer.provideMerge(AppRuntimeLayer),
       Layer.provideMerge(serviceLayers),
       Layer.provideMerge(teslaLayer),
       Layer.provideMerge(NodeServices.layer),
@@ -138,6 +149,15 @@ const MainLayer = Layer.unwrap(
 
 const program = Effect.gen(function* () {
   const app = yield* App;
+
+  const httpApiPort = yield* AppConfig.httpApi.port;
+  yield* Effect.forkScoped(
+    HttpRouter.serve(ApiRoutes).pipe(
+      Layer.provide(httpServerLayer(httpApiPort)),
+      Layer.build,
+      Effect.flatMap(() => Effect.never)
+    )
+  );
 
   yield* Effect.addFinalizer(() =>
     Effect.gen(function* () {

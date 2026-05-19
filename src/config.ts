@@ -58,5 +58,9 @@ export const AppConfig = {
 
   cost: {
     perKwh: EffectConfig.number("COST_PER_KWH").pipe(EffectConfig.withDefault(0.3))
+  },
+
+  httpApi: {
+    port: EffectConfig.int("HTTP_API_PORT").pipe(EffectConfig.withDefault(8080))
   }
 };

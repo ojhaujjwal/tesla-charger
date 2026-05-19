@@ -16,7 +16,7 @@ Currently the app runs headless — all state (charging control state, session s
 
 ## Solution
 
-Add an HTTP API server using `@effect/platform`'s `HttpServer` + `HttpRouter`, running alongside the existing charging loop. The server lifecycle is tied to the app's `Scope` via `Effect.forkScoped`. A new `AppRuntime` service owns the three central state `Ref`s (control state, session stats, app status) and exposes them to both `AppLayer` and the HTTP handlers.
+Add an HTTP API server using `effect/unstable/http`'s `HttpRouter` + `HttpServer`, running alongside the existing charging loop. Routes are defined as Layers via `HttpRouter.add()` and composed into a server Layer with `HttpRouter.serve()`, which is then provided to the app's Layer graph. A new `AppRuntime` service owns the three central state `Ref`s (control state, session stats, app status) and exposes them to both `AppLayer` and the HTTP handlers.
 
 ### Endpoints
 
@@ -31,11 +31,11 @@ Add an HTTP API server using `@effect/platform`'s `HttpServer` + `HttpRouter`, r
 
 1. **`AppRuntime` owns the Refs** (not `AppLayer`). Extracted from `AppLayer` so the HTTP handlers can access them without coupling to the charging loop internals.
 
-2. **`HttpApi` in a separate file** (`src/http-api.ts`). Decouples HTTP concerns from charging logic. The `HttpApi` service exposes a scoped `start` method.
+2. **Routes in a separate file** (`src/http-api.ts`). Decouples HTTP concerns from charging logic. Routes are defined as Layers using `HttpRouter.add()` and composed with `Layer.mergeAll()`.
 
-3. **Scope-driven lifecycle**. `HttpApi.start` returns `Effect<void, never, HttpServer | Scope>`. `App.start()` forks it via `Effect.forkScoped`, binding the server's lifetime to the app's `Scope`. When the app stops, the server shuts down cleanly.
+3. **Layer-driven lifecycle**. `HttpRouter.serve(routesLayer)` produces a `Layer` that starts the server when built and shuts it down when released. No manual fiber management — the server lifecycle is bound to the app's Scope automatically via the Layer graph.
 
-4. **Flat router** (not tag-based). Four routes are simple enough that modular routers would be over-engineering. Refactor to tag-based if routes grow.
+4. **Flat router layers**. Four routes are simple enough — each is a single `HttpRouter.add()` layer, composed with `Layer.mergeAll`. Refactor to tag-based middleware if routes grow.
 
 5. **HTTP server always on**. No CLI flag needed. Overhead of a listener on `localhost:8080` is negligible.
 
@@ -61,23 +61,23 @@ Add an HTTP API server using `@effect/platform`'s `HttpServer` + `HttpRouter`, r
 | File | Purpose |
 |------|---------|
 | `src/app-runtime.ts` | `AppRuntime` service + layer. Owns `controlRef`, `statsRef`, `appStatusRef`. |
-| `src/http-api.ts` | `HttpApi` service + layer. Builds router with 4 routes, exposes scoped `start`. |
+| `src/http-api.ts` | Route layers for 4 endpoints, composed via `Layer.mergeAll`. |
 
 ### Modified
 
 | File | Change |
 |------|--------|
 | `src/config.ts` | Add `httpApi.port` = `HTTP_API_PORT` env var (default `8080`) |
-| `src/app.ts` | (a) Remove `Ref.make(...)` lines — use `AppRuntime` instead. (b) Yield `AppRuntime` and `HttpApi`. (c) Fork `httpApi.start()` via `Effect.forkScoped` in `App.start()`. (d) Track `httpServerFiber` alongside existing fibers. (e) Add `HttpServer` and `Scope` to `App.start()` requirements. |
-| `src/main.ts` | Provide `AppRuntimeLayer`, `HttpApiLayer`, `NodeHttpServer.layer`. Read `httpApiPort` from env. Import `createServer` from `node:http`. |
+| `src/app.ts` | (a) Remove `Ref.make(...)` lines — use `AppRuntime` instead. (b) Yield `AppRuntime`. |
+| `src/main.ts` | Provide `AppRuntimeLayer`, define/merge HTTP server layer via `NodeHttpServer.layer`. Read `httpApiPort` from env. Import `createServer` from `node:http`. |
 
 ## Tasks
 
 - [ ] **Task 1**: Create `src/app-runtime.ts` — `AppRuntime` service + `AppRuntimeLayer`
-- [ ] **Task 2**: Create `src/http-api.ts` — `HttpApi` service + `HttpApiLayer` + router + routes
+- [ ] **Task 2**: Create `src/http-api.ts` — 4 route layers composed via `Layer.mergeAll`
 - [ ] **Task 3**: Add `HTTP_API_PORT` to `src/config.ts`
-- [ ] **Task 4**: Modify `src/app.ts` — remove Ref creation, yield `AppRuntime` and `HttpApi`, fork HTTP server in `start()`
-- [ ] **Task 5**: Modify `src/main.ts` — provide new layers, port from env, import `createServer` and `NodeHttpServer`
+- [ ] **Task 4**: Modify `src/app.ts` — remove Ref creation, yield `AppRuntime`, replace `controlRef`/`statsRef`/`appStatusRef` with `appRuntime.*`
+- [ ] **Task 5**: Modify `src/main.ts` — provide `AppRuntimeLayer`, build `HttpServerLayer` with `HttpRouter.serve` + `NodeHttpServer.layer`, read `httpApiPort` from env
 - [ ] **Task 6**: Typecheck (`npx tsc --noEmit`) and run all tests (`npx vitest run`)
 
 ## Implementation Details
@@ -89,14 +89,14 @@ import { Context, Effect, Layer, Ref } from "effect";
 import type { ChargingControlState, ChargingSessionStats } from "./domain/charging-session.js";
 import { createInitialChargingControlState, createInitialChargingSessionStats, AppStatus } from "./domain/charging-session.js";
 
-export class AppRuntime extends Context.Tag("@tesla-charger/AppRuntime")<
+export class AppRuntime extends Context.Service<
   AppRuntime,
   {
     readonly controlRef: Ref.Ref<ChargingControlState>;
     readonly statsRef: Ref.Ref<ChargingSessionStats>;
     readonly appStatusRef: Ref.Ref<AppStatus>;
   }
->() {}
+>()("@tesla-charger/AppRuntime") {}
 
 export const AppRuntimeLayer = Layer.effect(
   AppRuntime,
@@ -111,84 +111,84 @@ export const AppRuntimeLayer = Layer.effect(
 
 ### Task 2: `src/http-api.ts`
 
-Service:
+Each route is a `Layer` created by `HttpRouter.add()`, composed with `Layer.mergeAll`. The composed route layer is passed to `HttpRouter.serve()` in `main.ts` to create the server.
 
 ```ts
-import { Context, Effect, Layer, Ref, Schema } from "effect";
-import { HttpRouter, HttpServer, HttpServerRequest, HttpServerResponse } from "@effect/platform";
+import { Effect, Layer, Ref, Schema } from "effect";
+import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { AppRuntime } from "./app-runtime.js";
 import { DynamicChargingConfig } from "./charging-speed-controller/dynamic-config.js";
 import { BatteryStateManager } from "./battery-state-manager.js";
 import { AppStatus } from "./domain/charging-session.js";
 
-export class HttpApi extends Context.Tag("@tesla-charger/HttpApi")<
-  HttpApi,
-  {
-    readonly start: Effect.Effect<void, never, HttpServer.HttpServer | Scope.Scope>;
-  }
->() {}
+// GET /healthz — no dependencies beyond the router
+const HealthRoute = HttpRouter.add(
+  "GET", "/healthz",
+  HttpServerResponse.text("ok")
+);
 
-export const HttpApiLayer = Layer.effect(
-  HttpApi,
+// GET /state — requires AppRuntime + BatteryStateManager
+const StateRoute = HttpRouter.add(
+  "GET", "/state",
   Effect.gen(function* () {
     const appRuntime = yield* AppRuntime;
-    const dynamicConfig = yield* DynamicChargingConfig;
     const batteryStateManager = yield* BatteryStateManager;
-
-    const router = HttpRouter.empty.pipe(
-      HttpRouter.get("/healthz",
-        HttpServerResponse.text("ok")
-      ),
-      HttpRouter.get("/state",
-        Effect.gen(function* () {
-          const control = yield* Ref.get(appRuntime.controlRef);
-          const stats = yield* Ref.get(appRuntime.statsRef);
-          const appStatus = yield* Ref.get(appRuntime.appStatusRef);
-          const battery = batteryStateManager.get();
-          return HttpServerResponse.unsafeJson({
-            control,
-            stats,
-            appStatus: AppStatus[appStatus],
-            battery
-          });
-        })
-      ),
-      HttpRouter.get("/dynamic-charging-config",
-        Effect.gen(function* () {
-          const bufferPower = yield* dynamicConfig.getBufferPower;
-          return HttpServerResponse.unsafeJson({ bufferPower });
-        })
-      ),
-      HttpRouter.patch("/dynamic-charging-config",
-        Effect.gen(function* () {
-          const req = yield* HttpServerRequest.HttpServerRequest;
-          const body = yield* HttpServerRequest.schemaBodyJson(
-            Schema.Struct({ bufferPower: Schema.Number })
-          )(req);
-          yield* dynamicConfig.setBufferPower(body.bufferPower);
-          return HttpServerResponse.unsafeJson({ bufferPower: body.bufferPower });
-        })
-      )
-    );
-
-    const start = Effect.fn("HttpApi.start")(() =>
-      HttpServer.serve(router.pipe(HttpRouter.toHttpApp))
-    );
-
-    return { start };
+    const control = yield* Ref.get(appRuntime.controlRef);
+    const stats = yield* Ref.get(appRuntime.statsRef);
+    const appStatus = yield* Ref.get(appRuntime.appStatusRef);
+    const battery = batteryStateManager.get();
+    return HttpServerResponse.jsonUnsafe({
+      control,
+      stats,
+      appStatus: AppStatus[appStatus],
+      battery
+    });
   })
+);
+
+// GET /dynamic-charging-config — requires DynamicChargingConfig
+const GetConfigRoute = HttpRouter.add(
+  "GET", "/dynamic-charging-config",
+  Effect.gen(function* () {
+    const dynamicConfig = yield* DynamicChargingConfig;
+    const bufferPower = yield* dynamicConfig.getBufferPower;
+    return HttpServerResponse.jsonUnsafe({ bufferPower });
+  })
+);
+
+// PATCH /dynamic-charging-config — requires DynamicChargingConfig
+const PatchConfigRoute = HttpRouter.add(
+  "PATCH", "/dynamic-charging-config",
+  Effect.gen(function* () {
+    const body = yield* HttpServerRequest.schemaBodyJson(
+      Schema.Struct({ bufferPower: Schema.Number })
+    );
+    const dynamicConfig = yield* DynamicChargingConfig;
+    yield* dynamicConfig.setBufferPower(body.bufferPower);
+    return HttpServerResponse.jsonUnsafe({ bufferPower: body.bufferPower });
+  })
+);
+
+// Compose all routes — the server layer is built in main.ts via HttpRouter.serve
+export const AllRoutes = Layer.mergeAll(
+  HealthRoute,
+  StateRoute,
+  GetConfigRoute,
+  PatchConfigRoute
 );
 ```
 
-Key: `HttpApiLayer` yields `AppRuntime`, `DynamicChargingConfig`, and `BatteryStateManager` at layer construction and captures them in the closure. This means the layer requires `AppRuntime | DynamicChargingConfig | BatteryStateManager`, which are all provided elsewhere in the layer graph.
-
-`HttpApi.start` requires `HttpServer` and `Scope` — these come from the outer context when the effect runs (provided by `NodeHttpServer.layer` and `Effect.scoped` respectively).
+Key points:
+- `HttpRouter.add("METHOD", "/path", handler)` returns a `Layer` whose requirements track the handler's service dependencies as phantom types (`Request.From<"Requires", ...>`).
+- `HttpServerRequest` and `Scope.Scope` are automatically excluded from layer requirements because the router provides them per-request.
+- `schemaBodyJson(schema)` returns an `Effect` that already reads `HttpServerRequest` from context — no need to yield the request explicitly.
+- `HttpRouter.serve(AllRoutes)` in `main.ts` produces the server `Layer`, combining the router with `HttpServer.serve`.
 
 ### Task 3: `src/config.ts` additions
 
 ```ts
 httpApi: {
-  port: EffectConfig.integer("HTTP_API_PORT").pipe(EffectConfig.withDefault(8080))
+  port: EffectConfig.int("HTTP_API_PORT").pipe(EffectConfig.withDefault(8080))
 }
 ```
 
@@ -205,55 +205,11 @@ const appStatusRef = yield* Ref.make(AppStatus.Pending);
 **Add** after `const batteryStateManager = yield* BatteryStateManager;` (line ~80):
 ```ts
 const appRuntime = yield* AppRuntime;
-const httpApi = yield* HttpApi;
 ```
 
 **Replace** all references to `controlRef`, `statsRef`, `appStatusRef` with `appRuntime.controlRef`, `appRuntime.statsRef`, `appRuntime.appStatusRef` throughout `stop()` and `start()`.
 
-**Add** `httpServerFiber` variable and tracking:
-```ts
-let httpServerFiber: Fiber.RuntimeFiber<void, never> | undefined;
-```
-
-**In `start()`**, after setting `AppStatus.Running`:
-```ts
-httpServerFiber = yield* Effect.forkScoped(httpApi.start);
-```
-
-**In `stop()`**, add `httpServerFiber` to the fibers array:
-```ts
-fibers: [
-  batteryStateManagerFiber,
-  eventLoggerFiber,
-  tokenRefreshFiber,
-  mainSyncFiber,
-  runtimeMonitorFiber,
-  httpServerFiber
-].filter((f): f is NonNullable<typeof f> => f !== undefined)
-```
-
-**Update `Fiber.joinAll()`** to include `httpServerFiber`:
-```ts
-yield* Fiber.joinAll([
-  tokenRefreshFiber,
-  batteryStateManagerFiber,
-  eventLoggerFiber,
-  mainSyncFiber,
-  runtimeMonitorFiber,
-  ...(httpServerFiber ? [httpServerFiber] : [])
-]);
-```
-
-**Update `App` type** to include `HttpServer` and `Scope` in `start()` requirements:
-```ts
-readonly start: () => Effect.Effect<
-  void,
-  ...errors...,
-  ElectricVehicle | HttpServer.HttpServer | Scope.Scope
->;
-```
-
-**Provide `HttpApi` to `start()`** in the `Effect.provideService` chain alongside the existing provides.
+No other changes to `app.ts` — the HTTP server lifecycle is managed entirely by the Layer graph in `main.ts`; `App.start()`/`stop()` do not need to fork or interrupt the server manually.
 
 ### Task 5: `src/main.ts` changes
 
@@ -261,8 +217,9 @@ readonly start: () => Effect.Effect<
 ```ts
 import { createServer } from "node:http";
 import { NodeHttpServer } from "@effect/platform-node";
+import { HttpRouter } from "effect/unstable/http";
 import { AppRuntimeLayer } from "./app-runtime.js";
-import { HttpApiLayer } from "./http-api.js";
+import { AllRoutes } from "./http-api.js";
 ```
 
 **Read port** after `costPerKwh`:
@@ -270,12 +227,18 @@ import { HttpApiLayer } from "./http-api.js";
 const httpApiPort = yield* AppConfig.httpApi.port;
 ```
 
-**Add to `Layer.provideMerge` chain** (before the existing controller/battery layers, after AppLayer):
+**Build the HTTP server layer** (after controller layer selection, before the final `AppLayer(...).pipe(...)`):
+```ts
+const HttpServerLayer = HttpRouter.serve(AllRoutes).pipe(
+  Layer.provide(NodeHttpServer.layer(createServer, { port: httpApiPort }))
+);
+```
+
+**Add to `Layer.provideMerge` chain** (before the existing controller/battery layers, after `AppLayer`):
 ```ts
 Layer.provideMerge(controllerLayer),
 Layer.provideMerge(AppRuntimeLayer),
-Layer.provideMerge(HttpApiLayer),
-Layer.provideMerge(NodeHttpServer.layer(() => createServer(), { port: httpApiPort })),
+Layer.provideMerge(HttpServerLayer),
 Layer.provideMerge(DynamicChargingConfigLayer(bufferPower)),
 Layer.provideMerge(BatteryStateManagerLayer),
 ```
@@ -288,11 +251,11 @@ npm run ci
 
 ## Lifecycle Walkthrough
 
-1. `main.ts` builds `MainLayer` with all layers provided
-2. `App.start()` is called → sets status to Running → forks `httpApi.start()` into `httpServerFiber` using `Effect.forkScoped` (bound to the app's `Scope`)
-3. HTTP server listens on `HTTP_API_PORT` (default 8080)
-4. `App.stop()` is called → interrupts `httpServerFiber` alongside all other fibers → server shuts down cleanly via Scope release
-5. `Effect.scoped` in `main.ts` closes the `Scope` on program exit
+1. `main.ts` builds `MainLayer` — the Layer graph includes `HttpServerLayer` (routes + Node HTTP server)
+2. The `HttpRouter.serve(AllRoutes)` layer starts the server when the Layer graph is built (server listens on `HTTP_API_PORT`, default 8080)
+3. `App.start()` is called → sets status to Running
+4. `App.stop()` is called
+5. `Effect.scoped` releases all layers → the HTTP server shuts down cleanly when its owning Scope finalizes
 
 ## Acceptance Criteria
 
@@ -302,12 +265,13 @@ npm run ci
 - [ ] `PATCH /dynamic-charging-config` with `{ bufferPower: 2000 }` changes the value, and subsequent `GET` returns the new value
 - [ ] All existing tests pass
 - [ ] `npm run ci` passes with no errors
-- [ ] Server shuts down cleanly when app stops
-- [ ] Server starts/stops via `App.start()` / `App.stop()` lifecycle
+- [ ] Server shuts down cleanly when app stops (via Layer scope finalization)
+- [ ] Server starts when Layer graph is built, stops when Scope is released
 
 ## References
 
-- Effect HttpServer guide: `effect-solutions show services-and-layers`
+- Effect HttpServer guide: `ai-docs/src/51_http-server/10_basics.ts` (in effect-smol)
 - Existing dynamic config: `src/charging-speed-controller/dynamic-config.ts`
 - App lifecycle: `src/app.ts` (AppLayer, start/stop)
 - Layer wiring: `src/main.ts` (MainLayer construction)
+- Import paths: HTTP modules from `effect/unstable/http`, NodeHttpServer from `@effect/platform-node`

@@ -15,15 +15,12 @@ import { Context, Duration, Effect, Fiber, Layer, PubSub, Ref, Schedule } from "
 import type { AuthenticationFailedError, VehicleCommandFailedError } from "./tesla-client/errors.js";
 import { VehicleNotWakingUpError } from "./errors/vehicle-not-waking-up.error.js";
 import { BatteryStateManager } from "./battery-state-manager.js";
+import { AppRuntime } from "./app-runtime.js";
 import { memoryUsageMB } from "./memory-usage.js";
 import { ElectricVehicle } from "./domain/electric-vehicle.js";
 import { TeslaChargerEventPubSub, type TeslaChargerEvent } from "./domain/events.js";
 import type { ChargingConfig } from "./domain/charging-session.js";
-import {
-  createInitialChargingControlState,
-  createInitialChargingSessionStats,
-  AppStatus
-} from "./domain/charging-session.js";
+import { AppStatus } from "./domain/charging-session.js";
 import { syncTargetAmpere } from "./application/charge-sync.js";
 import { verifyCharging } from "./application/charge-verifier.js";
 import { beginSession, endSession, shutdownAfterMaxRuntime } from "./application/session-lifecycle.js";
@@ -75,13 +72,10 @@ export const AppLayer = (config: {
       const dataAdapter: IDataAdapter = yield* DataAdapter;
       const chargingSpeedController = yield* ChargingSpeedController;
       const batteryStateManager = yield* BatteryStateManager;
+      const appRuntime = yield* AppRuntime;
       const isDryRun = config.isDryRun ?? false;
       const costPerKwh = config.costPerKwh ?? 0.3;
       const teslaChargerPubSub = yield* PubSub.unbounded<TeslaChargerEvent>();
-
-      const controlRef = yield* Ref.make(createInitialChargingControlState());
-      const statsRef = yield* Ref.make(createInitialChargingSessionStats());
-      const appStatusRef = yield* Ref.make(AppStatus.Pending);
 
       let tokenRefreshFiber: Fiber.Fiber<void, FiberErrors> | undefined;
       let batteryStateManagerFiber: Fiber.Fiber<void, FiberErrors> | undefined;
@@ -94,8 +88,8 @@ export const AppLayer = (config: {
           yield* endSession({
             teslaClient,
             dataAdapter,
-            controlRef,
-            statsRef,
+            controlRef: appRuntime.controlRef,
+            statsRef: appRuntime.statsRef,
             pubSub: teslaChargerPubSub,
             isDryRun,
             costPerKwh,
@@ -109,20 +103,20 @@ export const AppLayer = (config: {
             ].filter((f): f is NonNullable<typeof f> => f !== undefined)
           });
 
-          yield* Ref.set(appStatusRef, AppStatus.Stopped);
+          yield* Ref.set(appRuntime.appStatusRef, AppStatus.Stopped);
         },
         (eff) => eff.pipe(Effect.orDie)
       );
 
       const start: App["Service"]["start"] = () =>
         Effect.gen(function* () {
-          yield* Ref.set(appStatusRef, AppStatus.Running);
+          yield* Ref.set(appRuntime.appStatusRef, AppStatus.Running);
 
           const sessionFibers = yield* beginSession(
             teslaClient,
             dataAdapter,
             batteryStateManager,
-            statsRef,
+            appRuntime.statsRef,
             teslaChargerPubSub
           );
           tokenRefreshFiber = sessionFibers.tokenRefreshFiber;
@@ -139,7 +133,7 @@ export const AppLayer = (config: {
             ElectricVehicle | DataAdapter | BatteryStateManager
           > =>
             Effect.gen(function* () {
-              const controlState = yield* Ref.get(controlRef);
+              const controlState = yield* Ref.get(appRuntime.controlRef);
               const currentSpeed = controlState.status === "Charging" ? controlState.ampere : 0;
               const ampere = yield* chargingSpeedController.determineChargingSpeed(currentSpeed);
 
@@ -149,7 +143,7 @@ export const AppLayer = (config: {
               });
 
               const targetAmpere = Math.min(32, ampere);
-              const sessionStats = yield* Ref.get(statsRef);
+              const sessionStats = yield* Ref.get(appRuntime.statsRef);
               const { current_production: currentProductionAtStart } = yield* dataAdapter.queryLatestValues([
                 "current_production"
               ]);
@@ -194,15 +188,15 @@ export const AppLayer = (config: {
                 Effect.provideService(TeslaChargerEventPubSub, teslaChargerPubSub)
               );
 
-              yield* Ref.set(controlRef, result.state);
-              yield* Ref.set(statsRef, result.stats);
+              yield* Ref.set(appRuntime.controlRef, result.state);
+              yield* Ref.set(appRuntime.statsRef, result.stats);
 
               yield* Effect.sleep(config.timingConfig.syncIntervalInMs).pipe(Effect.withSpan("syncAmpere.postWaiting"));
 
-              const currentControlState = yield* Ref.get(controlRef);
+              const currentControlState = yield* Ref.get(appRuntime.controlRef);
               yield* verifyCharging(dataAdapter, batteryStateManager, currentControlState, stop());
 
-              return yield* Ref.get(appStatusRef);
+              return yield* Ref.get(appRuntime.appStatusRef);
             }).pipe(
               Effect.tap(() =>
                 Effect.annotateCurrentSpan({
