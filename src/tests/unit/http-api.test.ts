@@ -87,7 +87,7 @@ describe("HTTP API", () => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest))
   );
 
-  it.effect("PATCH /dynamic-charging-config with invalid body returns 400 with error details", () =>
+  it.effect("PATCH /dynamic-charging-config with invalid body returns 400 with descriptive message", () =>
     Effect.gen(function* () {
       yield* buildServer();
       const client = yield* HttpClient.HttpClient;
@@ -98,8 +98,10 @@ describe("HTTP API", () => {
       });
       expect(response.status).toBe(400);
       const body = yield* response.json;
-      expect(body).toHaveProperty("kind", "Payload");
-      expect(body).toHaveProperty("message");
+      expect(body).toEqual({
+        kind: "Payload",
+        message: 'Expected a numeric value, got "a100"\n  at ["bufferPower"]'
+      });
     }).pipe(Effect.provide(NodeHttpServer.layerTest))
   );
 
@@ -121,7 +123,7 @@ describe("HTTP API", () => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest))
   );
 
-  it.effect("GET /openapi.json returns OpenAPI spec", () =>
+  it.effect("GET /openapi.json returns correct OpenAPI spec for dynamic-charging-config", () =>
     Effect.gen(function* () {
       yield* buildServer();
       const client = yield* HttpClient.HttpClient;
@@ -129,11 +131,25 @@ describe("HTTP API", () => {
       const body = yield* response.json;
       expect(body).toHaveProperty("openapi");
       expect(body).toHaveProperty("info.title", "Tesla Charger API");
-      expect(body).toHaveProperty("paths./healthz");
-      expect(body).toHaveProperty("paths./state");
-      expect(body).toHaveProperty("paths./dynamic-charging-config");
-      expect(body).toHaveProperty("paths./dynamic-charging-config.patch.responses.400");
-      expect(body).toHaveProperty("paths./dynamic-charging-config.patch.responses.200");
+
+      const dc = "paths./dynamic-charging-config";
+
+      // No 500 on GET or PATCH
+      expect(body).not.toHaveProperty(dc + ".get.responses.500");
+      expect(body).not.toHaveProperty(dc + ".patch.responses.500");
+
+      // Both have 200 + 400
+      expect(body).toHaveProperty(dc + ".get.responses.200");
+      expect(body).toHaveProperty(dc + ".get.responses.400");
+      expect(body).toHaveProperty(dc + ".patch.responses.200");
+      expect(body).toHaveProperty(dc + ".patch.responses.400");
+
+      // 400 bodies have { kind, message }, not { _tag }
+      const schema = (suffix: string) => dc + "." + suffix + ".responses.400.content.application/json.schema";
+      expect(body).toHaveProperty(schema("get") + ".properties.kind");
+      expect(body).toHaveProperty(schema("get") + ".properties.message");
+      expect(body).toHaveProperty(schema("patch") + ".properties.kind");
+      expect(body).toHaveProperty(schema("patch") + ".properties.message");
     }).pipe(Effect.provide(NodeHttpServer.layerTest))
   );
 });

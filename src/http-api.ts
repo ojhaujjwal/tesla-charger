@@ -4,7 +4,6 @@ import {
   HttpApi,
   HttpApiBuilder,
   HttpApiEndpoint,
-  HttpApiError,
   HttpApiGroup,
   HttpApiMiddleware,
   OpenApi
@@ -43,7 +42,9 @@ const StateResponseSchema = Schema.Struct({
 });
 
 const DynamicConfigSchema = Schema.Struct({
-  bufferPower: Schema.Number.pipe(Schema.annotate({ identifier: "a numeric value" }))
+  bufferPower: Schema.Finite.pipe(
+    Schema.annotate({ message: "Expected a numeric value", identifier: "a numeric value" })
+  )
 });
 
 class HealthGroup extends HttpApiGroup.make("health", { topLevel: true })
@@ -75,7 +76,7 @@ class StateGroup extends HttpApiGroup.make("state", { topLevel: true })
 const ValidationErrorBody = Schema.Struct({
   kind: Schema.String,
   message: Schema.String
-});
+}).pipe(Schema.annotate({ httpApiStatus: 400 }));
 
 class ValidationErrorHandler extends HttpApiMiddleware.Service<ValidationErrorHandler>()(
   "tesla-charger/ValidationErrorHandler",
@@ -101,8 +102,7 @@ class DynamicChargingConfigGroup extends HttpApiGroup.make("dynamicChargingConfi
     }),
     HttpApiEndpoint.patch("setConfig", "/dynamic-charging-config", {
       payload: DynamicConfigSchema,
-      success: DynamicConfigSchema,
-      error: HttpApiError.BadRequest
+      success: DynamicConfigSchema
     })
   )
   .middleware(ValidationErrorHandler)
