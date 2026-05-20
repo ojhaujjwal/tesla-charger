@@ -17,7 +17,7 @@ import { ExcessSolarNonAggresiveControllerLayer } from "./charging-speed-control
 import { DynamicChargingConfigLayer } from "./charging-speed-controller/dynamic-config.js";
 import { WeatherAwareBufferControllerLayer } from "./charging-speed-controller/weather-aware-buffer/index.js";
 import { AppRuntimeLayer } from "./app-runtime.js";
-import { ApiRoutes } from "./http-api.js";
+import { ApiRoutes } from "./http/index.js";
 import { SolcastForecastLayer } from "./solar-forecast/solcast.adapter.js";
 
 const serviceLayers = Layer.mergeAll(AlphaEssCloudApiDataAdapterLayer);
