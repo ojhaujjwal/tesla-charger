@@ -1,5 +1,6 @@
 import { NodeHttpClient, NodeRuntime, NodeServices } from "@effect/platform-node";
-import { Config, Effect, Layer, Option, Redacted, References } from "effect";
+import { Effect, Layer, Option, Redacted } from "effect";
+import { Command, Flag } from "effect/unstable/cli";
 import { HttpRouter } from "effect/unstable/http";
 import { AppConfig } from "./config.js";
 import { httpServerLayer } from "./http-server-layer.js";
@@ -20,8 +21,6 @@ import { AppRuntimeLayer } from "./app-runtime.js";
 import { ApiRoutes } from "./http/index.js";
 import { SolcastForecastLayer } from "./solar-forecast/solcast.adapter.js";
 
-const serviceLayers = Layer.mergeAll(AlphaEssCloudApiDataAdapterLayer);
-
 const createTeslaClientLayer = (config: {
   readonly appDomain: string;
   readonly clientId: string;
@@ -36,10 +35,6 @@ const createTeslaClientLayer = (config: {
   return Layer.mergeAll(base, ev.pipe(Layer.provide(base)));
 };
 
-const maxRuntimeHours = process.argv.includes("--max-runtime-hours")
-  ? parseInt(process.argv[process.argv.indexOf("--max-runtime-hours") + 1])
-  : undefined;
-
 const chargingConfig: ChargingConfig = {
   waitPerAmereInSeconds: 2.2,
   extraWaitOnChargeStartInSeconds: 10,
@@ -52,102 +47,7 @@ const timingConfigBase = {
   inactivityTimeInSeconds: 15 * 60
 };
 
-const MainLayer = Layer.unwrap(
-  Effect.gen(function* () {
-    const timingConfig: TimingConfig = {
-      ...timingConfigBase,
-      ...(maxRuntimeHours !== undefined && { maxRuntimeHours })
-    };
-
-    const teslaAppDomain = yield* AppConfig.tesla.appDomain;
-    const teslaClientId = yield* AppConfig.tesla.oauth2ClientId;
-    const teslaClientSecret = yield* AppConfig.tesla.oauth2ClientSecret;
-    const teslaVin = yield* AppConfig.tesla.vin;
-    const costPerKwh = yield* AppConfig.cost.perKwh;
-
-    const bufferPower = yield* AppConfig.excessSolar.bufferPower;
-
-    let controllerLayer;
-
-    if (process.argv.includes("--fixed-lowest-speed")) {
-      const fixedSpeed = yield* AppConfig.controller.fixedSpeedAmpere;
-      controllerLayer = FixedSpeedControllerLayer({ fixedSpeed, bufferPower: 300 }).pipe(
-        Layer.provideMerge(DynamicChargingConfigLayer(bufferPower))
-      );
-    } else if (process.argv.includes("--conservative")) {
-      controllerLayer = ConservativeControllerLayer().pipe(Layer.provideMerge(DynamicChargingConfigLayer(bufferPower)));
-    } else if (process.argv.includes("--excess-feed-in-solar")) {
-      const maxFeedInAllowed = yield* AppConfig.controller.maxAllowedFeedInPower;
-      controllerLayer = ExcessFeedInSolarControllerLayer({ maxFeedInAllowed }).pipe(
-        Layer.provideMerge(DynamicChargingConfigLayer(bufferPower))
-      );
-    } else if (process.argv.includes("--weather-aware")) {
-      const minBufferPower = yield* AppConfig.weatherAware.minBufferPower;
-      const bufferMultiplierMax = yield* AppConfig.weatherAware.bufferMultiplierMax;
-      const carBatteryCapacityKwh = yield* AppConfig.weatherAware.carBatteryCapacityKwh;
-      const peakSolarCapacityKw = yield* AppConfig.weatherAware.peakSolarCapacityKw;
-      const latitude = yield* AppConfig.weatherAware.latitude;
-      const longitude = yield* AppConfig.weatherAware.longitude;
-      const defaultDailyProductionKwh = yield* AppConfig.weatherAware.defaultDailyProductionKwh;
-      const solarCutoffHour = yield* AppConfig.weatherAware.solarCutoffHour;
-      const deadlineHourOption = yield* Effect.option(AppConfig.weatherAware.deadlineHour);
-
-      const solcastApiKey = yield* AppConfig.solcast.apiKey;
-      const solcastRooftopResourceId = yield* AppConfig.solcast.rooftopResourceId;
-
-      controllerLayer = WeatherAwareBufferControllerLayer({
-        minBufferPower,
-        bufferMultiplierMax,
-        carBatteryCapacityKwh,
-        peakSolarCapacityKw,
-        latitude,
-        longitude,
-        defaultDailyProductionKwh,
-        solarCutoffHour,
-        multipleOf: 3,
-        ...(Option.isSome(deadlineHourOption) && { deadlineHour: deadlineHourOption.value })
-      }).pipe(
-        Layer.provide(
-          SolcastForecastLayer({
-            apiKey: solcastApiKey,
-            rooftopResourceId: solcastRooftopResourceId
-          })
-        ),
-        Layer.provideMerge(DynamicChargingConfigLayer(bufferPower))
-      );
-    } else {
-      controllerLayer = ExcessSolarNonAggresiveControllerLayer({
-        baseControllerLayer: ExcessSolarAggresiveControllerLayer({
-          multipleOf: 3
-        })
-      }).pipe(Layer.provideMerge(DynamicChargingConfigLayer(bufferPower)));
-    }
-
-    const teslaLayer = createTeslaClientLayer({
-      appDomain: teslaAppDomain,
-      clientId: teslaClientId,
-      clientSecret: teslaClientSecret,
-      vin: teslaVin
-    });
-
-    return AppLayer({
-      chargingConfig,
-      timingConfig,
-      isDryRun: process.argv.includes("--dry-run"),
-      costPerKwh
-    }).pipe(
-      Layer.provideMerge(controllerLayer),
-      Layer.provideMerge(BatteryStateManagerLayer),
-      Layer.provideMerge(AppRuntimeLayer),
-      Layer.provideMerge(serviceLayers),
-      Layer.provideMerge(teslaLayer),
-      Layer.provideMerge(NodeServices.layer),
-      Layer.provideMerge(NodeHttpClient.layerFetch)
-    );
-  }).pipe(Effect.withSpan("MainLayer"))
-);
-
-const program = Effect.gen(function* () {
+const programBody = Effect.gen(function* () {
   const app = yield* App;
 
   const httpApiPort = yield* AppConfig.httpApi.port;
@@ -174,16 +74,140 @@ const program = Effect.gen(function* () {
       )
     )
   );
-}).pipe(Effect.provide(MainLayer), Effect.scoped, Effect.withSpan("program"));
+});
 
-const runProgram = Effect.gen(function* () {
-  const nodeEnv = yield* Config.string("NODE_ENV").pipe(Config.withDefault("production"));
-  const logLevel = nodeEnv === "production" ? ("Info" as const) : ("Debug" as const);
-  return yield* program.pipe(Effect.provideService(References.MinimumLogLevel, logLevel));
-}).pipe(
-  Effect.tapDefect((cause) => Effect.logError("Defect detected", cause)),
-  Effect.withSpan("runProgram")
-);
+const cli = Command.make(
+  "tesla-charger",
+  {
+    controller: Flag.choice("controller", [
+      "fixed-lowest-speed",
+      "conservative",
+      "excess-feed-in-solar",
+      "weather-aware"
+    ] as const).pipe(Flag.withAlias("c"), Flag.optional, Flag.withDescription("Charging controller strategy")),
+    maxRuntimeHours: Flag.integer("max-runtime-hours").pipe(
+      Flag.withAlias("t"),
+      Flag.optional,
+      Flag.withDescription("Maximum runtime in hours before auto-shutdown")
+    ),
+    dryRun: Flag.boolean("dry-run").pipe(
+      Flag.withAlias("d"),
+      Flag.withDefault(false),
+      Flag.withDescription("Simulate without making actual Tesla API calls")
+    )
+  },
+  (parsed) => {
+    const MainLayer = Layer.unwrap(
+      Effect.gen(function* () {
+        const timingConfig: TimingConfig = {
+          ...timingConfigBase,
+          ...(Option.isSome(parsed.maxRuntimeHours) && { maxRuntimeHours: parsed.maxRuntimeHours.value })
+        };
+
+        const isDryRun = parsed.dryRun;
+
+        const teslaAppDomain = yield* AppConfig.tesla.appDomain;
+        const teslaClientId = yield* AppConfig.tesla.oauth2ClientId;
+        const teslaClientSecret = yield* AppConfig.tesla.oauth2ClientSecret;
+        const teslaVin = yield* AppConfig.tesla.vin;
+        const costPerKwh = yield* AppConfig.cost.perKwh;
+
+        const bufferPower = yield* AppConfig.excessSolar.bufferPower;
+
+        const controllerTag = Option.getOrElse(parsed.controller, () => "default" as const);
+        let controllerLayer;
+
+        if (controllerTag === "fixed-lowest-speed") {
+          const fixedSpeed = yield* AppConfig.controller.fixedSpeedAmpere;
+          controllerLayer = FixedSpeedControllerLayer({ fixedSpeed, bufferPower: 300 }).pipe(
+            Layer.provideMerge(DynamicChargingConfigLayer(bufferPower))
+          );
+        } else if (controllerTag === "conservative") {
+          controllerLayer = ConservativeControllerLayer().pipe(
+            Layer.provideMerge(DynamicChargingConfigLayer(bufferPower))
+          );
+        } else if (controllerTag === "excess-feed-in-solar") {
+          const maxFeedInAllowed = yield* AppConfig.controller.maxAllowedFeedInPower;
+          controllerLayer = ExcessFeedInSolarControllerLayer({ maxFeedInAllowed }).pipe(
+            Layer.provideMerge(DynamicChargingConfigLayer(bufferPower))
+          );
+        } else if (controllerTag === "weather-aware") {
+          const minBufferPower = yield* AppConfig.weatherAware.minBufferPower;
+          const bufferMultiplierMax = yield* AppConfig.weatherAware.bufferMultiplierMax;
+          const carBatteryCapacityKwh = yield* AppConfig.weatherAware.carBatteryCapacityKwh;
+          const peakSolarCapacityKw = yield* AppConfig.weatherAware.peakSolarCapacityKw;
+          const latitude = yield* AppConfig.weatherAware.latitude;
+          const longitude = yield* AppConfig.weatherAware.longitude;
+          const defaultDailyProductionKwh = yield* AppConfig.weatherAware.defaultDailyProductionKwh;
+          const solarCutoffHour = yield* AppConfig.weatherAware.solarCutoffHour;
+          const deadlineHourOption = yield* Effect.option(AppConfig.weatherAware.deadlineHour);
+
+          const solcastApiKey = yield* AppConfig.solcast.apiKey;
+          const solcastRooftopResourceId = yield* AppConfig.solcast.rooftopResourceId;
+
+          controllerLayer = WeatherAwareBufferControllerLayer({
+            minBufferPower,
+            bufferMultiplierMax,
+            carBatteryCapacityKwh,
+            peakSolarCapacityKw,
+            latitude,
+            longitude,
+            defaultDailyProductionKwh,
+            solarCutoffHour,
+            multipleOf: 3,
+            ...(Option.isSome(deadlineHourOption) && { deadlineHour: deadlineHourOption.value })
+          }).pipe(
+            Layer.provide(
+              SolcastForecastLayer({
+                apiKey: solcastApiKey,
+                rooftopResourceId: solcastRooftopResourceId
+              })
+            ),
+            Layer.provideMerge(DynamicChargingConfigLayer(bufferPower))
+          );
+        } else {
+          controllerLayer = ExcessSolarNonAggresiveControllerLayer({
+            baseControllerLayer: ExcessSolarAggresiveControllerLayer({
+              multipleOf: 1
+            })
+          }).pipe(Layer.provideMerge(DynamicChargingConfigLayer(bufferPower)));
+        }
+
+        const teslaLayer = createTeslaClientLayer({
+          appDomain: teslaAppDomain,
+          clientId: teslaClientId,
+          clientSecret: teslaClientSecret,
+          vin: teslaVin
+        });
+
+        return AppLayer({
+          chargingConfig,
+          timingConfig,
+          isDryRun,
+          costPerKwh
+        }).pipe(
+          Layer.provideMerge(controllerLayer),
+          Layer.provideMerge(BatteryStateManagerLayer),
+          Layer.provideMerge(AppRuntimeLayer),
+          Layer.provideMerge(AlphaEssCloudApiDataAdapterLayer),
+          Layer.provideMerge(teslaLayer)
+        );
+      })
+    );
+
+    return programBody.pipe(
+      Effect.provide(MainLayer),
+      Effect.scoped,
+      Effect.withSpan("program"),
+      Effect.tapDefect((cause) => Effect.logError("Defect detected", cause))
+    );
+  }
+).pipe(Command.withDescription("Smart EV charging controller for Tesla vehicles"));
 
 // 3. Execution
-NodeRuntime.runMain(runProgram, { disableErrorReporting: true });
+NodeRuntime.runMain(
+  Command.run(cli, { version: "1.0.0" }).pipe(
+    Effect.provide(Layer.mergeAll(NodeServices.layer, NodeHttpClient.layerFetch))
+  ),
+  { disableErrorReporting: true }
+);
