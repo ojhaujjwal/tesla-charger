@@ -1,4 +1,4 @@
-# GDP for Tesla-Charger: Three Specs
+# GDP for Tesla-Charger: Two Specs
 
 ## Background: Ghosts of Departed Proofs
 
@@ -573,75 +573,6 @@ After Spec B, `controlState.ampere` is `Ampere`, `0` is `number`. The ternary wi
 
 ---
 
-## Spec C: Non-Null Battery State Proofs
-
-**Paper reference:** The `:::` pattern (Figure 10, Section 5). Just as `([a] ~~ xs ::: IsCons xs)` attaches a proof of non-emptiness to a specific list, `Branded<BatteryState, "Fresh">` attaches a proof that battery state has been fetched. The `get()` method's null-check is the proof-introduction site.
-
-**Problem:** `BatteryStateManager.get()` returns `BatteryState | null`. Consumers must defensively check with `if (batteryState && ...)`. A new consumer might forget.
-
-**Files to change:**
-- `src/battery-state-manager.ts` — `get()` returns `BatteryStateWithProof | null`
-- `src/application/charge-verifier.ts` — use branded type
-- `src/charging-speed-controller/weather-aware-buffer/index.ts` — use branded type
-
-**Design:** The branded type marks "this battery state has been fetched." The null-check in `get()` is the sole place where `null` is eliminated:
-
-```typescript
-// --- src/battery-state-manager.ts ---
-import { Brand, type Branded } from "effect";
-
-export type BatteryStateWithProof = Branded<BatteryState, "Fresh">;
-
-export class BatteryStateManager extends Context.Service<
-  BatteryStateManager,
-  {
-    readonly start: (pubSub: PubSub.PubSub<TeslaChargerEvent>) => Effect.Effect<void>;
-    readonly get: () => BatteryStateWithProof | null;  // was: BatteryState | null
-  }
->()("@tesla-charger/BatteryStateManager") {}
-
-// In the layer implementation — one-time Brand.nominal instance:
-const _Fresh = Brand.nominal<BatteryStateWithProof>();
-
-const get = () => {
-  // Same null check as before, but now the truthy branch
-  // carries a phantom brand as "proof" of non-null
-  if (batteryState === null) return null;
-  return _Fresh(batteryState);
-};
-```
-
-```typescript
-// --- REFACTORED: src/application/charge-verifier.ts ---
-const freshBattery = batteryStateManager.get();
-if (freshBattery && freshBattery.batteryLevel >= freshBattery.chargeLimitSoc) {
-  // freshBattery has type BatteryStateWithProof (= Branded<BatteryState, "Fresh">)
-  // The brand makes it a different type from BatteryState | null.
-  // Any consumer that requires BatteryStateWithProof will fail to compile
-  // if it forgets the null check.
-  yield* onBatteryComplete;
-}
-```
-
-```typescript
-// --- REFACTORED: src/charging-speed-controller/weather-aware-buffer/index.ts ---
-// Before:
-if (config.deadlineHour !== undefined && batteryState) {
-  const urgencyFactor = simulation.utilizationRatio;
-  finalBuffer = weatherBuffer * (1 - urgencyFactor * 0.5);
-}
-// After — same logic, but batteryState is now BatteryStateWithProof:
-if (config.deadlineHour !== undefined && batteryState) {
-  const urgencyFactor = simulation.utilizationRatio;
-  finalBuffer = weatherBuffer * (1 - urgencyFactor * 0.5);
-}
-```
-
-**What this buys you:** The brand makes `BatteryStateWithProof` a distinct type from `BatteryState`. If a new function requires `BatteryStateWithProof`, forgetting to null-check before calling it is a compile error. The runtime behavior is identical — the brand is phantom.
-
-**Trade-off:** This is the lightest-touch GDP application. Existing consumers don't change their null-checking pattern. The value emerges when new code is added.
-
----
 
 ## Verification
 
@@ -656,9 +587,9 @@ After implementing each spec:
 
 ## Implementation Order
 
-Spec B (branded amperes) — **implementing next.** Replaces `throw` with `Brand.check`, adds config-level branding via `Schema.fromBrand` + `Config.schema`, and propagates `Ampere` through all controllers, transitions, events, and variant types.  
 Spec A (state machine) — **implemented.**  
-Spec C (battery proofs) — lightweight, good alongside B or after.
+Spec B (branded amperes) — **implemented.**  
+
 
 ---
 
