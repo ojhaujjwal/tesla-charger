@@ -20,6 +20,7 @@ import {
 } from "../domain/charging-session.js";
 import type { TeslaChargerEvent } from "../domain/events.js";
 import { DataNotAvailableError, SourceNotAvailableError } from "../data-adapter/types.js";
+import type { Ampere } from "../domain/brands.js";
 
 const publishChargingEvent = (
   event: ChargingControlEvent,
@@ -46,7 +47,7 @@ const publishChargingEvent = (
   });
 
 export const syncTargetAmpere = (
-  targetAmpere: number,
+  targetAmpere: Ampere,
   controlState: ChargingControlState,
   sessionStats: ChargingSessionStats,
   config: ChargingConfig,
@@ -66,7 +67,7 @@ export const syncTargetAmpere = (
     const vehicle = yield* ElectricVehicle;
     const pubSub = yield* TeslaChargerEventPubSub;
 
-    const amp = Math.min(32, targetAmpere);
+    const amp = targetAmpere;
 
     switch (controlState.status) {
       case "Idle": {

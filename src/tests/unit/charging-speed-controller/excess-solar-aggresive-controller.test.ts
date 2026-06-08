@@ -6,6 +6,7 @@ import { DynamicChargingConfig } from "../../../charging-speed-controller/dynami
 import { DataAdapter, type IDataAdapter } from "../../../data-adapter/types.js";
 import { Effect, Layer } from "effect";
 import { ChargingSpeedController } from "../../../charging-speed-controller/types.js";
+import { Ampere } from "../../../domain/brands.js";
 
 describe("ExcessSolarAggresiveController", () => {
   let mockDataAdapter: MockedObject<IDataAdapter>;
@@ -45,8 +46,8 @@ describe("ExcessSolarAggresiveController", () => {
         );
 
         const controller = yield* ChargingSpeedController;
-        const chargingSpeed = yield* controller.determineChargingSpeed(0);
-        expect(chargingSpeed).toBe(32);
+        const chargingSpeed = yield* controller.determineChargingSpeed(Ampere(0));
+        expect(chargingSpeed).toBe(Ampere(32));
       }).pipe(Effect.provide(TestLayer()))
     );
 
@@ -66,9 +67,9 @@ describe("ExcessSolarAggresiveController", () => {
         );
 
         const controller = yield* ChargingSpeedController;
-        const chargingSpeed = yield* controller.determineChargingSpeed(10);
+        const chargingSpeed = yield* controller.determineChargingSpeed(Ampere(10));
         expect(chargingSpeed).toBeGreaterThan(0);
-        expect(chargingSpeed % 5).toBe(0);
+        expect(chargingSpeed % 5).toBe(Ampere(0));
       }).pipe(Effect.provide(TestLayer()))
     );
 
@@ -88,8 +89,8 @@ describe("ExcessSolarAggresiveController", () => {
         );
 
         const controller = yield* ChargingSpeedController;
-        const chargingSpeed = yield* controller.determineChargingSpeed(0);
-        expect(chargingSpeed).toBe(0);
+        const chargingSpeed = yield* controller.determineChargingSpeed(Ampere(0));
+        expect(chargingSpeed).toBe(Ampere(0));
       }).pipe(Effect.provide(TestLayer()))
     );
 
@@ -109,8 +110,8 @@ describe("ExcessSolarAggresiveController", () => {
         );
 
         const controller = yield* ChargingSpeedController;
-        const chargingSpeed = yield* controller.determineChargingSpeed(0);
-        expect(chargingSpeed).toBe(0);
+        const chargingSpeed = yield* controller.determineChargingSpeed(Ampere(0));
+        expect(chargingSpeed).toBe(Ampere(0));
       }).pipe(Effect.provide(TestLayer()))
     );
 
@@ -135,8 +136,8 @@ describe("ExcessSolarAggresiveController", () => {
         );
 
         const controller = yield* ChargingSpeedController;
-        const resultingChargingSpeed = yield* controller.determineChargingSpeed(10);
-        expect(resultingChargingSpeed).toEqual(10 + chargingSpeed);
+        const resultingChargingSpeed = yield* controller.determineChargingSpeed(Ampere(10));
+        expect(resultingChargingSpeed).toEqual(Ampere(10 + chargingSpeed));
       }).pipe(Effect.provide(TestLayer()))
     );
 
@@ -158,8 +159,8 @@ describe("ExcessSolarAggresiveController", () => {
         );
 
         const controller = yield* ChargingSpeedController;
-        const chargingSpeed = yield* controller.determineChargingSpeed(0);
-        expect(chargingSpeed).toBe(5);
+        const chargingSpeed = yield* controller.determineChargingSpeed(Ampere(0));
+        expect(chargingSpeed).toBe(Ampere(5));
       }).pipe(Effect.provide(TestLayer({ bufferPower: 100, multipleOf: 5 })))
     );
 
@@ -181,8 +182,8 @@ describe("ExcessSolarAggresiveController", () => {
         );
 
         const controller = yield* ChargingSpeedController;
-        const chargingSpeed = yield* controller.determineChargingSpeed(0);
-        expect(chargingSpeed).toBe(10);
+        const chargingSpeed = yield* controller.determineChargingSpeed(Ampere(0));
+        expect(chargingSpeed).toBe(Ampere(10));
       }).pipe(Effect.provide(TestLayer({ bufferPower: 100, multipleOf: 5 })))
     );
 
@@ -205,8 +206,8 @@ describe("ExcessSolarAggresiveController", () => {
         );
 
         const controller = yield* ChargingSpeedController;
-        const chargingSpeed = yield* controller.determineChargingSpeed(0);
-        expect(chargingSpeed).toBe(5);
+        const chargingSpeed = yield* controller.determineChargingSpeed(Ampere(0));
+        expect(chargingSpeed).toBe(Ampere(5));
       }).pipe(Effect.provide(TestLayer({ bufferPower: 100, multipleOf: 5 })))
     );
 
@@ -230,8 +231,8 @@ describe("ExcessSolarAggresiveController", () => {
         );
 
         const controller = yield* ChargingSpeedController;
-        const chargingSpeed = yield* controller.determineChargingSpeed(0);
-        expect(chargingSpeed).toBe(0);
+        const chargingSpeed = yield* controller.determineChargingSpeed(Ampere(0));
+        expect(chargingSpeed).toBe(Ampere(0));
       }).pipe(Effect.provide(TestLayer({ bufferPower: 100, multipleOf: 5 })))
     );
 
@@ -255,8 +256,8 @@ describe("ExcessSolarAggresiveController", () => {
         );
 
         const controller = yield* ChargingSpeedController;
-        const chargingSpeed = yield* controller.determineChargingSpeed(0);
-        expect(chargingSpeed).toBe(0);
+        const chargingSpeed = yield* controller.determineChargingSpeed(Ampere(0));
+        expect(chargingSpeed).toBe(Ampere(0));
       }).pipe(Effect.provide(TestLayer({ bufferPower: 100, multipleOf: 5 })))
     );
   });

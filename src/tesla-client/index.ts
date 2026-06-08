@@ -1,4 +1,5 @@
 import { ElectricVehicle } from "../domain/electric-vehicle.js";
+import type { Ampere } from "../domain/brands.js";
 import {
   AuthenticationFailedError,
   ChargeStateQueryFailedError,
@@ -42,7 +43,7 @@ export type TeslaClientService = ElectricVehicle["Service"] & {
   ) => Effect.Effect<void, AuthenticationFailedError>;
   readonly startCharging: () => CommandResult;
   readonly stopCharging: () => CommandResult;
-  readonly setAmpere: (ampere: number) => CommandResult;
+  readonly setAmpere: (ampere: Ampere) => CommandResult;
   readonly wakeUpCar: () => Effect.Effect<void, VehicleCommandFailedError>;
   readonly getChargeState: () => Effect.Effect<ChargeState, ChargeStateQueryFailedError>;
 };
@@ -343,7 +344,7 @@ export const TeslaClientLayer = (config: {
             })
           ),
         stopCharging: () => execTeslaControl(["charging-stop"]),
-        setAmpere: (ampere: number) => execTeslaControl(["charging-set-amps", `${ampere}`]),
+        setAmpere: (ampere: Ampere) => execTeslaControl(["charging-set-amps", `${ampere}`]),
         wakeUpCar: () =>
           execTeslaControl(["wake"]).pipe(
             Effect.catchTag("VehicleAsleepError", () =>

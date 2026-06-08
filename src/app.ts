@@ -24,6 +24,7 @@ import { AppStatus } from "./domain/charging-session.js";
 import { syncTargetAmpere } from "./application/charge-sync.js";
 import { verifyCharging } from "./application/charge-verifier.js";
 import { beginSession, endSession, shutdownAfterMaxRuntime } from "./application/session-lifecycle.js";
+import { Ampere } from "./domain/brands.js";
 
 export type TimingConfig = {
   syncIntervalInMs: number;
@@ -131,7 +132,7 @@ export const AppLayer = (config: {
           > =>
             Effect.gen(function* () {
               const controlState = yield* Ref.get(appRuntime.controlRef);
-              const currentSpeed = controlState.status === "Charging" ? controlState.ampere : 0;
+              const currentSpeed = controlState.status === "Charging" ? controlState.ampere : Ampere(0);
               const ampere = yield* chargingSpeedController.determineChargingSpeed(currentSpeed);
 
               yield* Effect.logDebug("Charging speed determined.", {
@@ -139,7 +140,7 @@ export const AppLayer = (config: {
                 determined_speed: ampere
               });
 
-              const targetAmpere = Math.min(32, ampere);
+              const targetAmpere = ampere;
               const sessionStats = yield* Ref.get(appRuntime.statsRef);
               const { current_production: currentProductionAtStart } = yield* dataAdapter.queryLatestValues([
                 "current_production"

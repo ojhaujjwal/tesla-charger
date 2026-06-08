@@ -1,14 +1,15 @@
 import { Brand } from "effect";
+import type { Ampere } from "./brands.js";
 
 // Branded state variants — each carries its status as a phantom type tag.
 // At runtime these are plain objects (e.g. { status: "Idle" }).
 // We brand each variant individually so that specific-variant fields
 // (targetAmpere, ampere, etc.) are accessible after narrowing.
 export type IdleState = Brand.Branded<{ readonly status: "Idle" }, "Idle">;
-export type StartingState = Brand.Branded<{ readonly status: "Starting"; readonly targetAmpere: number }, "Starting">;
-export type ChargingState = Brand.Branded<{ readonly status: "Charging"; readonly ampere: number }, "Charging">;
+export type StartingState = Brand.Branded<{ readonly status: "Starting"; readonly targetAmpere: Ampere }, "Starting">;
+export type ChargingState = Brand.Branded<{ readonly status: "Charging"; readonly ampere: Ampere }, "Charging">;
 export type ChangingAmpereState = Brand.Branded<
-  { readonly status: "ChangingAmpere"; readonly current: number; readonly target: number },
+  { readonly status: "ChangingAmpere"; readonly current: Ampere; readonly target: Ampere },
   "ChangingAmpere"
 >;
 export type StoppingState = Brand.Branded<{ readonly status: "Stopping" }, "Stopping">;
@@ -23,8 +24,8 @@ export const createInitialChargingControlState = (): IdleState => _Idle({ status
 export type ChargingControlEvent =
   | { readonly type: "ChargingStarted" }
   | { readonly type: "ChargingStopped" }
-  | { readonly type: "AmpereChangeInitiated"; readonly previous: number; readonly current: number }
-  | { readonly type: "AmpereChangeFinished"; readonly current: number };
+  | { readonly type: "AmpereChangeInitiated"; readonly previous: Ampere; readonly current: Ampere }
+  | { readonly type: "AmpereChangeFinished"; readonly current: Ampere };
 
 export type ChargingConfig = {
   readonly waitPerAmereInSeconds: number;
@@ -47,11 +48,10 @@ export type StartResult = {
   readonly recordFluctuation: true;
 };
 
-export const requestChargeStart = (state: IdleState, targetAmpere: number, config: ChargingConfig): StartResult => {
-  const amp = Math.min(32, targetAmpere);
-  const waitSeconds = amp * config.waitPerAmereInSeconds + config.extraWaitOnChargeStartInSeconds;
+export const requestChargeStart = (state: IdleState, targetAmpere: Ampere, config: ChargingConfig): StartResult => {
+  const waitSeconds = targetAmpere * config.waitPerAmereInSeconds + config.extraWaitOnChargeStartInSeconds;
   return {
-    state: _Starting({ status: "Starting", targetAmpere: amp }),
+    state: _Starting({ status: "Starting", targetAmpere }),
     events: [{ type: "ChargingStarted" }],
     waitSeconds,
     recordFluctuation: true
@@ -82,16 +82,15 @@ export type AmpereChangeResult =
 
 export const requestAmpereChange = (
   state: ChargingState,
-  targetAmpere: number,
+  targetAmpere: Ampere,
   config: Pick<ChargingConfig, "waitPerAmereInSeconds">
 ): AmpereChangeResult => {
   const current = state.ampere;
-  const amp = Math.min(32, targetAmpere);
-  if (current === amp) return { state, unchanged: true };
-  const ampDiff = Math.abs(amp - current);
+  if (current === targetAmpere) return { state, unchanged: true };
+  const ampDiff = Math.abs(targetAmpere - current);
   return {
-    state: _ChangingAmpere({ status: "ChangingAmpere", current, target: amp }),
-    events: [{ type: "AmpereChangeInitiated" as const, previous: current, current: amp }],
+    state: _ChangingAmpere({ status: "ChangingAmpere", current, target: targetAmpere }),
+    events: [{ type: "AmpereChangeInitiated" as const, previous: current, current: targetAmpere }],
     waitSeconds: ampDiff * config.waitPerAmereInSeconds,
     recordFluctuation: true
   };

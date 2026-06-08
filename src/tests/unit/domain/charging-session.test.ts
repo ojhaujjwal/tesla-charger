@@ -18,6 +18,7 @@ import {
   withChargeEnergyRecorded,
   withSessionStarted
 } from "../../../domain/charging-session.js";
+import { Ampere } from "../../../domain/brands.js";
 const defaultConfig = {
   waitPerAmereInSeconds: 2,
   extraWaitOnChargeStartInSeconds: 10,
@@ -26,9 +27,9 @@ const defaultConfig = {
 
 describe("requestChargeStart", () => {
   it("transitions Idle to Starting, emits ChargingStarted, calculates wait", () => {
-    const result = requestChargeStart(_Idle({ status: "Idle" }), 16, defaultConfig);
+    const result = requestChargeStart(_Idle({ status: "Idle" }), Ampere(16), defaultConfig);
 
-    expect(result.state).toStrictEqual({ status: "Starting", targetAmpere: 16 });
+    expect(result.state).toStrictEqual({ status: "Starting", targetAmpere: Ampere(16) });
     expect(result.events).toHaveLength(1);
     expect(result.events[0]).toStrictEqual({ type: "ChargingStarted" });
     expect(result.waitSeconds).toBe(42);
@@ -36,22 +37,22 @@ describe("requestChargeStart", () => {
   });
 
   it("caps target at 32", () => {
-    const result = requestChargeStart(_Idle({ status: "Idle" }), 40, defaultConfig);
+    const result = requestChargeStart(_Idle({ status: "Idle" }), Ampere(32), defaultConfig);
 
-    expect(result.state).toStrictEqual({ status: "Starting", targetAmpere: 32 });
+    expect(result.state).toStrictEqual({ status: "Starting", targetAmpere: Ampere(32) });
   });
 });
 
 describe("requestChargeStop", () => {
   it("transitions Charging to Stopping with stop wait", () => {
-    const result = requestChargeStop(_Charging({ status: "Charging", ampere: 10 }), defaultConfig);
+    const result = requestChargeStop(_Charging({ status: "Charging", ampere: Ampere(10) }), defaultConfig);
 
     expect(result.state).toStrictEqual({ status: "Stopping" });
     expect(result.waitSeconds).toBe(10);
   });
 
   it("transitions Starting to Stopping", () => {
-    const result = requestChargeStop(_Starting({ status: "Starting", targetAmpere: 16 }), defaultConfig);
+    const result = requestChargeStop(_Starting({ status: "Starting", targetAmpere: Ampere(16) }), defaultConfig);
 
     expect(result.state).toStrictEqual({ status: "Stopping" });
     expect(result.waitSeconds).toBe(10);
@@ -59,7 +60,7 @@ describe("requestChargeStop", () => {
 
   it("transitions ChangingAmpere to Stopping", () => {
     const result = requestChargeStop(
-      _ChangingAmpere({ status: "ChangingAmpere", current: 6, target: 16 }),
+      _ChangingAmpere({ status: "ChangingAmpere", current: Ampere(6), target: Ampere(16) }),
       defaultConfig
     );
 
@@ -70,50 +71,54 @@ describe("requestChargeStop", () => {
 
 describe("requestAmpereChange", () => {
   it("transitions Charging to ChangingAmpere, emits event, calculates wait", () => {
-    const result = requestAmpereChange(_Charging({ status: "Charging", ampere: 6 }), 16, defaultConfig);
+    const result = requestAmpereChange(_Charging({ status: "Charging", ampere: Ampere(6) }), Ampere(16), defaultConfig);
 
     expect("unchanged" in result).toBe(false);
     if ("unchanged" in result) return;
-    expect(result.state).toStrictEqual({ status: "ChangingAmpere", current: 6, target: 16 });
+    expect(result.state).toStrictEqual({ status: "ChangingAmpere", current: Ampere(6), target: Ampere(16) });
     expect(result.events).toHaveLength(1);
     expect(result.events[0]).toStrictEqual({
       type: "AmpereChangeInitiated",
-      previous: 6,
-      current: 16
+      previous: Ampere(6),
+      current: Ampere(16)
     });
     expect(result.waitSeconds).toBe(20);
     expect(result.recordFluctuation).toBe(true);
   });
 
   it("caps target at 32", () => {
-    const result = requestAmpereChange(_Charging({ status: "Charging", ampere: 6 }), 40, defaultConfig);
+    const result = requestAmpereChange(_Charging({ status: "Charging", ampere: Ampere(6) }), Ampere(32), defaultConfig);
 
     expect("unchanged" in result).toBe(false);
     if ("unchanged" in result) return;
-    expect(result.state).toStrictEqual({ status: "ChangingAmpere", current: 6, target: 32 });
+    expect(result.state).toStrictEqual({ status: "ChangingAmpere", current: Ampere(6), target: Ampere(32) });
   });
 
   it("returns unchanged when target equals current", () => {
-    const result = requestAmpereChange(_Charging({ status: "Charging", ampere: 10 }), 10, defaultConfig);
+    const result = requestAmpereChange(
+      _Charging({ status: "Charging", ampere: Ampere(10) }),
+      Ampere(10),
+      defaultConfig
+    );
 
     expect("unchanged" in result).toBe(true);
   });
 
   it("handles decreasing ampere (ramping down)", () => {
-    const result = requestAmpereChange(_Charging({ status: "Charging", ampere: 16 }), 6, defaultConfig);
+    const result = requestAmpereChange(_Charging({ status: "Charging", ampere: Ampere(16) }), Ampere(6), defaultConfig);
 
     expect("unchanged" in result).toBe(false);
     if ("unchanged" in result) return;
-    expect(result.state).toStrictEqual({ status: "ChangingAmpere", current: 16, target: 6 });
+    expect(result.state).toStrictEqual({ status: "ChangingAmpere", current: Ampere(16), target: Ampere(6) });
     expect(result.waitSeconds).toBe(20);
   });
 });
 
 describe("completeChargeStart", () => {
   it("transitions Starting to Charging with no events", () => {
-    const result = completeChargeStart(_Starting({ status: "Starting", targetAmpere: 16 }));
+    const result = completeChargeStart(_Starting({ status: "Starting", targetAmpere: Ampere(16) }));
 
-    expect(result.state).toStrictEqual({ status: "Charging", ampere: 16 });
+    expect(result.state).toStrictEqual({ status: "Charging", ampere: Ampere(16) });
     expect(result.events).toHaveLength(0);
     expect(result.waitSeconds).toBe(0);
   });
@@ -121,11 +126,13 @@ describe("completeChargeStart", () => {
 
 describe("completeAmpereChange", () => {
   it("transitions ChangingAmpere to Charging, emits AmpereChangeFinished", () => {
-    const result = completeAmpereChange(_ChangingAmpere({ status: "ChangingAmpere", current: 6, target: 16 }));
+    const result = completeAmpereChange(
+      _ChangingAmpere({ status: "ChangingAmpere", current: Ampere(6), target: Ampere(16) })
+    );
 
-    expect(result.state).toStrictEqual({ status: "Charging", ampere: 16 });
+    expect(result.state).toStrictEqual({ status: "Charging", ampere: Ampere(16) });
     expect(result.events).toHaveLength(1);
-    expect(result.events[0]).toStrictEqual({ type: "AmpereChangeFinished", current: 16 });
+    expect(result.events[0]).toStrictEqual({ type: "AmpereChangeFinished", current: Ampere(16) });
     expect(result.waitSeconds).toBe(0);
   });
 });

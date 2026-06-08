@@ -7,6 +7,7 @@ import type { WeatherAwareBufferConfig } from "./types.js";
 import { calculateDefaultMonthlyPeakFactors, expectedCapacityKw } from "./solar-calculations.js";
 import { periodConfidence } from "./forecast-confidence.js";
 import { simulateCharge } from "./charge-simulation.js";
+import { Ampere } from "../../domain/brands.js";
 
 export type { WeatherAwareBufferConfig, SunTimes, SimulationResult } from "./types.js";
 export { calculateSunTimes, calculateDefaultMonthlyPeakFactors, expectedCapacityKw } from "./solar-calculations.js";
@@ -36,7 +37,7 @@ export const WeatherAwareBufferControllerLayer = (
 
       return {
         determineChargingSpeed: Effect.fn("determineChargingSpeed")(
-          function* (currentChargingSpeed: number) {
+          function* (currentChargingSpeed: Ampere) {
             const nowMs = yield* Clock.currentTimeMillis;
             const now = new Date(nowMs);
 
@@ -111,10 +112,10 @@ export const WeatherAwareBufferControllerLayer = (
             const excessSolar = netExport - finalBuffer + currentChargingSpeed * voltage;
 
             if (excessSolar / voltage >= 32) {
-              return 32;
+              return Ampere(32);
             }
 
-            return Math.max(0, Math.floor(excessSolar / voltage / config.multipleOf) * config.multipleOf);
+            return Ampere(Math.max(0, Math.floor(excessSolar / voltage / config.multipleOf) * config.multipleOf));
           },
           (effect) =>
             effect.pipe(

@@ -16,6 +16,7 @@ import { ChargingSpeedController } from "../../../charging-speed-controller/type
 import { DataAdapter, type IDataAdapter } from "../../../data-adapter/types.js";
 import { SolarForecast, SolarForecastNotAvailableError } from "../../../solar-forecast/types.js";
 import { BatteryStateManager, type BatteryState } from "../../../battery-state-manager.js";
+import { Ampere } from "../../../domain/brands.js";
 
 describe("WeatherAwareBufferController - Pure Functions", () => {
   describe("calculateSunTimes", () => {
@@ -374,7 +375,7 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
         );
 
         const controller = yield* ChargingSpeedController;
-        const speed = yield* controller.determineChargingSpeed(0);
+        const speed = yield* controller.determineChargingSpeed(Ampere(0));
 
         // Should use minBufferPower (1000W)
         // Excess = 2000 - 1000 = 1000W = ~4.3A, rounded to 3A (multipleOf=3)
@@ -419,7 +420,7 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
         yield* TestClock.adjust(Duration.seconds(1));
 
         const controller = yield* ChargingSpeedController;
-        const speed = yield* controller.determineChargingSpeed(0);
+        const speed = yield* controller.determineChargingSpeed(Ampere(0));
 
         // High confidence -> buffer near minBufferPower
         // Should result in higher charging speed
@@ -464,7 +465,7 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
         yield* TestClock.adjust(Duration.seconds(1));
 
         const controller = yield* ChargingSpeedController;
-        const speed = yield* controller.determineChargingSpeed(0);
+        const speed = yield* controller.determineChargingSpeed(Ampere(0));
 
         // Low confidence -> buffer near max (minBuffer * bufferMultiplierMax)
         // Should result in lower charging speed than clear sky
@@ -509,7 +510,7 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
         yield* TestClock.adjust(Duration.seconds(1));
 
         const controller = yield* ChargingSpeedController;
-        const speedWithDeadline = yield* controller.determineChargingSpeed(0);
+        const speedWithDeadline = yield* controller.determineChargingSpeed(Ampere(0));
 
         // Should charge more aggressively with deadline
         expect(speedWithDeadline).toBeGreaterThanOrEqual(0);
@@ -560,9 +561,9 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
         yield* TestClock.adjust(Duration.seconds(1));
 
         const controller = yield* ChargingSpeedController;
-        const speed = yield* controller.determineChargingSpeed(0);
+        const speed = yield* controller.determineChargingSpeed(Ampere(0));
 
-        expect(speed).toBe(32);
+        expect(speed).toBe(Ampere(32));
       }).pipe(Effect.provide(TestLayer()))
     );
   });

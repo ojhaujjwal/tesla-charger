@@ -1,6 +1,8 @@
 import { Effect, Layer } from "effect";
 import { DataAdapter } from "../data-adapter/types.js";
 import { ChargingSpeedController, InadequateDataToDetermineSpeedError } from "./types.js";
+import { clampAmpere } from "../domain/brands.js";
+import type { Ampere } from "../domain/brands.js";
 
 export const ConservativeControllerLayer = (
   config: {
@@ -15,7 +17,7 @@ export const ConservativeControllerLayer = (
 
       return {
         determineChargingSpeed: Effect.fn("determineChargingSpeed")(
-          function* (currentChargingSpeed: number) {
+          function* (currentChargingSpeed: Ampere) {
             const { voltage, current_load: currentLoad } = yield* dataAdapter.queryLatestValues([
               "voltage",
               "current_load"
@@ -35,7 +37,7 @@ export const ConservativeControllerLayer = (
             );
             yield* Effect.log("[ConservativeController] calculated value:", { value });
 
-            return value;
+            return clampAmpere(value);
           },
           (effect) =>
             effect.pipe(

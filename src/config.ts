@@ -1,4 +1,5 @@
 import { Config as EffectConfig } from "effect";
+import { Ampere, AmpereFromString } from "./domain/brands.js";
 
 export const AppConfig = {
   nodeEnv: EffectConfig.string("NODE_ENV").pipe(EffectConfig.withDefault("production")),
@@ -36,7 +37,9 @@ export const AppConfig = {
   },
 
   controller: {
-    fixedSpeedAmpere: EffectConfig.int("FIXED_SPEED_AMPERE").pipe(EffectConfig.withDefault(5)),
+    fixedSpeedAmpere: EffectConfig.schema(AmpereFromString, "FIXED_SPEED_AMPERE").pipe(
+      EffectConfig.withDefault(Ampere(5))
+    ),
     maxAllowedFeedInPower: EffectConfig.int("MAX_ALLOWED_FEED_IN_POWER").pipe(EffectConfig.withDefault(5000))
   },
 

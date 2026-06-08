@@ -301,19 +301,56 @@ switch (controlState.status) {
 
 ## Spec B: Value Range Proofs — Branded Amperes
 
-**Paper reference:** The `SortedBy comp` pattern (Figure 3). Just as `SortedBy comp` encodes "sorted by comparator named comp" at the type level, `Branded<number, "Ampere">` encodes "this number is in [0, 32]". `Brand.check` with Schema predicates is the proof-introduction site — more declarative than `Brand.make` with a hand-written predicate, and produces better error messages.
+**Paper reference:** The `SortedBy comp` pattern (Figure 3). Just as `SortedBy comp` encodes "sorted by comparator named comp" at the type level, `Branded<number, "Ampere">` encodes "this number is a valid integer in [0, 32]". `Brand.check` with Schema predicates is the proof-introduction site — more declarative than `Brand.make` with a hand-written predicate, and produces better error messages. Config integration via `Schema.fromBrand` + `Config.schema` ensures that even environment variables produce branded values at config-resolution time.
 
-**Problem:** `setAmpere(ampere: number)` accepts any number. `fixed-speed.controller.ts:12` does `throw new Error(...)` (synchronous throw in Effect generator = fiber death). Multiple call sites clamp to [0,32] manually with `Math.min(32, n)` — no type-level enforcement.
+**Problem:** `setAmpere(ampere: number)` accepts any number. `fixed-speed.controller.ts:12` does `throw new Error(...)` (synchronous throw in Effect generator = fiber death). Multiple call sites clamp to [0,32] manually with `Math.min(32, n)` — no type-level enforcement. `ConservativeController`, `ExcessFeedInSolarController`, and `ExcessSolarNonAggresiveController` return unbounded values (negative or >32) — nothing stops an out-of-range value from reaching the vehicle.
+
+**Design decisions (from grilling sessions):**
+
+- **Ampere type**: `Brand.check<Ampere>(Schema.isInt(), Schema.between(0, 32))` — integer-only, range-validated. `Brand.check` with Schema predicates gives descriptive error messages (`"Expected a value between 0 and 32, got 50"`).
+- **Constants**: `minAmpere = 0`, `maxAmpere = 32` exported from `brands.ts` alongside the brand — single source of truth for the range.
+- **`clampAmpere`**: kept as a utility. Controllers that produce values that can naturally go out of range (ConservativeController, ExcessFeedInSolarController) call it at their return site. Each controller is explicitly responsible for its own clamping rather than relying on a post-processing layer.
+- **Config values**: `config.fixedSpeed: Ampere` instead of `config.fixedSpeed: number`. Config is resolved via `Config.schema(AmpereFromString, ...)` where `AmpereFromString = Schema.fromBrand("Ampere", Ampere)(Schema.Int)` — parsing, validation, and branding happen at config-resolution time. The layer body has zero validation code.
+- **Full propagation**: Every function in the ampere chain takes and returns `Ampere` — controller interface, transition functions, variant type fields, event types. No bare `number` for ampere values anywhere.
+- **Events**: `ChargingControlEvent` and `TeslaChargerEvent` carry `Ampere` in their `previous`/`current` fields. The event bus communicates branded values.
+- **Not branded**: `SessionSummary.averageChargingSpeedAmps` (statistical average, not a control input), `charge-verifier.ts`'s `currentLoadAmpere` (measured load, not a control target), `ampereFluctuations` (a count).
 
 **Files to change:**
-- `src/domain/electric-vehicle.ts` — `setAmpere(ampere: Ampere)` instead of `setAmpere(ampere: number)`
-- `src/tesla-client/index.ts` — update `setAmpere` signature (just the type, no body change)
-- `src/charging-speed-controller/types.ts` — change `determineChargingSpeed` return type
-- `src/charging-speed-controller/fixed-speed.controller.ts` — replace `throw` with `Brand.check`
-- `src/charging-speed-controller/conservative-controller.ts` — return clamped value
-- All other controllers (excess-solar-*, weather-aware-buffer) — trivial type updates
-- `src/app.ts:142` — remove manual `Math.min(32, ampere)`
-- `src/application/charge-sync.ts:69` — remove manual `Math.min(32, targetAmpere)`
+
+New file:
+- `src/domain/brands.ts` — `Ampere` type, `Ampere` constructor, `minAmpere`/`maxAmpere` constants, `clampAmpere` utility, `AmpereFromString` Schema
+
+Core domain:
+- `src/domain/charging-session.ts` — variant fields `StartingState.targetAmpere`, `ChargingState.ampere`, `ChangingAmpereState.current`/`target` become `Ampere`; transition functions take `Ampere` params; `ChargingControlEvent` fields become `Ampere`; remove internal `Math.min(32, ...)` clamps
+- `src/domain/electric-vehicle.ts` — `setAmpere(ampere: Ampere)`
+- `src/domain/events.ts` — `TeslaChargerEvent` fields `previous`/`current` become `Ampere`
+
+- `src/tesla-client/index.ts` — `setAmpere(ampere: Ampere)` (just the type, no body change)
+
+Controller layer:
+- `src/charging-speed-controller/types.ts` — `determineChargingSpeed(currentChargingSpeed: Ampere): Effect.Effect<Ampere, ...>`
+- `src/charging-speed-controller/fixed-speed.controller.ts` — `config.fixedSpeed: Ampere` (validated by Config.schema, no validation in layer body)
+- `src/charging-speed-controller/conservative-controller.ts` — wrap return in `clampAmpere()`
+- `src/charging-speed-controller/excess-solar-aggresive-controller.ts` — already self-clamps; wrap final return in `Ampere()`
+- `src/charging-speed-controller/excess-feed-in-solar-controller.ts` — wrap return in `clampAmpere()`
+- `src/charging-speed-controller/excess-solar-non-aggresive.controller.ts` — internal state `lastAppliedSpeed: Ampere = Ampere(0)`, `readHistory` stores `Ampere`, comparisons work on branded types
+- `src/charging-speed-controller/weather-aware-buffer/index.ts` — already self-clamps; wrap final return in `Ampere()`
+
+- `src/config.ts` — `fixedSpeedAmpere` uses `Config.schema(AmpereFromString, "FIXED_SPEED_AMPERE").pipe(Config.withDefault(Ampere(5)))`
+
+Application:
+- `src/application/charge-sync.ts` — `targetAmpere: Ampere` parameter, remove `Math.min(32, targetAmpere)` on line 69
+- `src/app.ts` — remove `Math.min(32, ampere)` on line 142; line 134: use `Ampere(0)` instead of `0` in ternary
+- `src/main.ts` — `const fixedSpeed` is already `Ampere` from config; no change needed
+
+Test files (mechanical `Ampere()` wrapping):
+- `src/tests/unit/domain/charging-session.test.ts` — all branded state constructors and event assertions wrap numbers in `Ampere()`
+- `src/tests/unit/app.test.ts` — mock calls and assertions wrap in `Ampere()`
+- `src/tests/unit/battery-state-manager.test.ts` — `previous`/`current` in PubSub events wrap in `Ampere()`
+- `src/tests/unit/tesla-client/tesla-client.test.ts` — `setAmpere(Ampere(10))`; refactor "invalid ampere value" test (can't construct `Ampere(999)`)
+- `src/tests/unit/charging-speed-controller/excess-solar-non-aggresive.controller.test.ts` — `determineChargingSpeed(Ampere(0))`, mock returns `Effect.succeed(Ampere(15))`
+- `src/tests/unit/charging-speed-controller/excess-solar-aggresive-controller.test.ts` — `determineChargingSpeed(Ampere(0))`
+- `src/tests/unit/charging-speed-controller/weather-aware-buffer-controller.test.ts` — `determineChargingSpeed(Ampere(0))`
 
 **Design:**
 
@@ -323,26 +360,37 @@ switch (controlState.status) {
 import { Brand, type Branded, Schema } from "effect";
 
 /**
- * Ampere: a branded number guaranteed to be a non-negative integer in [0, 32].
+ * Ampere: a branded integer guaranteed to be in [0, 32].
  *
  * This is the "SortedBy comp" pattern from the paper (Figure 3):
  * the brand encodes the precondition at the type level.
- * Brand.check applies Schema-based validation at the construction site
- * (the "proof introduction" point). When validation fails, it throws a
- * BrandError with a descriptive message — no fiber death.
+ * Brand.check with Schema predicates validates at the construction site
+ * (the "proof introduction" point). On failure it throws a BrandError
+ * with a descriptive message — no fiber death in Effect generators
+ * (those use .result()).
+ *
+ * Schema.fromBrand bridges this to Config.schema so that environment
+ * variables produce branded Ampere values at config-resolution time.
  */
 export type Ampere = Branded<number, "Ampere">;
 
 export const Ampere = Brand.check<Ampere>(Schema.isInt(), Schema.between(0, 32));
 
-// Convenience: clamp then brand
+/** Single source of truth for the valid ampere range. */
+export const minAmpere = 0;
+export const maxAmpere = 32;
+
+/** Coerce any number into a valid Ampere by clamping and rounding. */
 export const clampAmpere = (n: number): Ampere =>
-  Ampere(Math.max(0, Math.min(32, Math.round(n))));
+  Ampere(Math.max(minAmpere, Math.min(maxAmpere, Math.round(n))));
+
+/** Schema bridge: string → int → Ampere. Use with Config.schema(...). */
+export const AmpereFromString = Schema.fromBrand("Ampere", Ampere)(Schema.Int);
 ```
 
 ```typescript
 // --- REFACTORED: src/domain/electric-vehicle.ts ---
-import type { Ampere } from "./brands.js";
+import type { Ampere } from "../domain/brands.js";
 
 export class ElectricVehicle extends Context.Service<
   ElectricVehicle,
@@ -369,29 +417,22 @@ export class ChargingSpeedController extends Context.Service<
 
 ```typescript
 // --- REFACTORED: src/charging-speed-controller/fixed-speed.controller.ts ---
-import { Ampere, clampAmpere } from "../domain/brands.js";
+import { Ampere } from "../domain/brands.js";
 
-export const FixedSpeedControllerLayer = (config: { fixedSpeed: number; bufferPower: number }) =>
+export const FixedSpeedControllerLayer = (config: { fixedSpeed: Ampere; bufferPower: number }) =>
   Layer.effect(
     ChargingSpeedController,
     Effect.gen(function* () {
-      // Ampere validates at layer creation time via Schema predicates.
-      // On invalid input, Brand.check throws a BrandError with a clear message.
-      // We catch it so setup fails fast — no fiber death.
-      const fixedAmp = Ampere.result(config.fixedSpeed).pipe(
-        Result.getOrThrowWith(
-          (err) => new Error(`Fixed speed must be between 0 and 32 amperes: ${err.message}`)
-        )
-      );
-      ...
+      const dataAdapter = yield* DataAdapter;
+      // No validation needed — config.fixedSpeed is already Ampere.
+      // Validation happened at Config.schema resolution time.
       return {
         determineChargingSpeed: Effect.fn("determineChargingSpeed")(
           function* (currentChargingSpeed: Ampere) {
             ...
-            // Controller always returns an Ampere — type-safe at compile time
             return availablePower >= desiredChargingPower
-              ? fixedAmp
-              : clampAmpere(0);
+              ? config.fixedSpeed
+              : Ampere(0);
           },
           ...
         )
@@ -401,8 +442,19 @@ export const FixedSpeedControllerLayer = (config: { fixedSpeed: number; bufferPo
 ```
 
 ```typescript
+// --- REFACTORED: src/config.ts ---
+import { Ampere, AmpereFromString } from "../domain/brands.js";
+
+controller: {
+  fixedSpeedAmpere: EffectConfig.schema(AmpereFromString, "FIXED_SPEED_AMPERE").pipe(
+    EffectConfig.withDefault(Ampere(5))
+  ),
+}
+// Ampere(5) is fine — 5 is a valid integer in [0, 32].
+```
+
+```typescript
 // --- REFACTORED: src/tesla-client/index.ts ---
-// Import Ampere type
 import type { Ampere } from "../domain/brands.js";
 
 setAmpere: (ampere: Ampere) => execTeslaControl(["charging-set-amps", `${ampere}`]),
@@ -411,22 +463,113 @@ setAmpere: (ampere: Ampere) => execTeslaControl(["charging-set-amps", `${ampere}
 ```
 
 ```typescript
-// --- REFACTORED: src/app.ts:142 ---
-// Before:
-const targetAmpere = Math.min(32, ampere);
-// After:
-const targetAmpere = ampere; // already Ampere — guaranteed in [0, 32]
+// --- REFACTORED: src/app.ts ---
 
-// --- REFACTORED: src/application/charge-sync.ts:69 ---
-// Before:
-const amp = Math.min(32, targetAmpere);
-// After:
-const amp = targetAmpere; // targetAmpere is already Ampere
+// Line 134:
+const currentSpeed = controlState.status === "Charging"
+  ? controlState.ampere     // Ampere
+  : Ampere(0);               // not-charging → 0A, also Ampere
+
+// Line 142: (removed — ampere from controller is already Ampere)
+const targetAmpere = ampere;  // ampere is Ampere, syncTargetAmpere expects Ampere
 ```
 
-**Interaction with Spec A's narrow variant types:** Because Spec A uses narrow shapes, `ChargingState.ampere` becomes `Ampere` (not `number`) once Spec B is applied. This propagates cleanly through the transition chain. One friction point: `app.ts:134` reads `controlState.status === "Charging" ? controlState.ampere : 0` — the `0` literal is `number` while `controlState.ampere` is `Ampere`. The ternary resolves to `number`, which would be a type error when passed to `determineChargingSpeed(Ampere)`. Fix: use `Ampere(0)` instead of plain `0`.
+```typescript
+// --- REFACTORED: src/application/charge-sync.ts ---
+// export const syncTargetAmpere = (
+//   targetAmpere: Ampere,    // was number
+//   ...
+//   const amp = targetAmpere;   // was Math.min(32, targetAmpere)
+```
 
-**Safety guarantee:** It is impossible for any number outside [0,32] to reach `setAmpere()`. The `throw` in `fixed-speed.controller.ts` is replaced by `Brand.check` with `Schema.isInt()` and `Schema.between(0, 32)`, which returns `Result` with a descriptive error instead of crashing the Effect fiber. Invalid config values produce a `BrandError` at layer construction time, caught and reported as a typed error.
+```typescript
+// --- REFACTORED: src/domain/charging-session.ts (variant types ---
+export type StartingState = Brand.Branded<
+  { readonly status: "Starting"; readonly targetAmpere: Ampere }, "Starting"
+>;
+export type ChargingState = Brand.Branded<
+  { readonly status: "Charging"; readonly ampere: Ampere }, "Charging"
+>;
+export type ChangingAmpereState = Brand.Branded<
+  { readonly status: "ChangingAmpere"; readonly current: Ampere; readonly target: Ampere },
+  "ChangingAmpere"
+>;
+
+// Transition: Idle → Starting
+export const requestChargeStart = (state: IdleState, targetAmpere: Ampere, ...): StartResult => {
+  // No Math.min(32, targetAmpere) — targetAmpere is already in [0, 32]
+  return {
+    state: _Starting({ status: "Starting", targetAmpere }),
+    ...
+  };
+};
+
+// Transition: Charging → ChangingAmpere
+export const requestAmpereChange = (state: ChargingState, targetAmpere: Ampere, ...): AmpereChangeResult => {
+  const current = state.ampere;  // Ampere
+  // No Math.min(32, targetAmpere) — targetAmpere is already in [0, 32]
+  ...
+};
+
+// Events
+export type ChargingControlEvent =
+  | { readonly type: "ChargingStarted" }
+  | { readonly type: "ChargingStopped" }
+  | { readonly type: "AmpereChangeInitiated"; readonly previous: Ampere; readonly current: Ampere }
+  | { readonly type: "AmpereChangeFinished"; readonly current: Ampere };
+```
+
+```typescript
+// --- REFACTORED: src/domain/events.ts ---
+export type TeslaChargerEvent =
+  | { readonly _tag: "ChargingStarted" }
+  | { readonly _tag: "ChargingStopped" }
+  | { readonly _tag: "AmpereChangeInitiated"; readonly previous: Ampere; readonly current: Ampere }
+  | { readonly _tag: "AmpereChangeFinished"; readonly current: Ampere }
+  | { readonly _tag: "SessionEnded"; readonly summary: SessionSummary };
+```
+
+```typescript
+// --- REFACTORED: src/charging-speed-controller/excess-solar-non-aggresive.controller.ts ---
+let lastAppliedSpeed: Ampere = Ampere(0);
+const readHistory: { speed: Ampere; dataSignature: string }[] = [];
+
+// Comparisons work on branded types (structurally numbers at runtime):
+if (candidateSpeed < lastAppliedSpeed) { ... }  // Ampere vs Ampere
+```
+
+```typescript
+// --- Other controllers (conservative, excess-feed-in-solar) ---
+// Wrap the final computed value:
+return clampAmpere(value);  // seen here for conservative-controller.ts
+// or
+return Ampere(Math.max(0, Math.floor(excessSolar / voltage / config.multipleOf) * config.multipleOf));
+//                              ^^ already in [0, 32] after self-clamping (e.g. weather-aware-buffer)
+```
+
+**Interaction with Spec A's narrow variant types:** Because Spec A uses narrow shapes, variant fields flow `Ampere` natively:
+- `ChargingState.ampere: Ampere` — accessible after `.status` narrowing
+- `StartingState.targetAmpere: Ampere` — read by `completeChargeStart`
+- `ChangingAmpereState.current` / `target: Ampere` — read by `completeAmpereChange`
+
+**Friction point at `app.ts:134`:**
+```typescript
+const currentSpeed = controlState.status === "Charging"
+  ? controlState.ampere   // Ampere
+  : 0;                     // number — RESOLVES TO number
+```
+After Spec B, `controlState.ampere` is `Ampere`, `0` is `number`. The ternary widens to `number`, then `determineChargingSpeed(Ampere)` rejects it. Fix:
+```typescript
+  : Ampere(0);            // both branches Ampere
+```
+
+**Safety guarantee:** It is impossible for any number outside [0,32] to reach `setAmpere()`. The chain of trust is:
+1. Config values: `Config.schema(AmpereFromString, ...)` validates at resolution time
+2. Controller outputs: each controller returns `Ampere` — computations that naturally go out of range use `clampAmpere()` or `Ampere()` with explicit bounds
+3. Transition functions: accept `Ampere` and store it in `Ampere`-typed variant fields — no clamping, no coercion
+4. `setAmpere`: signature enforces `Ampere` at the final boundary
+5. The `throw` in `fixed-speed.controller.ts` is eliminated — config resolution either succeeds (producing a valid `Ampere`) or fails with a typed `ConfigError`
+6. `Brand.check` with `Schema.isInt()` and `Schema.between(0, 32)` gives descriptive errors on any violation
 
 ---
 
@@ -507,15 +650,15 @@ After implementing each spec:
 1. `npx oxlint` — no warnings (no `as`, no `any` anywhere)
 2. `npx tsc --noEmit` — clean compile
 3. `npx vitest run` — all tests pass
-4. For Spec B: verify `fixed-speed.controller.ts` has no `throw` — uses `Ampere.result().pipe(Result.getOrThrowWith(...))` with `Brand.check` instead
+4. For Spec B: verify `fixed-speed.controller.ts` has no `throw` — config validation happens at `Config.schema` resolution time via `Brand.check`, not in the layer body.
 
 ---
 
 ## Implementation Order
 
-Spec B (branded amperes) — simplest, fixes a real bug, demonstrates the `Brand.make` pattern first.  
-Spec A (state machine) — highest value but touches the most code. **Implemented.**  
-Spec C (battery proofs) — lightweight, good alongside A or after.
+Spec B (branded amperes) — **implementing next.** Replaces `throw` with `Brand.check`, adds config-level branding via `Schema.fromBrand` + `Config.schema`, and propagates `Ampere` through all controllers, transitions, events, and variant types.  
+Spec A (state machine) — **implemented.**  
+Spec C (battery proofs) — lightweight, good alongside B or after.
 
 ---
 

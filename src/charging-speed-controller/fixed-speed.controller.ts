@@ -1,20 +1,17 @@
 import { Effect, Layer } from "effect";
 import { DataAdapter } from "../data-adapter/types.js";
 import { ChargingSpeedController, InadequateDataToDetermineSpeedError } from "./types.js";
+import { Ampere } from "../domain/brands.js";
 
-export const FixedSpeedControllerLayer = (config: { fixedSpeed: number; bufferPower: number }) =>
+export const FixedSpeedControllerLayer = (config: { fixedSpeed: Ampere; bufferPower: number }) =>
   Layer.effect(
     ChargingSpeedController,
     Effect.gen(function* () {
       const dataAdapter = yield* DataAdapter;
 
-      if (config.fixedSpeed < 0 || config.fixedSpeed > 32) {
-        throw new Error("Fixed speed must be between 0 and 32 amperes");
-      }
-
       return {
         determineChargingSpeed: Effect.fn("determineChargingSpeed")(
-          function* (currentChargingSpeed: number) {
+          function* (currentChargingSpeed: Ampere) {
             const {
               voltage,
               export_to_grid: exportingToGrid,
@@ -31,7 +28,7 @@ export const FixedSpeedControllerLayer = (config: { fixedSpeed: number; bufferPo
               return config.fixedSpeed;
             }
 
-            return 0;
+            return Ampere(0);
           },
           (effect) =>
             effect.pipe(

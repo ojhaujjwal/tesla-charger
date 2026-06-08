@@ -2,17 +2,8 @@ import { Effect, Layer } from "effect";
 import { ChargingSpeedController, InadequateDataToDetermineSpeedError } from "./types.js";
 import { DynamicChargingConfig } from "./dynamic-config.js";
 import { DataAdapter } from "../data-adapter/types.js";
+import { Ampere } from "../domain/brands.js";
 
-/**
- * A decorator controller that stabilizes increases in charging speed.
- *
- * Key features:
- * - Tracks raw data values to detect when the inverter actually sends fresh data
- * - Only increases speed when we have N fresh readings that all support the increase
- * - Immediately decreases when solar drops (safety first)
- *
- * This prevents reacting to stale data that the inverter might return multiple times.
- */
 export const ExcessSolarNonAggresiveControllerLayer = (config: {
   baseControllerLayer: Layer.Layer<ChargingSpeedController, never, DataAdapter | DynamicChargingConfig>;
   requiredConsistentReads?: number;
@@ -24,13 +15,13 @@ export const ExcessSolarNonAggresiveControllerLayer = (config: {
       const dataAdapter = yield* DataAdapter;
       const requiredConsistentReads = config.requiredConsistentReads ?? 3;
 
-      const readHistory: { speed: number; dataSignature: string }[] = [];
-      let lastAppliedSpeed = 0;
+      const readHistory: { speed: Ampere; dataSignature: string }[] = [];
+      let lastAppliedSpeed: Ampere = Ampere(0);
       let lastDataSignature: string | null = null;
 
       return {
         determineChargingSpeed: Effect.fn("determineChargingSpeed")(
-          function* (currentChargingSpeed: number) {
+          function* (currentChargingSpeed: Ampere) {
             const candidateSpeed = yield* baseController.determineChargingSpeed(currentChargingSpeed);
 
             const rawData = yield* dataAdapter.queryLatestValues([

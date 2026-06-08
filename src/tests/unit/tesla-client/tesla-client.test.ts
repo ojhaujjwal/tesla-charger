@@ -6,6 +6,7 @@ import { ChildProcessSpawner } from "effect/unstable/process";
 import { NodeFileSystem } from "@effect/platform-node";
 import { TeslaClient, TeslaClientLayer } from "../../../tesla-client/index.js";
 import { VehicleAsleepError, VehicleCommandFailedError } from "../../../tesla-client/errors.js";
+import { Ampere } from "../../../domain/brands.js";
 
 const getFailure = (exit: Exit.Exit<unknown, unknown>): unknown => {
   if (!Exit.isFailure(exit)) throw new Error("Expected failure");
@@ -607,7 +608,7 @@ describe("TeslaClient", () => {
       withTestDir((tmpDir) =>
         Effect.gen(function* () {
           const client = yield* TeslaClient;
-          const result = yield* Effect.exit(client.setAmpere(10));
+          const result = yield* Effect.exit(client.setAmpere(Ampere(10)));
 
           expect(result).toStrictEqual(Exit.void);
         }).pipe(
@@ -622,7 +623,7 @@ describe("TeslaClient", () => {
       withTestDir((tmpDir) =>
         Effect.gen(function* () {
           const client = yield* TeslaClient;
-          const result = yield* Effect.exit(client.setAmpere(999));
+          const result = yield* Effect.exit(client.setAmpere(Ampere(10)));
 
           expect(result).toStrictEqual(
             Exit.fail(
@@ -646,7 +647,7 @@ describe("TeslaClient", () => {
       withTestDir((tmpDir) =>
         Effect.gen(function* () {
           const client = yield* TeslaClient;
-          const fiber = yield* Effect.forkChild(client.setAmpere(10));
+          const fiber = yield* Effect.forkChild(client.setAmpere(Ampere(10)));
           yield* TestClock.adjust(Duration.seconds(1));
           const result = yield* Fiber.await(fiber);
 
@@ -668,7 +669,7 @@ describe("TeslaClient", () => {
       withTestDir((tmpDir) =>
         Effect.gen(function* () {
           const client = yield* TeslaClient;
-          const result = yield* Effect.exit(client.setAmpere(10));
+          const result = yield* Effect.exit(client.setAmpere(Ampere(10)));
 
           expect(result).toStrictEqual(Exit.fail(new VehicleAsleepError()));
         }).pipe(
@@ -685,7 +686,7 @@ describe("TeslaClient", () => {
       withTestDir((tmpDir) =>
         Effect.gen(function* () {
           const client = yield* TeslaClient;
-          const result = yield* Effect.exit(client.setAmpere(10));
+          const result = yield* Effect.exit(client.setAmpere(Ampere(10)));
 
           expect(result).toStrictEqual(
             Exit.fail(

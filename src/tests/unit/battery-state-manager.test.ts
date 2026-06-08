@@ -6,6 +6,7 @@ import { TeslaClient, type TeslaClientService } from "../../tesla-client/index.j
 import { ChargeStateQueryFailedError } from "../../tesla-client/errors.js";
 import { BatteryStateManager, BatteryStateManagerLayer } from "../../battery-state-manager.js";
 import type { TeslaChargerEvent } from "../../domain/events.js";
+import { Ampere } from "../../domain/brands.js";
 
 describe("BatteryStateManager", () => {
   const teslaClientMock: MockedObject<TeslaClientService> = {
@@ -50,8 +51,8 @@ describe("BatteryStateManager", () => {
       // because batteryState is null (timeSinceLastQuery = Infinity)
       yield* PubSub.publish(pubSub, {
         _tag: "AmpereChangeInitiated" as const,
-        previous: 0,
-        current: 10
+        previous: Ampere(0),
+        current: Ampere(10)
       });
 
       yield* TestClock.adjust(Duration.millis(100));
@@ -84,8 +85,8 @@ describe("BatteryStateManager", () => {
       // Publish event to trigger first fetch
       yield* PubSub.publish(pubSub, {
         _tag: "AmpereChangeInitiated" as const,
-        previous: 0,
-        current: 5
+        previous: Ampere(0),
+        current: Ampere(5)
       });
 
       yield* TestClock.adjust(Duration.millis(100));
@@ -111,8 +112,8 @@ describe("BatteryStateManager", () => {
 
       yield* PubSub.publish(pubSub, {
         _tag: "AmpereChangeInitiated" as const,
-        previous: 0,
-        current: 10
+        previous: Ampere(0),
+        current: Ampere(10)
       });
 
       yield* TestClock.adjust(Duration.millis(100));
@@ -121,8 +122,8 @@ describe("BatteryStateManager", () => {
       // Second AmpereChangeInitiated within cooldown period
       yield* PubSub.publish(pubSub, {
         _tag: "AmpereChangeInitiated" as const,
-        previous: 10,
-        current: 15
+        previous: Ampere(10),
+        current: Ampere(15)
       });
 
       yield* TestClock.adjust(Duration.millis(100));
@@ -156,8 +157,8 @@ describe("BatteryStateManager", () => {
       // First AmpereChanged triggers the initial fetch
       yield* PubSub.publish(pubSub, {
         _tag: "AmpereChangeInitiated" as const,
-        previous: 0,
-        current: 10
+        previous: Ampere(0),
+        current: Ampere(10)
       });
 
       yield* TestClock.adjust(Duration.millis(100));
@@ -169,8 +170,8 @@ describe("BatteryStateManager", () => {
       // Second AmpereChangeInitiated after cooldown — should trigger refresh
       yield* PubSub.publish(pubSub, {
         _tag: "AmpereChangeInitiated" as const,
-        previous: 10,
-        current: 15
+        previous: Ampere(10),
+        current: Ampere(15)
       });
 
       // Wait a bit for refresh
@@ -209,8 +210,8 @@ describe("BatteryStateManager", () => {
       // First AmpereChanged triggers the initial fetch
       yield* PubSub.publish(pubSub, {
         _tag: "AmpereChangeInitiated" as const,
-        previous: 0,
-        current: 10
+        previous: Ampere(0),
+        current: Ampere(10)
       });
 
       yield* TestClock.adjust(Duration.millis(100));
@@ -223,8 +224,8 @@ describe("BatteryStateManager", () => {
       // Publish ampere changed event (triggers refresh that fails)
       yield* PubSub.publish(pubSub, {
         _tag: "AmpereChangeInitiated" as const,
-        previous: 10,
-        current: 15
+        previous: Ampere(10),
+        current: Ampere(15)
       });
 
       // Wait a bit for refresh attempt
