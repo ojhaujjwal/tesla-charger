@@ -369,36 +369,22 @@ export const watchForProductionDrop = (
 
 **2b. Create `src/application/charge-commands.ts`** (~35 lines)
 
-Thin wrappers around TeslaClient commands with dry-run support. No state mutation — these are pure command-executors:
+Thin wrappers around TeslaClient commands. No state mutation — these are pure command-executors:
 
 ```typescript
 import { TeslaClient } from "../tesla-client/index.js";
 import { Effect } from "effect";
 
-export const startCharging = (
-  isDryRun: boolean
-): Effect.Effect<void, never, TeslaClient> =>
-  Effect.gen(function* () {
-    if (isDryRun) return yield* Effect.log("Starting charging");
-    return yield* TeslaClient.startCharging();
-  });
+export const startCharging = (): Effect.Effect<void, never, TeslaClient> =>
+  TeslaClient.startCharging();
 
-export const stopCharging = (
-  isDryRun: boolean
-): Effect.Effect<void, never, TeslaClient> =>
-  Effect.gen(function* () {
-    if (isDryRun) return yield* Effect.log("Stopping charging");
-    return yield* TeslaClient.stopCharging();
-  });
+export const stopCharging = (): Effect.Effect<void, never, TeslaClient> =>
+  TeslaClient.stopCharging();
 
 export const setChargingAmpere = (
-  isDryRun: boolean,
   ampere: number
 ): Effect.Effect<void, never, TeslaClient> =>
-  Effect.gen(function* () {
-    if (isDryRun) return yield* Effect.log(`Setting ampere to ${ampere}`);
-    return yield* TeslaClient.setAmpere(ampere);
-  });
+  TeslaClient.setAmpere(ampere);
 ```
 
 **2c. Create `src/application/charge-verifier.ts`** (~30 lines)
@@ -468,7 +454,6 @@ export const syncTargetAmpere = (
   controlRef: Ref.Ref<ChargingControlState>,
   statsRef: Ref.Ref<ChargingSessionStats>,
   config: TimingConfig,
-  isDryRun: boolean,
   eventLogger: IEventLogger,
   pubSub: PubSub.PubSub<TeslaChargerEvent>
 ): Effect.Effect<
@@ -483,7 +468,7 @@ export const syncTargetAmpere = (
       yield* DataAdapter.queryLatestValues(["current_production"]);
 
     if (shouldStopCharging(amp, controlState.running)) {
-      yield* ChargeCommands.stopCharging(isDryRun);
+      yield* ChargeCommands.stopCharging();
       yield* Effect.sleep(Duration.seconds(config.extraWaitOnChargeStopInSeconds));
       yield* Ref.set(controlRef, withChargeStopped(controlState));
       return;
@@ -493,7 +478,7 @@ export const syncTargetAmpere = (
     let newControl = controlState;
     const isStarting = shouldStartCharging(amp, controlState.running);
     if (isStarting) {
-      yield* ChargeCommands.startCharging(isDryRun);
+      yield* ChargeCommands.startCharging();
       newControl = withChargeStarted(newControl);
     }
 
@@ -503,7 +488,7 @@ export const syncTargetAmpere = (
       yield* Ref.update(statsRef, recordFluctuation);
 
       yield* eventLogger.onSetAmpere(amp);
-      yield* ChargeCommands.setChargingAmpere(isDryRun, amp);
+      yield* ChargeCommands.setChargingAmpere(amp);
       yield* PubSub.publish(pubSub, { _tag: "AmpereChanged" as const, previous: previousAmpere, current: amp });
 
       const ampDifference = amp - previousAmpere;
@@ -550,7 +535,6 @@ export const runChargingSyncLoop = (
   controlRef: Ref.Ref<ChargingControlState>,
   statsRef: Ref.Ref<ChargingSessionStats>,
   config: TimingConfig,
-  isDryRun: boolean,
   eventLogger: IEventLogger,
   pubSub: PubSub.PubSub<TeslaChargerEvent>,
   batteryStateManager: BatteryStateManager,
@@ -573,7 +557,7 @@ export const runChargingSyncLoop = (
       determined_speed: ampere
     });
 
-    yield* AmpereSync.syncTargetAmpere(ampere, controlRef, statsRef, config, isDryRun, eventLogger, pubSub).pipe(
+    yield* AmpereSync.syncTargetAmpere(ampere, controlRef, statsRef, config, eventLogger, pubSub).pipe(
       Effect.tap(() =>
         Effect.annotateCurrentSpan({
           chargeState: controlState,
@@ -693,7 +677,7 @@ export const endSession = (
   tokenRefreshFiber: Fiber.RuntimeFiber<void, AuthenticationFailedError> | undefined,
   mainSyncFiber: Fiber.RuntimeFiber<void, never> | undefined,
   runtimeMonitorFiber: Fiber.RuntimeFiber<void, never> | undefined,
-  config: { isDryRun: boolean; costPerKwh?: number; timingConfig: TimingConfig }
+  config: { costPerKwh?: number; timingConfig: TimingConfig }
 ): Effect.Effect<void, never, TeslaClient | DataAdapter> =>
   Effect.gen(function* () {
     const controlState = yield* Ref.get(controlRef);
@@ -706,7 +690,7 @@ export const endSession = (
     yield* PubSub.shutdown(pubSub);
 
     if (controlState.running) {
-      yield* Effect.retry(ChargeCommands.stopCharging(config.isDryRun), {
+      yield* Effect.retry(ChargeCommands.stopCharging(), {
         times: 3,
         while: (err) => {
           if (err._tag === "VehicleAsleepError") {
@@ -811,7 +795,6 @@ export const App = Context.GenericTag<App>("@tesla-charger/App");
 
 export const AppLayer = (config: {
   readonly timingConfig: TimingConfig;
-  readonly isDryRun?: boolean;
   readonly eventLogger?: IEventLogger;
   readonly costPerKwh?: number;
 }) =>
@@ -823,7 +806,6 @@ export const AppLayer = (config: {
       const chargingSpeedController = yield* ChargingSpeedController;
       const batteryStateManager = yield* BatteryStateManager;
       const eventLogger = config.eventLogger ?? new EventLogger();
-      const isDryRun = config.isDryRun ?? false;
       const pubSub = yield* PubSub.unbounded<TeslaChargerEvent>();
 
       // Two Refs replace the old monolithic ChargingState
@@ -849,7 +831,7 @@ export const AppLayer = (config: {
           tokenRefreshFiber,
           mainSyncFiber,
           runtimeMonitorFiber,
-          { isDryRun, costPerKwh: config.costPerKwh, timingConfig: config.timingConfig }
+          { costPerKwh: config.costPerKwh, timingConfig: config.timingConfig }
         );
         yield* Ref.set(appStatusRef, AppStatus.Stopped);
       }).pipe(Effect.orDie);
@@ -875,7 +857,6 @@ export const AppLayer = (config: {
             controlRef,
             statsRef,
             config.timingConfig,
-            isDryRun,
             eventLogger,
             pubSub,
             batteryStateManager,

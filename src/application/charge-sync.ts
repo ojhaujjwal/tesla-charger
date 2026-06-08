@@ -50,7 +50,6 @@ export const syncTargetAmpere = (
   controlState: ChargingControlState,
   sessionStats: ChargingSessionStats,
   config: ChargingConfig,
-  isDryRun: boolean,
   waitForRampUp: (
     waitSeconds: number
   ) => Effect.Effect<void, AbruptProductionDropError | DataNotAvailableError | SourceNotAvailableError>
@@ -72,7 +71,7 @@ export const syncTargetAmpere = (
     if (amp < 3) {
       const stopResult = requestChargeStop(controlState, config);
       if (stopResult.state.status !== controlState.status) {
-        yield* isDryRun ? Effect.log("Stopping charging (dry run)") : vehicle.stopCharging();
+        yield* vehicle.stopCharging();
         yield* Effect.sleep(Duration.seconds(stopResult.waitSeconds));
         let currentState = stopResult.state;
         const completed = completeChargeStop(currentState);
@@ -85,8 +84,8 @@ export const syncTargetAmpere = (
 
     const startResult = requestChargeStart(controlState, amp, config);
     if (startResult.events.length > 0) {
-      yield* isDryRun ? Effect.log("Starting charging (dry run)") : vehicle.startCharging();
-      yield* isDryRun ? Effect.log(`Setting ampere to ${amp} (dry run)`) : vehicle.setAmpere(amp);
+      yield* vehicle.startCharging();
+      yield* vehicle.setAmpere(amp);
       let currentState = startResult.state;
       let currentStats = sessionStats;
       if (startResult.recordFluctuation) {
@@ -101,7 +100,7 @@ export const syncTargetAmpere = (
 
     const changeResult = requestAmpereChange(controlState, amp, config);
     if (changeResult.events.length > 0) {
-      yield* isDryRun ? Effect.log(`Setting ampere to ${amp} (dry run)`) : vehicle.setAmpere(amp);
+      yield* vehicle.setAmpere(amp);
       let currentState = changeResult.state;
       let currentStats = sessionStats;
       if (changeResult.recordFluctuation) {

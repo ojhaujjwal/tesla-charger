@@ -62,7 +62,6 @@ type FiberErrors = AuthenticationFailedError | MainLoopErrors;
 export const AppLayer = (config: {
   readonly chargingConfig: ChargingConfig;
   readonly timingConfig: TimingConfig;
-  readonly isDryRun?: boolean;
   readonly costPerKwh?: number;
 }) =>
   Layer.effect(
@@ -73,7 +72,6 @@ export const AppLayer = (config: {
       const chargingSpeedController = yield* ChargingSpeedController;
       const batteryStateManager = yield* BatteryStateManager;
       const appRuntime = yield* AppRuntime;
-      const isDryRun = config.isDryRun ?? false;
       const costPerKwh = config.costPerKwh ?? 0.3;
       const teslaChargerPubSub = yield* PubSub.unbounded<TeslaChargerEvent>();
 
@@ -91,7 +89,6 @@ export const AppLayer = (config: {
             controlRef: appRuntime.controlRef,
             statsRef: appRuntime.statsRef,
             pubSub: teslaChargerPubSub,
-            isDryRun,
             costPerKwh,
             timingConfig: config.timingConfig,
             fibers: [
@@ -153,7 +150,6 @@ export const AppLayer = (config: {
                 controlState,
                 sessionStats,
                 config.chargingConfig,
-                isDryRun,
                 (waitSeconds) =>
                   Effect.race(
                     Effect.void.pipe(Effect.delay(Duration.seconds(waitSeconds))),

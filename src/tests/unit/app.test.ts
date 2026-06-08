@@ -66,8 +66,7 @@ describe("App", () => {
       Effect.provide(
         AppLayer({
           chargingConfig: defaultChargingConfig,
-          timingConfig,
-          isDryRun: false
+          timingConfig
         }).pipe(
           Layer.provideMerge(AppRuntimeLayer),
           Layer.provideMerge(TestBatteryStateManager),

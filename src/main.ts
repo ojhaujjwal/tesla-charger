@@ -89,11 +89,6 @@ const cli = Command.make(
       Flag.withAlias("t"),
       Flag.optional,
       Flag.withDescription("Maximum runtime in hours before auto-shutdown")
-    ),
-    dryRun: Flag.boolean("dry-run").pipe(
-      Flag.withAlias("d"),
-      Flag.withDefault(false),
-      Flag.withDescription("Simulate without making actual Tesla API calls")
     )
   },
   (parsed) => {
@@ -103,8 +98,6 @@ const cli = Command.make(
           ...timingConfigBase,
           ...(Option.isSome(parsed.maxRuntimeHours) && { maxRuntimeHours: parsed.maxRuntimeHours.value })
         };
-
-        const isDryRun = parsed.dryRun;
 
         const teslaAppDomain = yield* AppConfig.tesla.appDomain;
         const teslaClientId = yield* AppConfig.tesla.oauth2ClientId;
@@ -183,7 +176,6 @@ const cli = Command.make(
         return AppLayer({
           chargingConfig,
           timingConfig,
-          isDryRun,
           costPerKwh
         }).pipe(
           Layer.provideMerge(controllerLayer),

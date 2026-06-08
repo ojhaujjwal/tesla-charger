@@ -59,7 +59,6 @@ export const endSession = (params: {
   controlRef: Ref.Ref<ChargingControlState>;
   statsRef: Ref.Ref<ChargingSessionStats>;
   pubSub: PubSub.PubSub<TeslaChargerEvent>;
-  isDryRun: boolean;
   costPerKwh: number;
   timingConfig: TimingConfig;
   fibers: ReadonlyArray<Fiber.Fiber<unknown, unknown>>;
@@ -74,7 +73,7 @@ export const endSession = (params: {
     });
 
     if (controlState.status !== "Idle") {
-      yield* Effect.retry(params.isDryRun ? Effect.log("Stopping charging") : teslaClient.stopCharging(), {
+      yield* Effect.retry(teslaClient.stopCharging(), {
         times: 3,
         while: (err) => {
           if (err._tag === "VehicleAsleepError") {
