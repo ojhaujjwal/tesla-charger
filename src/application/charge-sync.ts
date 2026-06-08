@@ -68,53 +68,47 @@ export const syncTargetAmpere = (
 
     const amp = Math.min(32, targetAmpere);
 
-    if (amp < 3) {
-      const stopResult = requestChargeStop(controlState, config);
-      if (stopResult.state.status !== controlState.status) {
-        yield* vehicle.stopCharging();
-        yield* Effect.sleep(Duration.seconds(stopResult.waitSeconds));
-        let currentState = stopResult.state;
-        const completed = completeChargeStop(currentState);
-        currentState = completed.state;
-        yield* PubSub.publish(pubSub, { _tag: "ChargingStopped" as const });
-        return { state: currentState, stats: sessionStats };
+    switch (controlState.status) {
+      case "Idle": {
+        if (amp >= 3) {
+          const startResult = requestChargeStart(controlState, amp, config);
+          yield* vehicle.startCharging();
+          yield* vehicle.setAmpere(amp);
+          let currentStats = startResult.recordFluctuation ? recordFluctuationStat(sessionStats) : sessionStats;
+          yield* publishChargingEvent(startResult.events[0], pubSub);
+          yield* waitForRampUp(startResult.waitSeconds);
+          const completed = completeChargeStart(startResult.state);
+          return { state: completed.state, stats: currentStats };
+        }
+        return { state: controlState, stats: sessionStats };
       }
-      return { state: controlState, stats: sessionStats };
+      case "Starting":
+      case "ChangingAmpere":
+      case "Stopping": {
+        return { state: controlState, stats: sessionStats };
+      }
+      case "Charging": {
+        if (amp < 3) {
+          const stopResult = requestChargeStop(controlState, config);
+          yield* vehicle.stopCharging();
+          yield* Effect.sleep(Duration.seconds(stopResult.waitSeconds));
+          const completed = completeChargeStop(stopResult.state);
+          yield* PubSub.publish(pubSub, { _tag: "ChargingStopped" as const });
+          return { state: completed.state, stats: sessionStats };
+        }
+        const changeResult = requestAmpereChange(controlState, amp, config);
+        if ("unchanged" in changeResult) {
+          return { state: controlState, stats: sessionStats };
+        }
+        yield* vehicle.setAmpere(amp);
+        let currentStats = changeResult.recordFluctuation ? recordFluctuationStat(sessionStats) : sessionStats;
+        yield* publishChargingEvent(changeResult.events[0], pubSub);
+        yield* waitForRampUp(changeResult.waitSeconds);
+        const completed = completeAmpereChange(changeResult.state);
+        if (completed.events.length > 0) {
+          yield* publishChargingEvent(completed.events[0], pubSub);
+        }
+        return { state: completed.state, stats: currentStats };
+      }
     }
-
-    const startResult = requestChargeStart(controlState, amp, config);
-    if (startResult.events.length > 0) {
-      yield* vehicle.startCharging();
-      yield* vehicle.setAmpere(amp);
-      let currentState = startResult.state;
-      let currentStats = sessionStats;
-      if (startResult.recordFluctuation) {
-        currentStats = recordFluctuationStat(currentStats);
-      }
-      yield* publishChargingEvent(startResult.events[0], pubSub);
-      yield* waitForRampUp(startResult.waitSeconds);
-      const completed = completeChargeStart(currentState);
-      currentState = completed.state;
-      return { state: currentState, stats: currentStats };
-    }
-
-    const changeResult = requestAmpereChange(controlState, amp, config);
-    if (changeResult.events.length > 0) {
-      yield* vehicle.setAmpere(amp);
-      let currentState = changeResult.state;
-      let currentStats = sessionStats;
-      if (changeResult.recordFluctuation) {
-        currentStats = recordFluctuationStat(currentStats);
-      }
-      yield* publishChargingEvent(changeResult.events[0], pubSub);
-      yield* waitForRampUp(changeResult.waitSeconds);
-      const completed = completeAmpereChange(currentState);
-      currentState = completed.state;
-      if (completed.events.length > 0) {
-        yield* publishChargingEvent(completed.events[0], pubSub);
-      }
-      return { state: currentState, stats: currentStats };
-    }
-
-    return { state: controlState, stats: sessionStats };
   });

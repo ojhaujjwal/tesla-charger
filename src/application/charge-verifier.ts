@@ -1,4 +1,5 @@
 import type { ChargingControlState } from "../domain/charging-session.js";
+
 import type { IDataAdapter, DataNotAvailableError, SourceNotAvailableError } from "../data-adapter/types.js";
 import { BatteryStateManager } from "../battery-state-manager.js";
 import { Effect } from "effect";

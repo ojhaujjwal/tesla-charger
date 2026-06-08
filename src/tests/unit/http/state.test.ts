@@ -5,13 +5,18 @@ import { HttpClient, HttpRouter } from "effect/unstable/http";
 import { HttpApi, HttpApiBuilder } from "effect/unstable/httpapi";
 import { AppRuntime } from "../../../app-runtime.js";
 import { BatteryStateManager, type BatteryState } from "../../../battery-state-manager.js";
-import { AppStatus, type ChargingControlState, type ChargingSessionStats } from "../../../domain/charging-session.js";
+import {
+  AppStatus,
+  _Idle,
+  type ChargingControlState,
+  type ChargingSessionStats
+} from "../../../domain/charging-session.js";
 import { StateGroup } from "../../../http/state.js";
 
 describe("HTTP /state", () => {
   it.effect("GET /state returns live control, stats, appStatus and battery", () =>
     Effect.gen(function* () {
-      const controlRef = yield* Ref.make<ChargingControlState>({ status: "Idle" });
+      const controlRef = yield* Ref.make<ChargingControlState>(_Idle({ status: "Idle" }));
       const statsRef = yield* Ref.make<ChargingSessionStats>({
         ampereFluctuations: 5,
         sessionStartedAt: new Date("2026-05-17T10:00:00Z"),

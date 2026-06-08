@@ -18,7 +18,7 @@ export class AppRuntime extends Context.Service<
 export const AppRuntimeLayer = Layer.effect(
   AppRuntime,
   Effect.gen(function* () {
-    const controlRef = yield* Ref.make(createInitialChargingControlState());
+    const controlRef = yield* Ref.make<ChargingControlState>(createInitialChargingControlState());
     const statsRef = yield* Ref.make(createInitialChargingSessionStats());
     const appStatusRef = yield* Ref.make(AppStatus.Pending);
     return { controlRef, statsRef, appStatusRef };
