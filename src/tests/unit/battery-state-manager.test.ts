@@ -6,7 +6,7 @@ import { TeslaClient, type TeslaClientService } from "../../tesla-client/index.j
 import { ChargeStateQueryFailedError } from "../../tesla-client/errors.js";
 import { BatteryStateManager, BatteryStateManagerLayer } from "../../battery-state-manager.js";
 import type { TeslaChargerEvent } from "../../domain/events.js";
-import { Ampere } from "../../domain/brands.js";
+import { Ampere, KiloWattHours as KWh, StateOfCharge } from "../../domain/brands.js";
 
 describe("BatteryStateManager", () => {
   const teslaClientMock: MockedObject<TeslaClientService> = {
@@ -28,14 +28,18 @@ describe("BatteryStateManager", () => {
   beforeEach(() => {
     vitest.clearAllMocks();
     teslaClientMock.getChargeState.mockReturnValue(
-      Effect.succeed({ batteryLevel: 50, chargeLimitSoc: 80, chargeEnergyAdded: 0 })
+      Effect.succeed({ batteryLevel: StateOfCharge(50), chargeLimitSoc: StateOfCharge(80), chargeEnergyAdded: KWh(0) })
     );
   });
 
   it.effect("should fetch battery state on first charging event (deferred from startup)", () =>
     Effect.gen(function* () {
       teslaClientMock.getChargeState.mockReturnValue(
-        Effect.succeed({ batteryLevel: 45, chargeLimitSoc: 80, chargeEnergyAdded: 1.2 })
+        Effect.succeed({
+          batteryLevel: StateOfCharge(45),
+          chargeLimitSoc: StateOfCharge(80),
+          chargeEnergyAdded: KWh(1.2)
+        })
       );
 
       const batteryStateManager = yield* BatteryStateManager;
@@ -142,10 +146,18 @@ describe("BatteryStateManager", () => {
       teslaClientMock.getChargeState.mockImplementation(() => {
         getChargeStateCallCount++;
         if (getChargeStateCallCount === 1) {
-          return Effect.succeed({ batteryLevel: 50, chargeLimitSoc: 80, chargeEnergyAdded: 0 });
+          return Effect.succeed({
+            batteryLevel: StateOfCharge(50),
+            chargeLimitSoc: StateOfCharge(80),
+            chargeEnergyAdded: KWh(0)
+          });
         }
         // Refreshed state shows higher battery level
-        return Effect.succeed({ batteryLevel: 62, chargeLimitSoc: 80, chargeEnergyAdded: 5.0 });
+        return Effect.succeed({
+          batteryLevel: StateOfCharge(62),
+          chargeLimitSoc: StateOfCharge(80),
+          chargeEnergyAdded: KWh(5.0)
+        });
       });
 
       const batteryStateManager = yield* BatteryStateManager;
@@ -195,7 +207,11 @@ describe("BatteryStateManager", () => {
       teslaClientMock.getChargeState.mockImplementation(() => {
         getChargeStateCallCount++;
         if (getChargeStateCallCount === 1) {
-          return Effect.succeed({ batteryLevel: 50, chargeLimitSoc: 80, chargeEnergyAdded: 0 });
+          return Effect.succeed({
+            batteryLevel: StateOfCharge(50),
+            chargeLimitSoc: StateOfCharge(80),
+            chargeEnergyAdded: KWh(0)
+          });
         }
         // Subsequent calls fail
         return Effect.fail(new ChargeStateQueryFailedError({ message: "Vehicle is asleep" }));

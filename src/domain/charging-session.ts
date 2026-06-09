@@ -1,5 +1,6 @@
 import { Brand } from "effect";
-import type { Ampere } from "./brands.js";
+import type { Ampere, KiloWattHours } from "./brands.js";
+import { KiloWattHours as KWh } from "./brands.js";
 
 // Branded state variants — each carries its status as a phantom type tag.
 // At runtime these are plain objects (e.g. { status: "Idle" }).
@@ -135,15 +136,15 @@ export const completeChargeStop = (
 export const createInitialChargingSessionStats = (): ChargingSessionStats => ({
   ampereFluctuations: 0,
   sessionStartedAt: null,
-  chargeEnergyAddedAtStartKwh: 0,
-  dailyImportValueAtStart: 0
+  chargeEnergyAddedAtStartKwh: KWh(0),
+  dailyImportValueAtStart: KWh(0)
 });
 
 export type ChargingSessionStats = {
   readonly ampereFluctuations: number;
   readonly sessionStartedAt: Date | null;
-  readonly chargeEnergyAddedAtStartKwh: number;
-  readonly dailyImportValueAtStart: number;
+  readonly chargeEnergyAddedAtStartKwh: KiloWattHours;
+  readonly dailyImportValueAtStart: KiloWattHours;
 };
 
 export const recordFluctuation = (stats: ChargingSessionStats): ChargingSessionStats => ({
@@ -151,12 +152,12 @@ export const recordFluctuation = (stats: ChargingSessionStats): ChargingSessionS
   ampereFluctuations: stats.ampereFluctuations + 1
 });
 
-export const withDailyImportRecorded = (stats: ChargingSessionStats, value: number): ChargingSessionStats => ({
+export const withDailyImportRecorded = (stats: ChargingSessionStats, value: KiloWattHours): ChargingSessionStats => ({
   ...stats,
   dailyImportValueAtStart: value
 });
 
-export const withChargeEnergyRecorded = (stats: ChargingSessionStats, value: number): ChargingSessionStats => ({
+export const withChargeEnergyRecorded = (stats: ChargingSessionStats, value: KiloWattHours): ChargingSessionStats => ({
   ...stats,
   chargeEnergyAddedAtStartKwh: value
 });

@@ -12,6 +12,7 @@ import {
   type ChargingSessionStats
 } from "../../../domain/charging-session.js";
 import { StateGroup } from "../../../http/state.js";
+import { KiloWattHours as KWh, StateOfCharge } from "../../../domain/brands.js";
 
 describe("HTTP /state", () => {
   it.effect("GET /state returns live control, stats, appStatus and battery", () =>
@@ -20,14 +21,14 @@ describe("HTTP /state", () => {
       const statsRef = yield* Ref.make<ChargingSessionStats>({
         ampereFluctuations: 5,
         sessionStartedAt: new Date("2026-05-17T10:00:00Z"),
-        chargeEnergyAddedAtStartKwh: 1.5,
-        dailyImportValueAtStart: 0.5
+        chargeEnergyAddedAtStartKwh: KWh(1.5),
+        dailyImportValueAtStart: KWh(0.5)
       });
       const appStatusRef = yield* Ref.make(AppStatus.Running);
 
       const batteryState: BatteryState = {
-        batteryLevel: 72,
-        chargeLimitSoc: 80,
+        batteryLevel: StateOfCharge(72),
+        chargeLimitSoc: StateOfCharge(80),
         queriedAtMs: 1715600000000
       };
 

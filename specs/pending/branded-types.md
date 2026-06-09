@@ -17,19 +17,19 @@ Spec B in `specs/pending/gdp-proofs.md` introduced `Ampere` to enforce [0, 32] o
 
 ## Requirements
 
-- [ ] Four branded types defined in `src/domain/brands.ts` matching the `Ampere` pattern
-- [ ] Brand classification at data-adapter and API-schema boundaries
-- [ ] Config values (`KiloWattHours`, `HourOfDay`) validated via `Schema.fromBrand` at resolution time
-- [ ] All controllers classify `voltage` after destructuring from `queryLatestValues`
-- [ ] No bare `number` for branded concepts after task completion
-- [ ] All existing tests pass with branded test data
+- [x] Four branded types defined in `src/domain/brands.ts` matching the `Ampere` pattern
+- [x] Brand classification at data-adapter and API-schema boundaries
+- [x] Config values (`KiloWattHours`, `HourOfDay`) validated via `Schema.fromBrand` at resolution time
+- [x] All controllers classify `voltage` after destructuring from `queryLatestValues`
+- [x] No bare `number` for branded concepts after task completion
+- [x] All existing tests pass with branded test data
 
 ## Tasks
 
-- [ ] **Task 1**: KiloWattHours brand — all consumers and tests
-- [ ] **Task 2**: StateOfCharge brand — all consumers and tests
-- [ ] **Task 3**: Voltage brand — all consumers and tests
-- [ ] **Task 4**: HourOfDay brand — all consumers and tests
+- [x] **Task 1**: KiloWattHours brand — all consumers and tests
+- [x] **Task 2**: StateOfCharge brand — all consumers and tests
+- [x] **Task 3**: Voltage brand — all consumers and tests
+- [x] **Task 4**: HourOfDay brand — all consumers and tests
 
 Each task is atomic: type signature changes include ALL call sites, leaving the codebase compilable and tests passing.
 

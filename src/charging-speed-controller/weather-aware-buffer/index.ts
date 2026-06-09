@@ -7,7 +7,7 @@ import type { WeatherAwareBufferConfig } from "./types.js";
 import { calculateDefaultMonthlyPeakFactors, expectedCapacityKw } from "./solar-calculations.js";
 import { periodConfidence } from "./forecast-confidence.js";
 import { simulateCharge } from "./charge-simulation.js";
-import { Ampere } from "../../domain/brands.js";
+import { Ampere, Voltage } from "../../domain/brands.js";
 
 export type { WeatherAwareBufferConfig, SunTimes, SimulationResult } from "./types.js";
 export { calculateSunTimes, calculateDefaultMonthlyPeakFactors, expectedCapacityKw } from "./solar-calculations.js";
@@ -103,10 +103,12 @@ export const WeatherAwareBufferControllerLayer = (
             }
 
             const {
-              voltage,
+              voltage: rawVoltage,
               export_to_grid: exportingToGrid,
               import_from_grid: importingFromGrid
             } = yield* dataAdapter.queryLatestValues(["voltage", "export_to_grid", "import_from_grid"]);
+
+            const voltage = Voltage(rawVoltage);
 
             const netExport = exportingToGrid - importingFromGrid;
             const excessSolar = netExport - finalBuffer + currentChargingSpeed * voltage;

@@ -4,6 +4,7 @@ import { DataAdapter, DataNotAvailableError, SourceNotAvailableError, type Field
 import { HttpClient } from "effect/unstable/http";
 import { AppConfig } from "./../config.js";
 import { createHash } from "crypto";
+import { Voltage } from "../domain/brands.js";
 
 export type AlphaEssConfig = {
   readonly appId: RedactedType<string>;
@@ -76,7 +77,7 @@ const mapFieldToValue = (field: Field, data: NonNullable<ApiResponse["data"]>): 
   switch (field) {
     case "voltage":
       // Hardcoded value for voltage as API does not provide it
-      return 235;
+      return Voltage(235);
 
     case "current_production":
       return data.ppv;

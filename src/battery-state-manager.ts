@@ -1,10 +1,11 @@
 import { Context, Clock, Effect, Layer, PubSub } from "effect";
 import { TeslaClient } from "./tesla-client/index.js";
 import type { TeslaChargerEvent } from "./domain/events.js";
+import type { StateOfCharge } from "./domain/brands.js";
 
 export type BatteryState = {
-  batteryLevel: number;
-  chargeLimitSoc: number;
+  batteryLevel: StateOfCharge;
+  chargeLimitSoc: StateOfCharge;
   queriedAtMs: number; // epoch millis from Effect Clock (testable)
 };
 

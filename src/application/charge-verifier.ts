@@ -3,6 +3,7 @@ import type { ChargingControlState } from "../domain/charging-session.js";
 import type { IDataAdapter, DataNotAvailableError, SourceNotAvailableError } from "../data-adapter/types.js";
 import { BatteryStateManager } from "../battery-state-manager.js";
 import { Effect } from "effect";
+import { Voltage } from "../domain/brands.js";
 
 export const verifyCharging = (
   dataAdapter: IDataAdapter,
@@ -11,7 +12,11 @@ export const verifyCharging = (
   onBatteryComplete: Effect.Effect<void>
 ): Effect.Effect<void, DataNotAvailableError | SourceNotAvailableError> =>
   Effect.gen(function* () {
-    const { current_load: currentLoad, voltage } = yield* dataAdapter.queryLatestValues(["current_load", "voltage"]);
+    const { current_load: currentLoad, voltage: rawVoltage } = yield* dataAdapter.queryLatestValues([
+      "current_load",
+      "voltage"
+    ]);
+    const voltage = Voltage(rawVoltage);
     const currentLoadAmpere = currentLoad / voltage;
 
     if (controlState.status !== "Charging") return;

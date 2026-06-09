@@ -12,7 +12,7 @@ import { App, AppLayer, type TimingConfig } from "../../app.js";
 import { AppRuntimeLayer } from "../../app-runtime.js";
 import { BatteryStateManager, type BatteryState } from "../../battery-state-manager.js";
 import type { TeslaChargerEvent } from "../../domain/events.js";
-import { Ampere } from "../../domain/brands.js";
+import { Ampere, KiloWattHours as KWh, StateOfCharge } from "../../domain/brands.js";
 
 describe("App", () => {
   const teslaClientMock: MockedObject<TeslaClientService> = {
@@ -93,7 +93,7 @@ describe("App", () => {
     teslaClientMock.setAmpere.mockReturnValue(Effect.void);
     teslaClientMock.wakeUpCar.mockReturnValue(Effect.void);
     teslaClientMock.getChargeState.mockReturnValue(
-      Effect.succeed({ batteryLevel: 50, chargeLimitSoc: 80, chargeEnergyAdded: 0 })
+      Effect.succeed({ batteryLevel: StateOfCharge(50), chargeLimitSoc: StateOfCharge(80), chargeEnergyAdded: KWh(0) })
     );
 
     dataAdapterMock.queryLatestValues.mockReturnValue(
@@ -410,8 +410,8 @@ describe("App", () => {
     Effect.gen(function* () {
       // Mock battery state manager to return completed charge
       batteryState = {
-        batteryLevel: 80,
-        chargeLimitSoc: 80,
+        batteryLevel: StateOfCharge(80),
+        chargeLimitSoc: StateOfCharge(80),
         queriedAtMs: Date.now()
       };
 
@@ -506,10 +506,18 @@ describe("App", () => {
         getChargeStateCallCount++;
         if (getChargeStateCallCount === 1) {
           // Initial call in start()
-          return Effect.succeed({ batteryLevel: 50, chargeLimitSoc: 80, chargeEnergyAdded: 0 });
+          return Effect.succeed({
+            batteryLevel: StateOfCharge(50),
+            chargeLimitSoc: StateOfCharge(80),
+            chargeEnergyAdded: KWh(0)
+          });
         }
         // Final call in stop()
-        return Effect.succeed({ batteryLevel: 60, chargeLimitSoc: 80, chargeEnergyAdded: 5.5 });
+        return Effect.succeed({
+          batteryLevel: StateOfCharge(60),
+          chargeLimitSoc: StateOfCharge(80),
+          chargeEnergyAdded: KWh(5.5)
+        });
       });
 
       // Mock queryLatestValues for start(), sync cycles, and stop()

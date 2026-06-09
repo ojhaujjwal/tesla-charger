@@ -16,7 +16,7 @@ import { ChargingSpeedController } from "../../../charging-speed-controller/type
 import { DataAdapter, type IDataAdapter } from "../../../data-adapter/types.js";
 import { SolarForecast, SolarForecastNotAvailableError } from "../../../solar-forecast/types.js";
 import { BatteryStateManager, type BatteryState } from "../../../battery-state-manager.js";
-import { Ampere } from "../../../domain/brands.js";
+import { Ampere, KiloWattHours as KWh, StateOfCharge, HourOfDay } from "../../../domain/brands.js";
 
 describe("WeatherAwareBufferController - Pure Functions", () => {
   describe("calculateSunTimes", () => {
@@ -117,12 +117,12 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
     const baseConfig: WeatherAwareBufferConfig = {
       minBufferPower: 1000,
       bufferMultiplierMax: 3,
-      carBatteryCapacityKwh: 75,
+      carBatteryCapacityKwh: KWh(75),
       peakSolarCapacityKw: 9,
       latitude: -33.8688,
       longitude: 151.2093,
-      defaultDailyProductionKwh: 30,
-      solarCutoffHour: 18,
+      defaultDailyProductionKwh: KWh(30),
+      solarCutoffHour: HourOfDay(18),
       multipleOf: 3
     };
 
@@ -222,12 +222,12 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
     const baseConfig: WeatherAwareBufferConfig = {
       minBufferPower: 1000,
       bufferMultiplierMax: 3,
-      carBatteryCapacityKwh: 75,
+      carBatteryCapacityKwh: KWh(75),
       peakSolarCapacityKw: 9,
       latitude: -33.8688,
       longitude: 151.2093,
-      defaultDailyProductionKwh: 30,
-      solarCutoffHour: 18,
+      defaultDailyProductionKwh: KWh(30),
+      solarCutoffHour: HourOfDay(18),
       multipleOf: 3
     };
 
@@ -249,8 +249,8 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
         ]
       };
       const batteryState = {
-        batteryLevel: 70,
-        chargeLimitSoc: 80 // Only needs 10% = 7.5 kWh
+        batteryLevel: StateOfCharge(70),
+        chargeLimitSoc: StateOfCharge(80) // Only needs 10% = 7.5 kWh
       };
       const now = new Date("2024-01-15T12:00:00Z");
 
@@ -278,8 +278,8 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
         ]
       };
       const batteryState = {
-        batteryLevel: 30,
-        chargeLimitSoc: 80 // Needs 50% = 37.5 kWh
+        batteryLevel: StateOfCharge(30),
+        chargeLimitSoc: StateOfCharge(80) // Needs 50% = 37.5 kWh
       };
       const now = new Date("2024-01-15T12:00:00Z");
 
@@ -301,8 +301,8 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
         ]
       };
       const batteryState = {
-        batteryLevel: 50,
-        chargeLimitSoc: 80
+        batteryLevel: StateOfCharge(50),
+        chargeLimitSoc: StateOfCharge(80)
       };
       const now = new Date("2024-01-15T18:30:00Z"); // After cutoff
 
@@ -341,12 +341,12 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
     const baseConfig: WeatherAwareBufferConfig = {
       minBufferPower: 1000,
       bufferMultiplierMax: 3,
-      carBatteryCapacityKwh: 75,
+      carBatteryCapacityKwh: KWh(75),
       peakSolarCapacityKw: 9,
       latitude: -33.8688,
       longitude: 151.2093,
-      defaultDailyProductionKwh: 30,
-      solarCutoffHour: 18,
+      defaultDailyProductionKwh: KWh(30),
+      solarCutoffHour: HourOfDay(18),
       multipleOf: 3
     };
 
@@ -401,8 +401,8 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
           })
         );
         batteryState = {
-          batteryLevel: 50,
-          chargeLimitSoc: 80,
+          batteryLevel: StateOfCharge(50),
+          chargeLimitSoc: StateOfCharge(80),
           queriedAtMs: Date.now()
         };
         mockDataAdapter.queryLatestValues.mockReturnValue(
@@ -446,8 +446,8 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
           })
         );
         batteryState = {
-          batteryLevel: 50,
-          chargeLimitSoc: 80,
+          batteryLevel: StateOfCharge(50),
+          chargeLimitSoc: StateOfCharge(80),
           queriedAtMs: Date.now()
         };
         mockDataAdapter.queryLatestValues.mockReturnValue(
@@ -491,8 +491,8 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
           })
         );
         batteryState = {
-          batteryLevel: 30,
-          chargeLimitSoc: 80, // Needs a lot
+          batteryLevel: StateOfCharge(30),
+          chargeLimitSoc: StateOfCharge(80), // Needs a lot
           queriedAtMs: Date.now()
         };
         mockDataAdapter.queryLatestValues.mockReturnValue(
@@ -519,7 +519,7 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
         Effect.provide(
           TestLayer({
             ...baseConfig,
-            deadlineHour: 14 // 2PM deadline
+            deadlineHour: HourOfDay(14) // 2PM deadline
           })
         )
       )
@@ -541,8 +541,8 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
           })
         );
         batteryState = {
-          batteryLevel: 50,
-          chargeLimitSoc: 80,
+          batteryLevel: StateOfCharge(50),
+          chargeLimitSoc: StateOfCharge(80),
           queriedAtMs: Date.now()
         };
         // Very high export -> should hit 32A limit

@@ -18,7 +18,7 @@ import {
   withChargeEnergyRecorded,
   withSessionStarted
 } from "../../../domain/charging-session.js";
-import { Ampere } from "../../../domain/brands.js";
+import { Ampere, KiloWattHours as KWh } from "../../../domain/brands.js";
 const defaultConfig = {
   waitPerAmereInSeconds: 2,
   extraWaitOnChargeStartInSeconds: 10,
@@ -184,25 +184,25 @@ describe("ChargingSessionStats", () => {
   describe("when daily import is recorded", () => {
     it("stores the value at session start", () => {
       const stats = createInitialChargingSessionStats();
-      const next = withDailyImportRecorded(stats, 5.5);
+      const next = withDailyImportRecorded(stats, KWh(5.5));
 
-      expect(next.dailyImportValueAtStart).toBe(5.5);
+      expect(next.dailyImportValueAtStart).toBe(KWh(5.5));
     });
 
     it("overwrites previous value", () => {
-      const stats = withDailyImportRecorded(createInitialChargingSessionStats(), 2.0);
-      const next = withDailyImportRecorded(stats, 3.5);
+      const stats = withDailyImportRecorded(createInitialChargingSessionStats(), KWh(2.0));
+      const next = withDailyImportRecorded(stats, KWh(3.5));
 
-      expect(next.dailyImportValueAtStart).toBe(3.5);
+      expect(next.dailyImportValueAtStart).toBe(KWh(3.5));
     });
   });
 
   describe("when charge energy is recorded", () => {
     it("stores the energy value at session start", () => {
       const stats = createInitialChargingSessionStats();
-      const next = withChargeEnergyRecorded(stats, 10.0);
+      const next = withChargeEnergyRecorded(stats, KWh(10.0));
 
-      expect(next.chargeEnergyAddedAtStartKwh).toBe(10.0);
+      expect(next.chargeEnergyAddedAtStartKwh).toBe(KWh(10.0));
     });
   });
 

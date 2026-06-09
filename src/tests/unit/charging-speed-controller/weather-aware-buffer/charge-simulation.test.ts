@@ -1,18 +1,19 @@
 import { describe, it, expect } from "@effect/vitest";
 import { simulateCharge } from "../../../../charging-speed-controller/weather-aware-buffer/charge-simulation.js";
 import type { WeatherAwareBufferConfig } from "../../../../charging-speed-controller/weather-aware-buffer/types.js";
+import { KiloWattHours as KWh, StateOfCharge, HourOfDay } from "../../../../domain/brands.js";
 
 describe("charge-simulation", () => {
   describe("simulateCharge", () => {
     const baseConfig: WeatherAwareBufferConfig = {
       minBufferPower: 1000,
       bufferMultiplierMax: 3,
-      carBatteryCapacityKwh: 75,
+      carBatteryCapacityKwh: KWh(75),
       peakSolarCapacityKw: 9,
       latitude: -33.8688,
       longitude: 151.2093,
-      defaultDailyProductionKwh: 30,
-      solarCutoffHour: 18,
+      defaultDailyProductionKwh: KWh(30),
+      solarCutoffHour: HourOfDay(18),
       multipleOf: 3
     };
 
@@ -34,8 +35,8 @@ describe("charge-simulation", () => {
         ]
       };
       const batteryState = {
-        batteryLevel: 70,
-        chargeLimitSoc: 80 // Only needs 10% = 7.5 kWh
+        batteryLevel: StateOfCharge(70),
+        chargeLimitSoc: StateOfCharge(80) // Only needs 10% = 7.5 kWh
       };
       const now = new Date("2024-01-15T12:00:00Z");
 
@@ -63,8 +64,8 @@ describe("charge-simulation", () => {
         ]
       };
       const batteryState = {
-        batteryLevel: 30,
-        chargeLimitSoc: 80 // Needs 50% = 37.5 kWh
+        batteryLevel: StateOfCharge(30),
+        chargeLimitSoc: StateOfCharge(80) // Needs 50% = 37.5 kWh
       };
       const now = new Date("2024-01-15T12:00:00Z");
 
@@ -86,8 +87,8 @@ describe("charge-simulation", () => {
         ]
       };
       const batteryState = {
-        batteryLevel: 50,
-        chargeLimitSoc: 80
+        batteryLevel: StateOfCharge(50),
+        chargeLimitSoc: StateOfCharge(80)
       };
       const now = new Date("2024-01-15T18:30:00Z"); // After cutoff
 

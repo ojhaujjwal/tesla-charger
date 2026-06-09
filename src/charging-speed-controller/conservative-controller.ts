@@ -1,7 +1,7 @@
 import { Effect, Layer } from "effect";
 import { DataAdapter } from "../data-adapter/types.js";
 import { ChargingSpeedController, InadequateDataToDetermineSpeedError } from "./types.js";
-import { clampAmpere } from "../domain/brands.js";
+import { clampAmpere, Voltage } from "../domain/brands.js";
 import type { Ampere } from "../domain/brands.js";
 
 export const ConservativeControllerLayer = (
@@ -18,10 +18,12 @@ export const ConservativeControllerLayer = (
       return {
         determineChargingSpeed: Effect.fn("determineChargingSpeed")(
           function* (currentChargingSpeed: Ampere) {
-            const { voltage, current_load: currentLoad } = yield* dataAdapter.queryLatestValues([
+            const { voltage: rawVoltage, current_load: currentLoad } = yield* dataAdapter.queryLatestValues([
               "voltage",
               "current_load"
             ]);
+
+            const voltage = Voltage(rawVoltage);
 
             const lowestSolarProduction = yield* dataAdapter.getLowestValueInLastXMinutes("current_production", 30);
 

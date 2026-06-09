@@ -1,5 +1,12 @@
 import { Config as EffectConfig } from "effect";
-import { Ampere, AmpereFromString } from "./domain/brands.js";
+import {
+  Ampere,
+  AmpereFromString,
+  KiloWattHours,
+  KiloWattHoursFromString,
+  HourOfDay,
+  HourOfDayFromString
+} from "./domain/brands.js";
 
 export const AppConfig = {
   nodeEnv: EffectConfig.string("NODE_ENV").pipe(EffectConfig.withDefault("production")),
@@ -50,13 +57,19 @@ export const AppConfig = {
   weatherAware: {
     minBufferPower: EffectConfig.int("EXCESS_SOLAR_BUFFER_POWER").pipe(EffectConfig.withDefault(500)),
     bufferMultiplierMax: EffectConfig.number("BUFFER_MULTIPLIER_MAX").pipe(EffectConfig.withDefault(3)),
-    carBatteryCapacityKwh: EffectConfig.number("CAR_BATTERY_CAPACITY_KWH").pipe(EffectConfig.withDefault(60)),
+    carBatteryCapacityKwh: EffectConfig.schema(KiloWattHoursFromString, "CAR_BATTERY_CAPACITY_KWH").pipe(
+      EffectConfig.withDefault(KiloWattHours(60))
+    ),
     peakSolarCapacityKw: EffectConfig.number("SOLCAST_CAPACITY_KW").pipe(EffectConfig.withDefault(9)),
     latitude: EffectConfig.number("SOLCAST_LATITUDE"),
     longitude: EffectConfig.number("SOLCAST_LONGITUDE"),
-    defaultDailyProductionKwh: EffectConfig.number("DEFAULT_DAILY_PRODUCTION_KWH").pipe(EffectConfig.withDefault(60)),
-    solarCutoffHour: EffectConfig.int("SOLAR_CUTOFF_HOUR").pipe(EffectConfig.withDefault(18)),
-    deadlineHour: EffectConfig.int("DEADLINE_HOUR")
+    defaultDailyProductionKwh: EffectConfig.schema(KiloWattHoursFromString, "DEFAULT_DAILY_PRODUCTION_KWH").pipe(
+      EffectConfig.withDefault(KiloWattHours(60))
+    ),
+    solarCutoffHour: EffectConfig.schema(HourOfDayFromString, "SOLAR_CUTOFF_HOUR").pipe(
+      EffectConfig.withDefault(HourOfDay(18))
+    ),
+    deadlineHour: EffectConfig.schema(HourOfDayFromString, "DEADLINE_HOUR")
   },
 
   cost: {

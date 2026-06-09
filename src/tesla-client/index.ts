@@ -1,5 +1,5 @@
 import { ElectricVehicle } from "../domain/electric-vehicle.js";
-import type { Ampere } from "../domain/brands.js";
+import type { Ampere, KiloWattHours, StateOfCharge } from "../domain/brands.js";
 import {
   AuthenticationFailedError,
   ChargeStateQueryFailedError,
@@ -25,9 +25,9 @@ const FLEET_API_BASE_URL = "https://fleet-api.prd.na.vn.cloud.tesla.com";
 type CommandResult = Effect.Effect<void, VehicleAsleepError | VehicleCommandFailedError>;
 
 export type ChargeState = {
-  readonly batteryLevel: number;
-  readonly chargeLimitSoc: number;
-  readonly chargeEnergyAdded: number;
+  readonly batteryLevel: StateOfCharge;
+  readonly chargeLimitSoc: StateOfCharge;
+  readonly chargeEnergyAdded: KiloWattHours;
 };
 
 export type TeslaClientService = ElectricVehicle["Service"] & {

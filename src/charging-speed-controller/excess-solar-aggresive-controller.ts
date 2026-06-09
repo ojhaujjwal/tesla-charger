@@ -2,7 +2,7 @@ import { DataAdapter } from "../data-adapter/types.js";
 import { DynamicChargingConfig } from "./dynamic-config.js";
 import { ChargingSpeedController, InadequateDataToDetermineSpeedError } from "./types.js";
 import { Effect, Layer } from "effect";
-import { Ampere } from "../domain/brands.js";
+import { Ampere, Voltage } from "../domain/brands.js";
 
 export const ExcessSolarAggresiveControllerLayer = (config: { multipleOf: number }) =>
   Layer.effect(
@@ -14,12 +14,19 @@ export const ExcessSolarAggresiveControllerLayer = (config: { multipleOf: number
       return {
         determineChargingSpeed: Effect.fn("determineChargingSpeed")(
           function* (currentChargingSpeed: Ampere) {
-            const { voltage, battery_power, export_to_grid, import_from_grid } = yield* dataAdapter.queryLatestValues([
+            const {
+              voltage: rawVoltage,
+              battery_power,
+              export_to_grid,
+              import_from_grid
+            } = yield* dataAdapter.queryLatestValues([
               "voltage",
               "battery_power",
               "export_to_grid",
               "import_from_grid"
             ]);
+
+            const voltage = Voltage(rawVoltage);
 
             const bufferPower = yield* dynamicConfig.getBufferPower;
             const netExport = export_to_grid - import_from_grid;

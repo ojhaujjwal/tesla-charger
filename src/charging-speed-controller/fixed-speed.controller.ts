@@ -1,7 +1,7 @@
 import { Effect, Layer } from "effect";
 import { DataAdapter } from "../data-adapter/types.js";
 import { ChargingSpeedController, InadequateDataToDetermineSpeedError } from "./types.js";
-import { Ampere } from "../domain/brands.js";
+import { Ampere, Voltage } from "../domain/brands.js";
 
 export const FixedSpeedControllerLayer = (config: { fixedSpeed: Ampere; bufferPower: number }) =>
   Layer.effect(
@@ -13,10 +13,12 @@ export const FixedSpeedControllerLayer = (config: { fixedSpeed: Ampere; bufferPo
         determineChargingSpeed: Effect.fn("determineChargingSpeed")(
           function* (currentChargingSpeed: Ampere) {
             const {
-              voltage,
+              voltage: rawVoltage,
               export_to_grid: exportingToGrid,
               import_from_grid: importingFromGrid
             } = yield* dataAdapter.queryLatestValues(["voltage", "export_to_grid", "import_from_grid"]);
+
+            const voltage = Voltage(rawVoltage);
 
             const netExport = exportingToGrid - importingFromGrid;
             const currentChargingPower = currentChargingSpeed * voltage;

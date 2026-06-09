@@ -1,6 +1,8 @@
 import type { WeatherAwareBufferConfig, SimulationResult } from "./types.js";
 import { calculateDefaultMonthlyPeakFactors, expectedCapacityKw } from "./solar-calculations.js";
 import { periodConfidence } from "./forecast-confidence.js";
+import { KiloWattHours as KWh } from "../../domain/brands.js";
+import type { StateOfCharge } from "../../domain/brands.js";
 
 // Pure function for simulating charge completion based on forecast
 
@@ -13,8 +15,8 @@ export const simulateCharge = (
     }[];
   },
   batteryState: {
-    readonly batteryLevel: number;
-    readonly chargeLimitSoc: number;
+    readonly batteryLevel: StateOfCharge;
+    readonly chargeLimitSoc: StateOfCharge;
   } | null,
   now: Date
 ): SimulationResult => {
@@ -24,13 +26,14 @@ export const simulateCharge = (
       usableSlots: 0,
       totalSlots: 0,
       utilizationRatio: 0,
-      shortfallKwh: 0
+      shortfallKwh: KWh(0)
     };
   }
 
   // Calculate remaining charge need
-  const remainingNeedKwh =
-    ((batteryState.chargeLimitSoc - batteryState.batteryLevel) / 100) * config.carBatteryCapacityKwh;
+  const remainingNeedKwh = KWh(
+    ((batteryState.chargeLimitSoc - batteryState.batteryLevel) / 100) * config.carBatteryCapacityKwh
+  );
 
   // Determine cutoff hour
   const cutoffHour = config.deadlineHour ?? config.solarCutoffHour;
@@ -38,7 +41,7 @@ export const simulateCharge = (
   // Get monthly peak factors
   const monthlyPeakFactors = config.monthlyPeakFactors ?? calculateDefaultMonthlyPeakFactors(config.latitude);
 
-  let remainingNeed = remainingNeedKwh;
+  let remainingNeed: number = remainingNeedKwh;
   let usableSlots = 0;
   let totalSlots = 0;
   const minChargingThresholdW = 690; // ~3A * 230V
@@ -104,7 +107,7 @@ export const simulateCharge = (
   // (0.3 kWh = ~1% of a 75kWh battery, acceptable rounding)
   const canComplete = remainingNeed <= 0.3;
   const utilizationRatio = totalSlots > 0 ? usableSlots / totalSlots : 0;
-  const shortfallKwh = canComplete ? 0 : remainingNeed;
+  const shortfallKwh = canComplete ? KWh(0) : KWh(remainingNeed);
 
   return {
     canComplete,
