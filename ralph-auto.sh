@@ -225,14 +225,14 @@ run_ci_checks() {
     echo "1. Type Checking..."
     echo "-------------------"
     local typecheck_output
-    if typecheck_output=$(npm run build 2>&1); then
+    if typecheck_output=$(npm run typecheck 2>&1); then
         echo -e "${GREEN}Type check passed${NC}"
     else
         echo -e "${RED}Type check failed${NC}"
         ci_failed=1
         error_output+="## Type Check Failed
 
-Command: \`npm run build\`
+Command: \`npm run typecheck\`
 
 \`\`\`
 $typecheck_output
