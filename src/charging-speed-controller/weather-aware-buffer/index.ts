@@ -7,7 +7,7 @@ import type { WeatherAwareBufferConfig } from "./types.js";
 import { calculateDefaultMonthlyPeakFactors, expectedCapacityKw } from "./solar-calculations.js";
 import { periodConfidence } from "./forecast-confidence.js";
 import { simulateCharge } from "./charge-simulation.js";
-import { Ampere, Voltage } from "../../domain/brands.js";
+import { Ampere, Voltage, Watt } from "../../domain/brands.js";
 
 export type { WeatherAwareBufferConfig, SunTimes, SimulationResult } from "./types.js";
 export { calculateSunTimes, calculateDefaultMonthlyPeakFactors, expectedCapacityKw } from "./solar-calculations.js";
@@ -94,12 +94,12 @@ export const WeatherAwareBufferControllerLayer = (
 
               if (config.deadlineHour !== undefined && batteryState) {
                 const urgencyFactor = simulation.utilizationRatio;
-                finalBuffer = weatherBuffer * (1 - urgencyFactor * 0.5);
+                finalBuffer = Watt(weatherBuffer * (1 - urgencyFactor * 0.5));
               } else {
-                finalBuffer = weatherBuffer;
+                finalBuffer = Watt(weatherBuffer);
               }
 
-              finalBuffer = Math.max(config.minBufferPower, finalBuffer);
+              finalBuffer = Watt(Math.max(config.minBufferPower, finalBuffer));
             }
 
             const {

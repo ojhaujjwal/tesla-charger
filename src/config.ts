@@ -5,7 +5,11 @@ import {
   KiloWattHours,
   KiloWattHoursFromString,
   HourOfDay,
-  HourOfDayFromString
+  HourOfDayFromString,
+  Watt,
+  WattFromString,
+  LatitudeFromString,
+  LongitudeFromString
 } from "./domain/brands.js";
 
 export const AppConfig = {
@@ -47,22 +51,28 @@ export const AppConfig = {
     fixedSpeedAmpere: EffectConfig.schema(AmpereFromString, "FIXED_SPEED_AMPERE").pipe(
       EffectConfig.withDefault(Ampere(5))
     ),
-    maxAllowedFeedInPower: EffectConfig.int("MAX_ALLOWED_FEED_IN_POWER").pipe(EffectConfig.withDefault(5000))
+    maxAllowedFeedInPower: EffectConfig.schema(WattFromString, "MAX_ALLOWED_FEED_IN_POWER").pipe(
+      EffectConfig.withDefault(Watt(5000))
+    )
   },
 
   excessSolar: {
-    bufferPower: EffectConfig.int("EXCESS_SOLAR_BUFFER_POWER").pipe(EffectConfig.withDefault(1000))
+    bufferPower: EffectConfig.schema(WattFromString, "EXCESS_SOLAR_BUFFER_POWER").pipe(
+      EffectConfig.withDefault(Watt(1000))
+    )
   },
 
   weatherAware: {
-    minBufferPower: EffectConfig.int("EXCESS_SOLAR_BUFFER_POWER").pipe(EffectConfig.withDefault(500)),
+    minBufferPower: EffectConfig.schema(WattFromString, "EXCESS_SOLAR_BUFFER_POWER").pipe(
+      EffectConfig.withDefault(Watt(500))
+    ),
     bufferMultiplierMax: EffectConfig.number("BUFFER_MULTIPLIER_MAX").pipe(EffectConfig.withDefault(3)),
     carBatteryCapacityKwh: EffectConfig.schema(KiloWattHoursFromString, "CAR_BATTERY_CAPACITY_KWH").pipe(
       EffectConfig.withDefault(KiloWattHours(60))
     ),
     peakSolarCapacityKw: EffectConfig.number("SOLCAST_CAPACITY_KW").pipe(EffectConfig.withDefault(9)),
-    latitude: EffectConfig.number("SOLCAST_LATITUDE"),
-    longitude: EffectConfig.number("SOLCAST_LONGITUDE"),
+    latitude: EffectConfig.schema(LatitudeFromString, "SOLCAST_LATITUDE"),
+    longitude: EffectConfig.schema(LongitudeFromString, "SOLCAST_LONGITUDE"),
     defaultDailyProductionKwh: EffectConfig.schema(KiloWattHoursFromString, "DEFAULT_DAILY_PRODUCTION_KWH").pipe(
       EffectConfig.withDefault(KiloWattHours(60))
     ),

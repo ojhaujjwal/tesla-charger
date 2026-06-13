@@ -1,17 +1,24 @@
 import { describe, it, expect } from "@effect/vitest";
 import { simulateCharge } from "../../../../charging-speed-controller/weather-aware-buffer/charge-simulation.js";
 import type { WeatherAwareBufferConfig } from "../../../../charging-speed-controller/weather-aware-buffer/types.js";
-import { KiloWattHours as KWh, StateOfCharge, HourOfDay } from "../../../../domain/brands.js";
+import {
+  KiloWattHours as KWh,
+  StateOfCharge,
+  HourOfDay,
+  Watt,
+  Latitude,
+  Longitude
+} from "../../../../domain/brands.js";
 
 describe("charge-simulation", () => {
   describe("simulateCharge", () => {
     const baseConfig: WeatherAwareBufferConfig = {
-      minBufferPower: 1000,
+      minBufferPower: Watt(1000),
       bufferMultiplierMax: 3,
       carBatteryCapacityKwh: KWh(75),
       peakSolarCapacityKw: 9,
-      latitude: -33.8688,
-      longitude: 151.2093,
+      latitude: Latitude(-33.8688),
+      longitude: Longitude(151.2093),
       defaultDailyProductionKwh: KWh(30),
       solarCutoffHour: HourOfDay(18),
       multipleOf: 3

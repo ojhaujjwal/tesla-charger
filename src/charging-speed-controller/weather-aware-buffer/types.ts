@@ -1,12 +1,12 @@
-import type { KiloWattHours, HourOfDay } from "../../domain/brands.js";
+import type { KiloWattHours, HourOfDay, Watt, Latitude, Longitude } from "../../domain/brands.js";
 
 export type WeatherAwareBufferConfig = {
-  readonly minBufferPower: number; // floor (e.g. 1000W, same as EXCESS_SOLAR_BUFFER_POWER)
+  readonly minBufferPower: Watt; // floor (e.g. 1000W, same as EXCESS_SOLAR_BUFFER_POWER)
   readonly bufferMultiplierMax: number; // max multiplier on minBuffer (e.g. 3 -> up to 3000W)
   readonly carBatteryCapacityKwh: KiloWattHours; // e.g. 75 for Model Y LR
   readonly peakSolarCapacityKw: number; // nameplate peak at solar noon in best month (e.g. 9kW)
-  readonly latitude: number; // for sunrise/sunset + seasonal peak calculation
-  readonly longitude: number; // for solar noon calculation
+  readonly latitude: Latitude; // for sunrise/sunset + seasonal peak calculation
+  readonly longitude: Longitude; // for solar noon calculation
   readonly monthlyPeakFactors?: readonly number[]; // 12 multipliers [Jan..Dec] on peakSolarCapacityKw
   // auto-generated from latitude if not provided
   readonly defaultDailyProductionKwh: KiloWattHours; // fallback if forecast unavailable

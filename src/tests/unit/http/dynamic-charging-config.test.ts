@@ -6,10 +6,11 @@ import { HttpApi, HttpApiBuilder } from "effect/unstable/httpapi";
 import { DynamicChargingConfig } from "../../../charging-speed-controller/dynamic-config.js";
 import { DynamicChargingConfigGroup } from "../../../http/dynamic-charging-config.js";
 import { ValidationErrorHandlerLayer } from "../../../http/validation-error.js";
+import { Watt } from "../../../domain/brands.js";
 
 describe("HTTP /dynamic-charging-config", () => {
   const makeTestLayer = Effect.gen(function* () {
-    const bufferPowerRef = yield* Ref.make(1000);
+    const bufferPowerRef = yield* Ref.make(Watt(1000));
 
     return Layer.mergeAll(
       Layer.succeed(DynamicChargingConfig, {
@@ -31,7 +32,7 @@ describe("HTTP /dynamic-charging-config", () => {
           return handlers
             .handle("getConfig", () => Effect.map(dynamicConfig.getBufferPower, (bufferPower) => ({ bufferPower })))
             .handle("setConfig", ({ payload }) =>
-              Effect.map(dynamicConfig.setBufferPower(payload.bufferPower), () => ({
+              Effect.map(dynamicConfig.setBufferPower(Watt(payload.bufferPower)), () => ({
                 bufferPower: payload.bufferPower
               }))
             );
@@ -64,7 +65,7 @@ describe("HTTP /dynamic-charging-config", () => {
           return handlers
             .handle("getConfig", () => Effect.map(dynamicConfig.getBufferPower, (bufferPower) => ({ bufferPower })))
             .handle("setConfig", ({ payload }) =>
-              Effect.map(dynamicConfig.setBufferPower(payload.bufferPower), () => ({
+              Effect.map(dynamicConfig.setBufferPower(Watt(payload.bufferPower)), () => ({
                 bufferPower: payload.bufferPower
               }))
             );
@@ -105,7 +106,7 @@ describe("HTTP /dynamic-charging-config", () => {
           return handlers
             .handle("getConfig", () => Effect.map(dynamicConfig.getBufferPower, (bufferPower) => ({ bufferPower })))
             .handle("setConfig", ({ payload }) =>
-              Effect.map(dynamicConfig.setBufferPower(payload.bufferPower), () => ({
+              Effect.map(dynamicConfig.setBufferPower(Watt(payload.bufferPower)), () => ({
                 bufferPower: payload.bufferPower
               }))
             );
@@ -137,7 +138,7 @@ describe("HTTP /dynamic-charging-config", () => {
           return handlers
             .handle("getConfig", () => Effect.map(dynamicConfig.getBufferPower, (bufferPower) => ({ bufferPower })))
             .handle("setConfig", ({ payload }) =>
-              Effect.map(dynamicConfig.setBufferPower(payload.bufferPower), () => ({
+              Effect.map(dynamicConfig.setBufferPower(Watt(payload.bufferPower)), () => ({
                 bufferPower: payload.bufferPower
               }))
             );

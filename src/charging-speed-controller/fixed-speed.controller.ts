@@ -1,9 +1,9 @@
 import { Effect, Layer } from "effect";
 import { DataAdapter } from "../data-adapter/types.js";
 import { ChargingSpeedController, InadequateDataToDetermineSpeedError } from "./types.js";
-import { Ampere, Voltage } from "../domain/brands.js";
+import { Ampere, Voltage, type Watt } from "../domain/brands.js";
 
-export const FixedSpeedControllerLayer = (config: { fixedSpeed: Ampere; bufferPower: number }) =>
+export const FixedSpeedControllerLayer = (config: { fixedSpeed: Ampere; bufferPower: Watt }) =>
   Layer.effect(
     ChargingSpeedController,
     Effect.gen(function* () {

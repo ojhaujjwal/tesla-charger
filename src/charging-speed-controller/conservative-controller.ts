@@ -1,19 +1,19 @@
 import { Effect, Layer } from "effect";
 import { DataAdapter } from "../data-adapter/types.js";
 import { ChargingSpeedController, InadequateDataToDetermineSpeedError } from "./types.js";
-import { clampAmpere, Voltage } from "../domain/brands.js";
+import { clampAmpere, Voltage, Watt } from "../domain/brands.js";
 import type { Ampere } from "../domain/brands.js";
 
 export const ConservativeControllerLayer = (
   config: {
-    bufferPower?: number;
+    bufferPower?: Watt;
   } = {}
 ) =>
   Layer.effect(
     ChargingSpeedController,
     Effect.gen(function* () {
       const dataAdapter = yield* DataAdapter;
-      const bufferPower = config.bufferPower ?? 100;
+      const bufferPower = config.bufferPower ?? Watt(100);
 
       return {
         determineChargingSpeed: Effect.fn("determineChargingSpeed")(

@@ -11,7 +11,15 @@ import { ChargingSpeedController } from "../../../../charging-speed-controller/t
 import { DataAdapter, type IDataAdapter } from "../../../../data-adapter/types.js";
 import { SolarForecast, SolarForecastNotAvailableError } from "../../../../solar-forecast/types.js";
 import { BatteryStateManager, type BatteryState } from "../../../../battery-state-manager.js";
-import { Ampere, KiloWattHours as KWh, StateOfCharge, HourOfDay } from "../../../../domain/brands.js";
+import {
+  Ampere,
+  KiloWattHours as KWh,
+  StateOfCharge,
+  HourOfDay,
+  Watt,
+  Latitude,
+  Longitude
+} from "../../../../domain/brands.js";
 
 describe("WeatherAwareBufferController - Integration", () => {
   let mockDataAdapter: MockedObject<IDataAdapter>;
@@ -39,12 +47,12 @@ describe("WeatherAwareBufferController - Integration", () => {
   });
 
   const baseConfig: WeatherAwareBufferConfig = {
-    minBufferPower: 1000,
+    minBufferPower: Watt(1000),
     bufferMultiplierMax: 3,
     carBatteryCapacityKwh: KWh(75),
     peakSolarCapacityKw: 9,
-    latitude: -33.8688,
-    longitude: 151.2093,
+    latitude: Latitude(-33.8688),
+    longitude: Longitude(151.2093),
     defaultDailyProductionKwh: KWh(30),
     solarCutoffHour: HourOfDay(18),
     multipleOf: 3

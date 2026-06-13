@@ -5,7 +5,7 @@ import {
   expectedCapacityKw
 } from "../../../../charging-speed-controller/weather-aware-buffer/solar-calculations.js";
 import type { WeatherAwareBufferConfig } from "../../../../charging-speed-controller/weather-aware-buffer/types.js";
-import { KiloWattHours as KWh, HourOfDay } from "../../../../domain/brands.js";
+import { KiloWattHours as KWh, HourOfDay, Watt, Latitude, Longitude } from "../../../../domain/brands.js";
 
 describe("solar-calculations", () => {
   describe("calculateSunTimes", () => {
@@ -104,12 +104,12 @@ describe("solar-calculations", () => {
 
   describe("expectedCapacityKw", () => {
     const baseConfig: WeatherAwareBufferConfig = {
-      minBufferPower: 1000,
+      minBufferPower: Watt(1000),
       bufferMultiplierMax: 3,
       carBatteryCapacityKwh: KWh(75),
       peakSolarCapacityKw: 9,
-      latitude: -33.8688,
-      longitude: 151.2093,
+      latitude: Latitude(-33.8688),
+      longitude: Longitude(151.2093),
       defaultDailyProductionKwh: KWh(30),
       solarCutoffHour: HourOfDay(18),
       multipleOf: 3

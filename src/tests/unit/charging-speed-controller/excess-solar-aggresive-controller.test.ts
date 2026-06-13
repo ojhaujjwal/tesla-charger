@@ -6,7 +6,7 @@ import { DynamicChargingConfig } from "../../../charging-speed-controller/dynami
 import { DataAdapter, type IDataAdapter } from "../../../data-adapter/types.js";
 import { Effect, Layer } from "effect";
 import { ChargingSpeedController } from "../../../charging-speed-controller/types.js";
-import { Ampere } from "../../../domain/brands.js";
+import { Ampere, Watt } from "../../../domain/brands.js";
 
 describe("ExcessSolarAggresiveController", () => {
   let mockDataAdapter: MockedObject<IDataAdapter>;
@@ -18,7 +18,7 @@ describe("ExcessSolarAggresiveController", () => {
     };
   });
 
-  const TestLayer = (config: { bufferPower: number; multipleOf: number } = { bufferPower: 100, multipleOf: 5 }) =>
+  const TestLayer = (config: { bufferPower: Watt; multipleOf: number } = { bufferPower: Watt(100), multipleOf: 5 }) =>
     ExcessSolarAggresiveControllerLayer({ multipleOf: config.multipleOf }).pipe(
       Layer.provideMerge(
         Layer.succeed(DynamicChargingConfig, {
@@ -161,7 +161,7 @@ describe("ExcessSolarAggresiveController", () => {
         const controller = yield* ChargingSpeedController;
         const chargingSpeed = yield* controller.determineChargingSpeed(Ampere(0));
         expect(chargingSpeed).toBe(Ampere(5));
-      }).pipe(Effect.provide(TestLayer({ bufferPower: 100, multipleOf: 5 })))
+      }).pipe(Effect.provide(TestLayer({ bufferPower: Watt(100), multipleOf: 5 })))
     );
 
     it.effect("should combine battery charging power and grid export for total excess", () =>
@@ -184,7 +184,7 @@ describe("ExcessSolarAggresiveController", () => {
         const controller = yield* ChargingSpeedController;
         const chargingSpeed = yield* controller.determineChargingSpeed(Ampere(0));
         expect(chargingSpeed).toBe(Ampere(10));
-      }).pipe(Effect.provide(TestLayer({ bufferPower: 100, multipleOf: 5 })))
+      }).pipe(Effect.provide(TestLayer({ bufferPower: Watt(100), multipleOf: 5 })))
     );
 
     it.effect("should use only grid export when battery is not charging (discharging)", () =>
@@ -208,7 +208,7 @@ describe("ExcessSolarAggresiveController", () => {
         const controller = yield* ChargingSpeedController;
         const chargingSpeed = yield* controller.determineChargingSpeed(Ampere(0));
         expect(chargingSpeed).toBe(Ampere(5));
-      }).pipe(Effect.provide(TestLayer({ bufferPower: 100, multipleOf: 5 })))
+      }).pipe(Effect.provide(TestLayer({ bufferPower: Watt(100), multipleOf: 5 })))
     );
 
     it.effect("should subtract battery discharge when demand exceeds solar production", () =>
@@ -233,7 +233,7 @@ describe("ExcessSolarAggresiveController", () => {
         const controller = yield* ChargingSpeedController;
         const chargingSpeed = yield* controller.determineChargingSpeed(Ampere(0));
         expect(chargingSpeed).toBe(Ampere(0));
-      }).pipe(Effect.provide(TestLayer({ bufferPower: 100, multipleOf: 5 })))
+      }).pipe(Effect.provide(TestLayer({ bufferPower: Watt(100), multipleOf: 5 })))
     );
 
     it.effect("should correctly calculate excess when battery discharges with solar surplus", () =>
@@ -258,7 +258,7 @@ describe("ExcessSolarAggresiveController", () => {
         const controller = yield* ChargingSpeedController;
         const chargingSpeed = yield* controller.determineChargingSpeed(Ampere(0));
         expect(chargingSpeed).toBe(Ampere(0));
-      }).pipe(Effect.provide(TestLayer({ bufferPower: 100, multipleOf: 5 })))
+      }).pipe(Effect.provide(TestLayer({ bufferPower: Watt(100), multipleOf: 5 })))
     );
   });
 });

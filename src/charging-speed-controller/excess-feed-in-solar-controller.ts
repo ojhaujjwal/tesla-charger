@@ -1,10 +1,10 @@
 import { Effect, Layer } from "effect";
 import { DataAdapter } from "../data-adapter/types.js";
 import { ChargingSpeedController, InadequateDataToDetermineSpeedError } from "./types.js";
-import { Ampere, Voltage } from "../domain/brands.js";
+import { Ampere, Voltage, type Watt } from "../domain/brands.js";
 import { clampAmpere } from "../domain/brands.js";
 
-export const ExcessFeedInSolarControllerLayer = (config: { maxFeedInAllowed: number }) =>
+export const ExcessFeedInSolarControllerLayer = (config: { maxFeedInAllowed: Watt }) =>
   Layer.effect(
     ChargingSpeedController,
     Effect.gen(function* () {

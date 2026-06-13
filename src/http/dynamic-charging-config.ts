@@ -1,6 +1,7 @@
 import { Effect, Schema } from "effect";
 import { HttpApiBuilder, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
 import { DynamicChargingConfig } from "../charging-speed-controller/dynamic-config.js";
+import { Watt } from "../domain/brands.js";
 import { ValidationErrorHandler } from "./validation-error.js";
 
 const DynamicConfigSchema = Schema.Struct({
@@ -34,7 +35,7 @@ export const DynamicConfigHandlers = Effect.fnUntraced(function* (
   return handlers
     .handle("getConfig", () => Effect.map(dynamicConfig.getBufferPower, (bufferPower) => ({ bufferPower })))
     .handle("setConfig", ({ payload }) =>
-      Effect.map(dynamicConfig.setBufferPower(payload.bufferPower), () => ({
+      Effect.map(dynamicConfig.setBufferPower(Watt(payload.bufferPower)), () => ({
         bufferPower: payload.bufferPower
       }))
     );

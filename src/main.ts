@@ -3,6 +3,7 @@ import { Effect, Layer, Option, Redacted } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 import { HttpRouter } from "effect/unstable/http";
 import { AppConfig } from "./config.js";
+import { Watt } from "./domain/brands.js";
 import { httpServerLayer } from "./http-server-layer.js";
 import { AlphaEssCloudApiDataAdapterLayer } from "./data-adapter/alpha-ess-api.data-adapter.js";
 import { TeslaClient, TeslaClientLayer } from "./tesla-client/index.js";
@@ -112,7 +113,7 @@ const cli = Command.make(
 
         if (controllerTag === "fixed-lowest-speed") {
           const fixedSpeed = yield* AppConfig.controller.fixedSpeedAmpere;
-          controllerLayer = FixedSpeedControllerLayer({ fixedSpeed, bufferPower: 300 }).pipe(
+          controllerLayer = FixedSpeedControllerLayer({ fixedSpeed, bufferPower: Watt(300) }).pipe(
             Layer.provideMerge(DynamicChargingConfigLayer(bufferPower))
           );
         } else if (controllerTag === "conservative") {
