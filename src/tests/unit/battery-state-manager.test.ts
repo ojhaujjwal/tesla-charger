@@ -4,7 +4,7 @@ import * as TestClock from "effect/testing/TestClock";
 import { Effect, Duration, Fiber, Layer, PubSub } from "effect";
 import { TeslaClient, type TeslaClientService } from "../../tesla-client/index.js";
 import { ChargeStateQueryFailedError } from "../../tesla-client/errors.js";
-import { BatteryStateManager, BatteryStateManagerLayer } from "../../battery-state-manager.js";
+import { BatteryStateManager } from "../../battery-state-manager.js";
 import type { TeslaChargerEvent } from "../../domain/events.js";
 import { Ampere, KiloWattHours as KWh, StateOfCharge } from "../../domain/brands.js";
 
@@ -23,7 +23,7 @@ describe("BatteryStateManager", () => {
   const TestTeslaClient = Layer.succeed(TeslaClient, teslaClientMock);
 
   const provideBatteryStateManagerLayer = (effect: Effect.Effect<void, never, BatteryStateManager>) =>
-    effect.pipe(Effect.provide(BatteryStateManagerLayer.pipe(Layer.provideMerge(TestTeslaClient))));
+    effect.pipe(Effect.provide(BatteryStateManager.layer.pipe(Layer.provideMerge(TestTeslaClient))));
 
   beforeEach(() => {
     vitest.clearAllMocks();

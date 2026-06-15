@@ -1,10 +1,5 @@
-import { TeslaClient, type TeslaClientService } from "./tesla-client/index.js";
-import {
-  DataNotAvailableError,
-  SourceNotAvailableError,
-  DataAdapter,
-  type IDataAdapter
-} from "./data-adapter/types.js";
+import { TeslaClient } from "./tesla-client/index.js";
+import { DataNotAvailableError, SourceNotAvailableError, DataAdapter } from "./data-adapter/types.js";
 import {
   ChargingSpeedController,
   type InadequateDataToDetermineSpeedError
@@ -17,7 +12,6 @@ import { VehicleNotWakingUpError } from "./errors/vehicle-not-waking-up.error.js
 import { BatteryStateManager } from "./battery-state-manager.js";
 import { AppRuntime } from "./app-runtime.js";
 import { memoryUsageMB } from "./memory-usage.js";
-import { ElectricVehicle } from "./domain/electric-vehicle.js";
 import { TeslaChargerEventPubSub, type TeslaChargerEvent } from "./domain/events.js";
 import type { ChargingConfig } from "./domain/charging-session.js";
 import { AppStatus } from "./domain/charging-session.js";
@@ -44,8 +38,7 @@ export class App extends Context.Service<
       | NotChargingAccordingToExpectedSpeedError
       | InadequateDataToDetermineSpeedError
       | VehicleNotWakingUpError
-      | VehicleCommandFailedError,
-      ElectricVehicle
+      | VehicleCommandFailedError
     >;
     readonly stop: () => Effect.Effect<void, never>;
   }
@@ -68,8 +61,8 @@ export const AppLayer = (config: {
   Layer.effect(
     App,
     Effect.gen(function* () {
-      const teslaClient: TeslaClientService = yield* TeslaClient;
-      const dataAdapter: IDataAdapter = yield* DataAdapter;
+      const teslaClient = yield* TeslaClient;
+      const dataAdapter = yield* DataAdapter;
       const chargingSpeedController = yield* ChargingSpeedController;
       const batteryStateManager = yield* BatteryStateManager;
       const appRuntime = yield* AppRuntime;
@@ -127,8 +120,7 @@ export const AppLayer = (config: {
             | SourceNotAvailableError
             | InadequateDataToDetermineSpeedError
             | VehicleNotWakingUpError
-            | VehicleCommandFailedError,
-            ElectricVehicle | DataAdapter | BatteryStateManager
+            | VehicleCommandFailedError
           > =>
             Effect.gen(function* () {
               const controlState = yield* Ref.get(appRuntime.controlRef);
@@ -173,7 +165,8 @@ export const AppLayer = (config: {
                       }),
                       Schedule.fixed(Duration.seconds(4))
                     )
-                  )
+                  ),
+                teslaClient
               ).pipe(
                 Effect.tap(() =>
                   Effect.annotateCurrentSpan({
@@ -253,11 +246,7 @@ export const AppLayer = (config: {
           ];
           if (runtimeMonitorFiber) fibers.push(runtimeMonitorFiber);
           yield* Fiber.joinAll(fibers);
-        }).pipe(
-          Effect.provideService(TeslaClient, teslaClient),
-          Effect.provideService(DataAdapter, dataAdapter),
-          Effect.provideService(BatteryStateManager, batteryStateManager)
-        );
+        });
 
       return { start, stop };
     }).pipe(Effect.withSpan("AppLayer"))

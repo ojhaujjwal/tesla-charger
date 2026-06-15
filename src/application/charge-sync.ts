@@ -1,5 +1,4 @@
 import { Duration, Effect, PubSub } from "effect";
-import { ElectricVehicle } from "../domain/electric-vehicle.js";
 import { TeslaChargerEventPubSub } from "../domain/events.js";
 import { VehicleAsleepError, VehicleCommandFailedError } from "../domain/errors.js";
 import { AbruptProductionDropError } from "../errors/abrupt-production-drop.error.js";
@@ -21,6 +20,7 @@ import {
 import type { TeslaChargerEvent } from "../domain/events.js";
 import { DataNotAvailableError, SourceNotAvailableError } from "../data-adapter/types.js";
 import type { Ampere } from "../domain/brands.js";
+import type { ElectricVehicle } from "../domain/electric-vehicle.js";
 
 const publishChargingEvent = (
   event: ChargingControlEvent,
@@ -53,7 +53,8 @@ export const syncTargetAmpere = (
   config: ChargingConfig,
   waitForRampUp: (
     waitSeconds: number
-  ) => Effect.Effect<void, AbruptProductionDropError | DataNotAvailableError | SourceNotAvailableError>
+  ) => Effect.Effect<void, AbruptProductionDropError | DataNotAvailableError | SourceNotAvailableError>,
+  vehicle: ElectricVehicle
 ): Effect.Effect<
   { state: ChargingControlState; stats: ChargingSessionStats },
   | AbruptProductionDropError
@@ -61,10 +62,9 @@ export const syncTargetAmpere = (
   | VehicleCommandFailedError
   | DataNotAvailableError
   | SourceNotAvailableError,
-  ElectricVehicle | TeslaChargerEventPubSub
+  TeslaChargerEventPubSub
 > =>
   Effect.gen(function* () {
-    const vehicle = yield* ElectricVehicle;
     const pubSub = yield* TeslaChargerEventPubSub;
 
     const amp = targetAmpere;

@@ -6,11 +6,10 @@ import { AppConfig } from "./config.js";
 import { Watt } from "./domain/brands.js";
 import { httpServerLayer } from "./http-server-layer.js";
 import { AlphaEssCloudApiDataAdapterLayer } from "./data-adapter/alpha-ess-api.data-adapter.js";
-import { TeslaClient, TeslaClientLayer } from "./tesla-client/index.js";
-import { ElectricVehicle } from "./domain/electric-vehicle.js";
+import { TeslaClientLayer } from "./tesla-client/index.js";
 import { App, AppLayer, type TimingConfig } from "./app.js";
 import type { ChargingConfig } from "./domain/charging-session.js";
-import { BatteryStateManagerLayer } from "./battery-state-manager.js";
+import { BatteryStateManager } from "./battery-state-manager.js";
 import { FixedSpeedControllerLayer } from "./charging-speed-controller/fixed-speed.controller.js";
 import { ConservativeControllerLayer } from "./charging-speed-controller/conservative-controller.js";
 import { ExcessFeedInSolarControllerLayer } from "./charging-speed-controller/excess-feed-in-solar-controller.js";
@@ -18,7 +17,7 @@ import { ExcessSolarAggresiveControllerLayer } from "./charging-speed-controller
 import { ExcessSolarNonAggresiveControllerLayer } from "./charging-speed-controller/excess-solar-non-aggresive.controller.js";
 import { DynamicChargingConfigLayer } from "./charging-speed-controller/dynamic-config.js";
 import { WeatherAwareBufferControllerLayer } from "./charging-speed-controller/weather-aware-buffer/index.js";
-import { AppRuntimeLayer } from "./app-runtime.js";
+import { AppRuntime } from "./app-runtime.js";
 import { ApiRoutes } from "./http/index.js";
 import { SolcastForecastLayer } from "./solar-forecast/solcast.adapter.js";
 
@@ -28,12 +27,7 @@ const createTeslaClientLayer = (config: {
   readonly clientSecret: Redacted.Redacted<string>;
   readonly vin: string;
 }) => {
-  const base = TeslaClientLayer(config);
-  const ev = Layer.effect(
-    ElectricVehicle,
-    Effect.map(TeslaClient, (client): ElectricVehicle["Service"] => client)
-  );
-  return Layer.mergeAll(base, ev.pipe(Layer.provide(base)));
+  return TeslaClientLayer(config);
 };
 
 const chargingConfig: ChargingConfig = {
@@ -180,8 +174,8 @@ const cli = Command.make(
           costPerKwh
         }).pipe(
           Layer.provideMerge(controllerLayer),
-          Layer.provideMerge(BatteryStateManagerLayer),
-          Layer.provideMerge(AppRuntimeLayer),
+          Layer.provideMerge(BatteryStateManager.layer),
+          Layer.provideMerge(AppRuntime.layer),
           Layer.provideMerge(AlphaEssCloudApiDataAdapterLayer),
           Layer.provideMerge(teslaLayer)
         );

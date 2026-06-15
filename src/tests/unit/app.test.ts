@@ -3,13 +3,12 @@ import type { MockedObject } from "@effect/vitest";
 import { Effect, Duration, Fiber, Layer, Redacted, PubSub } from "effect";
 import * as TestClock from "effect/testing/TestClock";
 import { TeslaClient, type TeslaClientService } from "../../tesla-client/index.js";
-import { ElectricVehicle } from "../../domain/electric-vehicle.js";
 import { VehicleAsleepError } from "../../tesla-client/errors.js";
 import { DataAdapter, type IDataAdapter } from "../../data-adapter/types.js";
 import { ChargingSpeedController } from "../../charging-speed-controller/types.js";
 import type { ChargingConfig } from "../../domain/charging-session.js";
 import { App, AppLayer, type TimingConfig } from "../../app.js";
-import { AppRuntimeLayer } from "../../app-runtime.js";
+import { AppRuntime } from "../../app-runtime.js";
 import { BatteryStateManager, type BatteryState } from "../../battery-state-manager.js";
 import type { TeslaChargerEvent } from "../../domain/events.js";
 import { Ampere, KiloWattHours as KWh, StateOfCharge } from "../../domain/brands.js";
@@ -45,8 +44,6 @@ describe("App", () => {
   const TestDataAdapter = Layer.succeed(DataAdapter, dataAdapterMock);
   const TestChargingSpeedController = Layer.succeed(ChargingSpeedController, chargingSpeedControllerMock);
   const TestBatteryStateManager = Layer.succeed(BatteryStateManager, batteryStateManagerMock);
-  const TestElectricVehicle = Layer.succeed(ElectricVehicle, teslaClientMock);
-
   const defaultChargingConfig: ChargingConfig = {
     waitPerAmereInSeconds: 2,
     extraWaitOnChargeStartInSeconds: 10,
@@ -69,11 +66,10 @@ describe("App", () => {
           chargingConfig: defaultChargingConfig,
           timingConfig
         }).pipe(
-          Layer.provideMerge(AppRuntimeLayer),
+          Layer.provideMerge(AppRuntime.layer),
           Layer.provideMerge(TestBatteryStateManager),
           Layer.provideMerge(TestChargingSpeedController),
           Layer.provideMerge(TestTeslaClient),
-          Layer.provideMerge(TestElectricVehicle),
           Layer.provideMerge(TestDataAdapter)
         )
       )

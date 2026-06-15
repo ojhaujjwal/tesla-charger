@@ -1,4 +1,3 @@
-import { ElectricVehicle } from "../domain/electric-vehicle.js";
 import type { Ampere, KiloWattHours, StateOfCharge } from "../domain/brands.js";
 import {
   AuthenticationFailedError,
@@ -18,6 +17,7 @@ import {
   TeslaChargeStateResponseSchema,
   type TeslaTokenResponse
 } from "./schema.js";
+import type { ElectricVehicle } from "../domain/electric-vehicle.js";
 
 const OAUTH2_TOKEN_BASE_URL = "https://fleet-auth.prd.vn.cloud.tesla.com/oauth2/v3/token";
 const FLEET_API_BASE_URL = "https://fleet-api.prd.na.vn.cloud.tesla.com";
@@ -30,7 +30,7 @@ export type ChargeState = {
   readonly chargeEnergyAdded: KiloWattHours;
 };
 
-export type TeslaClientService = ElectricVehicle["Service"] & {
+export type TeslaClientService = ElectricVehicle & {
   readonly authenticateFromAuthCodeGrant: (
     authorizationCode: string
   ) => Effect.Effect<
@@ -150,13 +150,12 @@ export const TeslaClientLayer = (config: {
       const execTeslaControl = (commandArgs: string[]) =>
         pipe(
           runCommand("tesla-control", commandArgs),
-          Effect.catch((error) =>
-            Effect.fail(
+          Effect.mapError(
+            (error) =>
               new VehicleCommandFailedError({
                 message: `Execution failed: ${error?.message || String(error)}`,
                 cause: error
               })
-            )
           ),
           Effect.tap(() =>
             Effect.annotateCurrentSpan({
@@ -193,14 +192,13 @@ export const TeslaClientLayer = (config: {
           )
         );
 
-      const refreshAccessToken = () =>
-        Effect.gen(function* () {
+      const refreshAccessToken = Effect.fn("refreshAccessToken")(
+        function* () {
           const result = yield* refreshAccessTokenFromTesla();
           yield* saveTokens(result.access_token, result.refresh_token);
-        }).pipe(
-          Effect.mapError((err) => new AuthenticationFailedError({ cause: err })),
-          Effect.withSpan("refreshAccessToken")
-        );
+        },
+        Effect.mapError((err) => new AuthenticationFailedError({ cause: err }))
+      );
 
       const getChargeState = Effect.fn("getChargeState")(function* () {
         const { access_token } = yield* getTokens().pipe(

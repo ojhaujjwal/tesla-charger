@@ -13,14 +13,14 @@ export class AppRuntime extends Context.Service<
     readonly statsRef: Ref.Ref<ChargingSessionStats>;
     readonly appStatusRef: Ref.Ref<AppStatus>;
   }
->()("@tesla-charger/AppRuntime") {}
-
-export const AppRuntimeLayer = Layer.effect(
-  AppRuntime,
-  Effect.gen(function* () {
-    const controlRef = yield* Ref.make<ChargingControlState>(createInitialChargingControlState());
-    const statsRef = yield* Ref.make(createInitialChargingSessionStats());
-    const appStatusRef = yield* Ref.make(AppStatus.Pending);
-    return { controlRef, statsRef, appStatusRef };
-  })
-);
+>()("@tesla-charger/AppRuntime") {
+  static readonly layer = Layer.effect(
+    AppRuntime,
+    Effect.gen(function* () {
+      const controlRef = yield* Ref.make<ChargingControlState>(createInitialChargingControlState());
+      const statsRef = yield* Ref.make(createInitialChargingSessionStats());
+      const appStatusRef = yield* Ref.make(AppStatus.Pending);
+      return { controlRef, statsRef, appStatusRef };
+    })
+  );
+}
