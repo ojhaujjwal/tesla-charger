@@ -124,20 +124,22 @@ export const TeslaClientLayer = (config: {
         return yield* Schema.decodeUnknownEffect(Schema.fromJsonString(TeslaTokenResponseSchema))(yield* response.text);
       });
 
-      const saveTokens = (accessToken: Redacted.Redacted<string>, refreshToken: Redacted.Redacted<string>) =>
-        Effect.gen(function* () {
-          const encoded = JSON.stringify({
-            access_token: Redacted.value(accessToken),
-            refresh_token: Redacted.value(refreshToken)
-          });
-          yield* fs.writeFileString(config.tokenFilePath || "token.json", encoded);
-          yield* fs.writeFileString(config.accessTokenFilePath || ".access-token", Redacted.value(accessToken));
+      const saveTokens = Effect.fn("saveTokens")(function* (
+        accessToken: Redacted.Redacted<string>,
+        refreshToken: Redacted.Redacted<string>
+      ) {
+        const encoded = JSON.stringify({
+          access_token: Redacted.value(accessToken),
+          refresh_token: Redacted.value(refreshToken)
         });
+        yield* fs.writeFileString(config.tokenFilePath || "token.json", encoded);
+        yield* fs.writeFileString(config.accessTokenFilePath || ".access-token", Redacted.value(accessToken));
+      });
 
       const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
 
-      const runCommand = (command: string, commandArgs: string[]) =>
-        Effect.gen(function* () {
+      const runCommand = Effect.fn("runCommand")(
+        function* (command: string, commandArgs: string[]) {
           const cmd = ChildProcess.make(command, commandArgs);
           const handle = yield* childProcessSpawner.spawn(cmd);
           const [exitCode, stdout, stderr] = yield* Effect.all(
@@ -145,7 +147,9 @@ export const TeslaClientLayer = (config: {
             { concurrency: 3 }
           );
           return { exitCode, stdout, stderr };
-        }).pipe(Effect.scoped);
+        },
+        (effect) => effect.pipe(Effect.scoped)
+      );
 
       const execTeslaControl = (commandArgs: string[]) =>
         pipe(

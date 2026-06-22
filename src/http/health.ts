@@ -14,7 +14,7 @@ export class HealthGroup extends HttpApiGroup.make("health", { topLevel: true })
     })
   ) {}
 
-export const HealthHandlers = Effect.fnUntraced(function* (
+export const HealthHandlers = Effect.fn("HealthHandlers")(function* (
   handlers: HttpApiBuilder.Handlers.FromGroup<typeof HealthGroup>
 ) {
   yield* Effect.void;

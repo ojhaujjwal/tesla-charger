@@ -1,8 +1,8 @@
 import { Effect, PubSub } from "effect";
 import type { TeslaChargerEvent } from "../domain/events.js";
 
-export const startEventLogger = (pubSub: PubSub.PubSub<TeslaChargerEvent>): Effect.Effect<void> =>
-  Effect.gen(function* () {
+export const startEventLogger = Effect.fn("startEventLogger")(
+  function* (pubSub: PubSub.PubSub<TeslaChargerEvent>) {
     const subscription = yield* PubSub.subscribe(pubSub);
     return yield* Effect.forever(
       Effect.gen(function* () {
@@ -27,4 +27,6 @@ export const startEventLogger = (pubSub: PubSub.PubSub<TeslaChargerEvent>): Effe
         }
       })
     );
-  }).pipe(Effect.scoped, Effect.withSpan("startEventLogger"));
+  },
+  (effect) => effect.pipe(Effect.scoped, Effect.withSpan("startEventLogger"))
+);

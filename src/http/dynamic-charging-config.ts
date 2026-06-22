@@ -28,7 +28,7 @@ export class DynamicChargingConfigGroup extends HttpApiGroup.make("dynamicChargi
     })
   ) {}
 
-export const DynamicConfigHandlers = Effect.fnUntraced(function* (
+export const DynamicConfigHandlers = Effect.fn("DynamicConfigHandlers")(function* (
   handlers: HttpApiBuilder.Handlers.FromGroup<typeof DynamicChargingConfigGroup>
 ) {
   const dynamicConfig = yield* DynamicChargingConfig;

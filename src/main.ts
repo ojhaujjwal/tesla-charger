@@ -42,7 +42,7 @@ const timingConfigBase = {
   inactivityTimeInSeconds: 15 * 60
 };
 
-const programBody = Effect.gen(function* () {
+const programBody = Effect.fn("programBody")(function* () {
   const app = yield* App;
 
   const httpApiPort = yield* AppConfig.httpApi.port;
@@ -182,7 +182,7 @@ const cli = Command.make(
       })
     );
 
-    return programBody.pipe(
+    return programBody().pipe(
       Effect.provide(MainLayer),
       Effect.scoped,
       Effect.withSpan("program"),

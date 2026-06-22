@@ -45,7 +45,7 @@ export class StateGroup extends HttpApiGroup.make("state", { topLevel: true })
     })
   ) {}
 
-export const StateHandlers = Effect.fnUntraced(function* (
+export const StateHandlers = Effect.fn("StateHandlers")(function* (
   handlers: HttpApiBuilder.Handlers.FromGroup<typeof StateGroup>
 ) {
   const appRuntime = yield* AppRuntime;

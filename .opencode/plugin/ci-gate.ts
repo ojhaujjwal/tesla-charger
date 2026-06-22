@@ -1,23 +1,29 @@
 import type { Plugin } from "@opencode-ai/plugin"
+import { execSync, spawnSync } from "node:child_process"
 
 const CI_TIMEOUT_MS = 5 * 60_000
-const MAX_AUTOFIX_TURNS = 2
+const MAX_AUTOFIX_TURNS = 5
 const SENTINEL = "[CI-GATE-AUTO]"
 
-type TurnState = { edited: boolean; ciRanByAssistant: boolean }
-
-const turn = new Map<string, TurnState>()
+const lastSeenHash = new Map<string, string>()
+const ciRanThisTurn = new Set<string>()
 const autofixCount = new Map<string, number>()
 const inflightAutoRun = new Set<string>()
 
-const RESET = "\x1b[0m"
-const RED = "\x1b[31m"
-const GREEN = "\x1b[32m"
-const DIM = "\x1b[2m"
-
-const EDIT_TOOLS = new Set(["edit", "write", "apply_patch"])
-
 const isCiCommand = (cmd: string) => /^npm\s+(?:run\s+)?ci(?:\s|$)/.test(cmd.trim())
+
+const treeHash = (directory: string): string => {
+  try {
+    return execSync("git stash create --include-untracked", {
+      cwd: directory,
+      encoding: "utf8",
+      timeout: 5_000,
+      stdio: ["pipe", "pipe", "pipe"],
+    }).trim()
+  } catch {
+    return ""
+  }
+}
 
 const firstTextPart = (parts: any[]): string => {
   for (const p of parts ?? []) {
@@ -26,110 +32,118 @@ const firstTextPart = (parts: any[]): string => {
   return ""
 }
 
-const DEBUG_FILE = process.env.CI_GATE_DEBUG ? "/tmp/ci-gate-debug.log" : ""
-const debug = (...args: any[]) => {
-  if (!DEBUG_FILE) return
+type ToastVariant = "info" | "success" | "warning" | "error"
+
+const notify = (
+  client: { tui?: { showToast: (opts: any) => Promise<any> } },
+  message: string,
+  variant: ToastVariant,
+  title = "ci-gate",
+): void => {
+  console.log(`[ci-gate] ${message}`)
   try {
-    const line =
-      new Date().toISOString() +
-      " " +
-      args.map((a) => (typeof a === "string" ? a : JSON.stringify(a))).join(" ") +
-      "\n"
-    const fs = require("fs")
-    fs.appendFileSync(DEBUG_FILE, line)
+    void client.tui?.showToast({
+      body: { title, message, variant, duration: variant === "error" ? 10_000 : 4_000 },
+    })
   } catch {}
 }
 
-export default (async ({ client, $, directory }) => {
-  debug("plugin init", { directory, hasClient: !!client, hasShell: !!$ })
+const runCiSynchronously = (directory: string): { exitCode: number; stdout: string } => {
+  try {
+    const result = spawnSync("npm", ["run", "ci"], {
+      cwd: directory,
+      encoding: "utf8",
+      timeout: CI_TIMEOUT_MS,
+      stdio: ["pipe", "pipe", "pipe"],
+      shell: process.platform === "win32",
+    })
+    return {
+      exitCode: result.status ?? 1,
+      stdout: (result.stdout ?? "") + (result.stderr ?? ""),
+    }
+  } catch (e: any) {
+    return { exitCode: -1, stdout: `Failed to spawn npm run ci: ${e?.message ?? e}` }
+  }
+}
+
+export default (async ({ client, directory }) => {
+  const note = (message: string, variant: ToastVariant = "info", title = "ci-gate") =>
+    notify(client as any, message, variant, title)
+
   return {
-    "tool.execute.after": async (input, _output) => {
+    "chat.message": async (input, output) => {
       const sid: string | undefined = input?.sessionID
-      debug("tool.execute.after", { tool: input?.tool, sid })
       if (!sid) return
-
-      if (EDIT_TOOLS.has(input.tool)) {
-        const s = turn.get(sid) ?? { edited: false, ciRanByAssistant: false }
-        s.edited = true
-        turn.set(sid, s)
-        debug("marked edited", sid)
-        return
-      }
-
-      if (input.tool === "bash") {
-        const cmd: string =
-          typeof input.args?.command === "string" ? input.args.command : ""
-        debug("bash command", { sid, cmd, isCi: isCiCommand(cmd) })
-        if (isCiCommand(cmd)) {
-          const s = turn.get(sid) ?? { edited: false, ciRanByAssistant: false }
-          s.ciRanByAssistant = true
-          turn.set(sid, s)
-        }
-      }
+      const text = firstTextPart(output?.parts ?? []) || (output?.message as any)?.text || ""
+      if (text.startsWith(SENTINEL)) return
+      lastSeenHash.set(sid, treeHash(directory))
+      autofixCount.delete(sid)
+      ciRanThisTurn.delete(sid)
     },
 
     event: async ({ event }) => {
       const ev = event as { type: string; properties: any }
-      debug("event", { type: ev.type, props: ev.properties })
+
+      if (ev.type === "session.next.shell.started") {
+        const sid: string = ev.properties?.sessionID
+        if (sid && isCiCommand(ev.properties?.command ?? "")) ciRanThisTurn.add(sid)
+        return
+      }
+
       if (ev.type !== "session.idle") return
 
       const sid: string = ev.properties?.sessionID
-      if (!sid) return
+      if (!sid || inflightAutoRun.has(sid)) return
 
-      const st = turn.get(sid) ?? { edited: false, ciRanByAssistant: false }
-      turn.delete(sid)
+      const current = treeHash(directory)
+      const last = lastSeenHash.get(sid) ?? ""
+      const changed = current !== last
 
-      if (!st.edited) return
-      if (st.ciRanByAssistant) {
-        console.log(`${DIM}[ci-gate]${RESET} assistant already ran \`npm run ci\`; skipping.`)
+      if (ciRanThisTurn.has(sid)) {
+        note("working tree changed but assistant already ran `npm run ci`; skipping.", "info")
+        lastSeenHash.set(sid, current)
+        ciRanThisTurn.delete(sid)
         return
       }
-      if (inflightAutoRun.has(sid)) return
+
+      lastSeenHash.set(sid, current)
+      ciRanThisTurn.delete(sid)
+
+      if (!changed) return
 
       const count = autofixCount.get(sid) ?? 0
       if (count >= MAX_AUTOFIX_TURNS) {
-        console.error(
-          `${RED}[ci-gate]${RESET} autofix cap reached (${count}); not injecting. ` +
-            `Run ${DIM}npm run ci${RESET} manually, or send any prompt to reset the cap.`,
+        note(
+          `autofix cap reached (${count}); not injecting. Run \`npm run ci\` manually, or send any prompt to reset the cap.`,
+          "warning",
         )
         return
       }
 
       inflightAutoRun.add(sid)
       try {
-        const proc = $`npm run ci`.cwd(directory).nothrow().quiet()
-        const result: any = await Promise.race([
-          proc,
-          new Promise<null>((r) => setTimeout(() => r(null), CI_TIMEOUT_MS)),
-        ])
-
-        if (result === null) {
-          console.error(`${RED}[ci-gate]${RESET} \`npm run ci\` timed out after ${CI_TIMEOUT_MS / 1000}s.`)
-          return
-        }
-
-        const exitCode: number = result.exitCode
-        const stdout: string =
-          (result.stdout?.toString("utf8") ?? "") + (result.stderr?.toString("utf8") ?? "")
+        note("running `npm run ci` synchronously (files changed this turn)...", "info")
+        const { exitCode, stdout } = runCiSynchronously(directory)
+        lastSeenHash.set(sid, treeHash(directory))
 
         if (exitCode === 0) {
-          console.log(`${GREEN}[ci-gate]${RESET} \`npm run ci\` PASSED (auto).`)
+          note("`npm run ci` PASSED (auto) after detected file changes.", "success")
           autofixCount.delete(sid)
           return
         }
 
         const nextCount = count + 1
         autofixCount.set(sid, nextCount)
-        console.error(
-          `${RED}[ci-gate]${RESET} \`npm run ci\` FAILED (exit ${exitCode}); ` +
-            `injecting feedback turn ${nextCount}/${MAX_AUTOFIX_TURNS}.`,
+        note(
+          `\`npm run ci\` FAILED (exit ${exitCode}); injecting feedback turn ${nextCount}/${MAX_AUTOFIX_TURNS}.`,
+          "error",
         )
 
         const tail = stdout.length > 12_000 ? "…" + stdout.slice(-12_000) : stdout
         const body =
           `${SENTINEL}\n` +
-          `The CI gate plugin auto-ran \`npm run ci\` after your edits this turn and it ` +
-          `failed with exit code ${exitCode}. Read the failure output below, fix every ` +
+          `The CI gate plugin detected file changes this turn and auto-ran \`npm run ci\`, ` +
+          `which failed with exit code ${exitCode}. Read the failure output below, fix every ` +
           `issue (typecheck / lint / test / format), then either re-run \`npm run ci\` ` +
           `yourself or stop editing so the gate can re-run. Do not reply with only text — ` +
           `make the code fixes.\n\n<ci-output>\n${tail}\n</ci-output>\n`
@@ -141,14 +155,6 @@ export default (async ({ client, $, directory }) => {
       } finally {
         inflightAutoRun.delete(sid)
       }
-    },
-
-    "chat.message": async (input, output) => {
-      const sid: string | undefined = input?.sessionID
-      if (!sid) return
-      const text = firstTextPart(output?.parts ?? []) || (output?.message as any)?.text || ""
-      if (text.startsWith(SENTINEL)) return
-      autofixCount.delete(sid)
     },
   }
 }) satisfies Plugin
