@@ -1,0 +1,4 @@
+id: find-typescript-methods
+language: typescript
+rule:
+  kind: method_definition

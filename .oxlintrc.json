@@ -8,56 +8,44 @@
     "**/.ralph/**",
     "repos/**"
   ],
-  "jsPlugins": ["./lint/index.ts"],
+  "jsPlugins": ["@ojhaujjwal/effect-backpressure/oxlint"],
+  "extends": ["./node_modules/@ojhaujjwal/effect-backpressure/configs/strict.json"],
   "rules": {
     "no-explicit-any": "error",
     "typescript/consistent-type-assertions": ["error", { "assertionStyle": "never" }],
     "typescript/no-non-null-assertion": "error",
-    "tesla-charger/no-effect-ignore": "error",
-    "tesla-charger/no-effect-catchallcause": "error",
-    "tesla-charger/no-effect-asvoid": "error",
-    "tesla-charger/no-silent-error-swallow": "error",
-    "tesla-charger/no-service-option": "error",
-    "tesla-charger/no-nested-layer-provide": "error",
-    "tesla-charger/pipe-max-arguments": "error",
-    "tesla-charger/prefer-option-from-nullable": "error",
-    "tesla-charger/no-disable-validation": "error",
-    "tesla-charger/no-void-expression": "error",
-    "tesla-charger/no-node-imports": "error",
-    "tesla-charger/no-require": "error",
-    "tesla-charger/no-process": "error",
-    "tesla-charger/no-bun-globals": "error",
-    "tesla-charger/no-console": "error",
-    "tesla-charger/no-plain-it-with-effect": "error",
-    "tesla-charger/no-oxlint-disable": "error",
-    "tesla-charger/no-vitest-modifiers": "error",
-    "tesla-charger/no-ts-ignore": "error",
-    "tesla-charger/no-ts-nocheck": "error",
-    "tesla-charger/no-unknown-effect-error": "error"
+    "effect-lint/no-raw-date": "off",
+    "effect-lint/no-async-await": "error"
   },
   "overrides": [
     {
       "files": ["**/*.test.ts"],
       "rules": {
-        "tesla-charger/no-silent-error-swallow": "off"
+        "effect-lint/no-silent-error-swallow": "off"
       }
     },
     {
       "files": ["src/setup-tesla-partner-application.ts"],
       "rules": {
-        "tesla-charger/no-console": "off"
+        "effect-lint/no-console": "off"
       }
     },
     {
       "files": ["src/memory-usage.ts"],
       "rules": {
-        "tesla-charger/no-process": "off"
+        "effect-lint/no-process": "off"
+      }
+    },
+    {
+      "files": ["src/generate-refresh-token.ts"],
+      "rules": {
+        "effect-lint/no-process": "off"
       }
     },
     {
       "files": ["src/http-server-layer.ts"],
       "rules": {
-        "tesla-charger/no-node-imports": "off"
+        "effect-lint/no-node-imports": "off"
       }
     }
   ]

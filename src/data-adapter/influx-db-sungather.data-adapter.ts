@@ -66,14 +66,7 @@ export class SunGatherInfluxDbDataAdapter implements IDataAdapter {
     private org: string,
     private bucket: string,
     private httpClient: HttpClient.HttpClient
-  ) {
-    Effect.runSync(Effect.logInfo(`Initializing InfluxDB Adapter for bucket: ${bucket}`));
-  }
-
-  async authenticate() {
-    Effect.runSync(Effect.logInfo("Authenticating with InfluxDB"));
-    return null;
-  }
+  ) {}
 
   public queryLatestValues<F extends Field>(
     fields: F[]
