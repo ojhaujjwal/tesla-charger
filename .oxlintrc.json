@@ -6,7 +6,8 @@
     "**/.tsbuildinfo",
     "**/*.md",
     "**/.ralph/**",
-    "repos/**"
+    "repos/**",
+    ".opencode/plugin/**"
   ],
   "jsPlugins": ["@ojhaujjwal/effect-backpressure/oxlint"],
   "extends": ["./node_modules/@ojhaujjwal/effect-backpressure/configs/strict.json"],
