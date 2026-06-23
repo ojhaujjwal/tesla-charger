@@ -1,10 +1,12 @@
 import { Context, Effect, Layer, Ref } from "effect";
 import type { ChargingControlState, ChargingSessionStats } from "./domain/charging-session.js";
-import {
-  createInitialChargingControlState,
-  createInitialChargingSessionStats,
-  AppStatus
-} from "./domain/charging-session.js";
+import { createInitialChargingControlState, createInitialChargingSessionStats } from "./domain/charging-session.js";
+
+export enum AppStatus {
+  Pending,
+  Running,
+  Stopped
+}
 
 export class AppRuntime extends Context.Service<
   AppRuntime,

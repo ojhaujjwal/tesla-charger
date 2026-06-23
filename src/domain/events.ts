@@ -1,4 +1,4 @@
-import { Context, PubSub } from "effect";
+import { Context, Effect, Layer, PubSub } from "effect";
 import type { Ampere } from "./brands.js";
 import type { SessionSummary } from "./session-summary.js";
 
@@ -12,4 +12,12 @@ export type TeslaChargerEvent =
 export class TeslaChargerEventPubSub extends Context.Service<
   TeslaChargerEventPubSub,
   PubSub.PubSub<TeslaChargerEvent>
->()("@tesla-charger/Domain/TeslaChargerEventPubSub") {}
+>()("@tesla-charger/Domain/TeslaChargerEventPubSub") {
+  static readonly layer = Layer.effect(
+    TeslaChargerEventPubSub,
+    Effect.gen(function* () {
+      const pubSub = yield* PubSub.unbounded<TeslaChargerEvent>();
+      return TeslaChargerEventPubSub.of(pubSub);
+    })
+  );
+}

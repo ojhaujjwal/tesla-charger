@@ -33,7 +33,6 @@ describe("requestChargeStart", () => {
     expect(result.events).toHaveLength(1);
     expect(result.events[0]).toStrictEqual({ type: "ChargingStarted" });
     expect(result.waitSeconds).toBe(42);
-    expect(result.recordFluctuation).toBe(true);
   });
 
   it("caps target at 32", () => {
@@ -83,7 +82,6 @@ describe("requestAmpereChange", () => {
       current: Ampere(16)
     });
     expect(result.waitSeconds).toBe(20);
-    expect(result.recordFluctuation).toBe(true);
   });
 
   it("caps target at 32", () => {

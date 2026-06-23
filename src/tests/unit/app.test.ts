@@ -11,6 +11,9 @@ import { App, AppLayer, type TimingConfig } from "../../app.js";
 import { AppRuntime } from "../../app-runtime.js";
 import { BatteryStateManager, type BatteryState } from "../../battery-state-manager.js";
 import type { TeslaChargerEvent } from "../../domain/events.js";
+import { TeslaChargerEventPubSub } from "../../domain/events.js";
+import { ElectricVehicle } from "../../domain/electric-vehicle.js";
+import { ChargingSessionLive } from "../../application/charging-session.js";
 import { Ampere, KiloWattHours as KWh, StateOfCharge } from "../../domain/brands.js";
 
 describe("App", () => {
@@ -44,6 +47,17 @@ describe("App", () => {
   const TestDataAdapter = Layer.succeed(DataAdapter, dataAdapterMock);
   const TestChargingSpeedController = Layer.succeed(ChargingSpeedController, chargingSpeedControllerMock);
   const TestBatteryStateManager = Layer.succeed(BatteryStateManager, batteryStateManagerMock);
+  const TestElectricVehicle = Layer.effect(
+    ElectricVehicle,
+    Effect.map(TeslaClient, (t) => ElectricVehicle.of(t))
+  );
+  const TestPubSub = Layer.effect(
+    TeslaChargerEventPubSub,
+    Effect.gen(function* () {
+      const pubSub = yield* PubSub.unbounded<TeslaChargerEvent>();
+      return TeslaChargerEventPubSub.of(pubSub);
+    })
+  );
   const defaultChargingConfig: ChargingConfig = {
     waitPerAmereInSeconds: 2,
     extraWaitOnChargeStartInSeconds: 10,
@@ -52,8 +66,7 @@ describe("App", () => {
 
   const defaultTimingConfig: TimingConfig = {
     syncIntervalInMs: 5000,
-    vehicleAwakeningTimeInMs: 10000,
-    inactivityTimeInSeconds: 60
+    vehicleAwakeningTimeInMs: 10000
   };
 
   const provideAppLayer = <R>(
@@ -66,6 +79,18 @@ describe("App", () => {
           chargingConfig: defaultChargingConfig,
           timingConfig
         }).pipe(
+          Layer.provideMerge(
+            ChargingSessionLive({
+              chargingConfig: defaultChargingConfig,
+              watchCadenceInSeconds: 4,
+              syncIntervalInMs: timingConfig.syncIntervalInMs,
+              vehicleAwakeningTimeInMs: timingConfig.vehicleAwakeningTimeInMs,
+              asleepRetryCount: 2,
+              abruptRetryCount: 10
+            })
+          ),
+          Layer.provideMerge(TestElectricVehicle),
+          Layer.provideMerge(TestPubSub),
           Layer.provideMerge(AppRuntime.layer),
           Layer.provideMerge(TestBatteryStateManager),
           Layer.provideMerge(TestChargingSpeedController),

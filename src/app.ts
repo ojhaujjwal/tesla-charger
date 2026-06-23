@@ -1,29 +1,20 @@
 import { TeslaClient } from "./tesla-client/index.js";
 import { DataNotAvailableError, SourceNotAvailableError, DataAdapter } from "./data-adapter/types.js";
-import {
-  ChargingSpeedController,
-  type InadequateDataToDetermineSpeedError
-} from "./charging-speed-controller/types.js";
-import { AbruptProductionDropError } from "./errors/abrupt-production-drop.error.js";
-import { NotChargingAccordingToExpectedSpeedError } from "./errors/not-charging-according-to-expected-speed.error.js";
-import { Context, Duration, Effect, Fiber, Layer, PubSub, Ref, Schedule } from "effect";
+import { type InadequateDataToDetermineSpeedError } from "./charging-speed-controller/types.js";
+import { GridImportExhaustedError } from "./errors/grid-import-exhausted.error.js";
+import { Context, Effect, Fiber, Layer, Ref } from "effect";
 import type { AuthenticationFailedError, VehicleCommandFailedError } from "./tesla-client/errors.js";
 import { VehicleNotWakingUpError } from "./errors/vehicle-not-waking-up.error.js";
 import { BatteryStateManager } from "./battery-state-manager.js";
-import { AppRuntime } from "./app-runtime.js";
-import { memoryUsageMB } from "./memory-usage.js";
-import { TeslaChargerEventPubSub, type TeslaChargerEvent } from "./domain/events.js";
+import { AppRuntime, AppStatus } from "./app-runtime.js";
+import { TeslaChargerEventPubSub } from "./domain/events.js";
 import type { ChargingConfig } from "./domain/charging-session.js";
-import { AppStatus } from "./domain/charging-session.js";
-import { syncTargetAmpere } from "./application/charge-sync.js";
-import { verifyCharging } from "./application/charge-verifier.js";
+import { ChargingSession } from "./domain/charging-session.js";
 import { beginSession, endSession, shutdownAfterMaxRuntime } from "./application/session-lifecycle.js";
-import { Ampere } from "./domain/brands.js";
 
 export type TimingConfig = {
   syncIntervalInMs: number;
   vehicleAwakeningTimeInMs: number;
-  inactivityTimeInSeconds: number;
   maxRuntimeHours?: number;
 };
 
@@ -35,23 +26,22 @@ export class App extends Context.Service<
       | AuthenticationFailedError
       | DataNotAvailableError
       | SourceNotAvailableError
-      | NotChargingAccordingToExpectedSpeedError
       | InadequateDataToDetermineSpeedError
       | VehicleNotWakingUpError
       | VehicleCommandFailedError
+      | GridImportExhaustedError
     >;
     readonly stop: () => Effect.Effect<void, never>;
   }
 >()("@tesla-charger/App") {}
 
-type MainLoopErrors =
+type FiberErrors =
+  | AuthenticationFailedError
   | DataNotAvailableError
   | SourceNotAvailableError
   | InadequateDataToDetermineSpeedError
   | VehicleNotWakingUpError
   | VehicleCommandFailedError;
-
-type FiberErrors = AuthenticationFailedError | MainLoopErrors;
 
 export const AppLayer = (config: {
   readonly chargingConfig: ChargingConfig;
@@ -63,11 +53,11 @@ export const AppLayer = (config: {
     Effect.gen(function* () {
       const teslaClient = yield* TeslaClient;
       const dataAdapter = yield* DataAdapter;
-      const chargingSpeedController = yield* ChargingSpeedController;
+      const chargingSession = yield* ChargingSession;
       const batteryStateManager = yield* BatteryStateManager;
       const appRuntime = yield* AppRuntime;
+      const pubSub = yield* TeslaChargerEventPubSub;
       const costPerKwh = config.costPerKwh ?? 0.3;
-      const teslaChargerPubSub = yield* PubSub.unbounded<TeslaChargerEvent>();
 
       let tokenRefreshFiber: Fiber.Fiber<void, FiberErrors> | undefined;
       let batteryStateManagerFiber: Fiber.Fiber<void, FiberErrors> | undefined;
@@ -82,7 +72,7 @@ export const AppLayer = (config: {
             dataAdapter,
             controlRef: appRuntime.controlRef,
             statsRef: appRuntime.statsRef,
-            pubSub: teslaChargerPubSub,
+            pubSub,
             costPerKwh,
             timingConfig: config.timingConfig,
             fibers: [
@@ -107,123 +97,30 @@ export const AppLayer = (config: {
           dataAdapter,
           batteryStateManager,
           appRuntime.statsRef,
-          teslaChargerPubSub
+          pubSub
         );
         tokenRefreshFiber = sessionFibers.tokenRefreshFiber;
         batteryStateManagerFiber = sessionFibers.batteryStateManagerFiber;
         eventLoggerFiber = sessionFibers.eventLoggerFiber;
 
-        const runSyncCycle = Effect.fn("runSyncCycle")(
-          function* () {
-            const controlState = yield* Ref.get(appRuntime.controlRef);
-            const currentSpeed = controlState.status === "Charging" ? controlState.ampere : Ampere(0);
-            const ampere = yield* chargingSpeedController.determineChargingSpeed(currentSpeed);
+        const runSyncCycle = Effect.fn("runSyncCycle")(function* () {
+          const controlState = yield* Ref.get(appRuntime.controlRef);
+          const sessionStats = yield* Ref.get(appRuntime.statsRef);
 
-            yield* Effect.logDebug("Charging speed determined.", {
-              current_speed: currentSpeed,
-              determined_speed: ampere
-            });
+          const result = yield* chargingSession.runCycle(controlState, sessionStats);
 
-            const targetAmpere = ampere;
-            const sessionStats = yield* Ref.get(appRuntime.statsRef);
-            const { current_production: currentProductionAtStart } = yield* dataAdapter.queryLatestValues([
-              "current_production"
-            ]);
+          yield* Ref.set(appRuntime.controlRef, result.state);
+          yield* Ref.set(appRuntime.statsRef, result.stats);
 
-            const result = yield* syncTargetAmpere(
-              targetAmpere,
-              controlState,
-              sessionStats,
-              config.chargingConfig,
-              (waitSeconds) =>
-                Effect.race(
-                  Effect.void.pipe(Effect.delay(Duration.seconds(waitSeconds))),
-                  Effect.repeat(
-                    Effect.gen(function* () {
-                      const { current_production: currentProduction, import_from_grid: importingFromGrid } =
-                        yield* dataAdapter.queryLatestValues(["current_production", "import_from_grid"]);
-                      yield* Effect.logDebug("watching for sudden drop in production", {
-                        currentProduction,
-                        currentProductionAtStart,
-                        importingFromGrid
-                      });
-                      if (importingFromGrid > 0) {
-                        return yield* new AbruptProductionDropError({
-                          initialProduction: currentProductionAtStart,
-                          currentProduction
-                        });
-                      }
-                      return;
-                    }),
-                    Schedule.fixed(Duration.seconds(4))
-                  )
-                ),
-              teslaClient
-            ).pipe(
-              Effect.tap(() =>
-                Effect.annotateCurrentSpan({
-                  chargeState: controlState,
-                  expectedAmpere: ampere
-                })
-              ),
-              Effect.withSpan("syncAmpere"),
-              Effect.provideService(TeslaChargerEventPubSub, teslaChargerPubSub)
-            );
-
-            yield* Ref.set(appRuntime.controlRef, result.state);
-            yield* Ref.set(appRuntime.statsRef, result.stats);
-
-            yield* Effect.sleep(config.timingConfig.syncIntervalInMs).pipe(Effect.withSpan("syncAmpere.postWaiting"));
-
-            const currentControlState = yield* Ref.get(appRuntime.controlRef);
-            yield* verifyCharging(dataAdapter, batteryStateManager, currentControlState, stop());
-
-            return yield* Ref.get(appRuntime.appStatusRef);
-          },
-          (effect) =>
-            effect.pipe(
-              Effect.tap(() =>
-                Effect.annotateCurrentSpan({
-                  memory_usage_mb: memoryUsageMB()
-                })
-              ),
-              Effect.retry({
-                times: 2,
-                while: (err) => {
-                  if (err._tag !== "VehicleAsleepError") return false;
-                  return Effect.sleep(Duration.millis(config.timingConfig.vehicleAwakeningTimeInMs)).pipe(
-                    Effect.flatMap(() => teslaClient.wakeUpCar().pipe(Effect.map(() => true))),
-                    Effect.catch(() => Effect.succeed(false))
-                  );
-                }
-              }),
-              Effect.catchTag("VehicleAsleepError", () =>
-                Effect.fail(new VehicleNotWakingUpError({ wakeupAttempts: 2 }))
-              ),
-              Effect.retry({
-                times: 10,
-                while: (err) => {
-                  if (err._tag !== "AbruptProductionDrop") return false;
-                  return Effect.succeed(true).pipe(
-                    Effect.tap(() =>
-                      Effect.log("AbruptProductionDropError", {
-                        initialProduction: err.initialProduction,
-                        currentProduction: err.currentProduction
-                      })
-                    )
-                  );
-                }
-              }),
-              Effect.catchTag("AbruptProductionDrop", () =>
-                Effect.die(new Error("Unexpectedly got AbruptProductionDrop 10 times consecutively."))
-              )
-            )
-        );
+          return result.outcome;
+        });
 
         mainSyncFiber = yield* Effect.repeat(runSyncCycle(), {
-          while: (status) => status === AppStatus.Running
+          while: (outcome) => outcome.status === "Running"
         }).pipe(
-          Effect.flatMap(() => Effect.void),
+          Effect.flatMap(() => stop()),
+          Effect.catchTag("GridImportExhausted", (err) => Effect.die(err)),
+          Effect.catchTag("VehicleNotWakingUp", (err) => Effect.die(err)),
           Effect.forkChild
         );
 

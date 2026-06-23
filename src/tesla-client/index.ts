@@ -30,7 +30,7 @@ export type ChargeState = {
   readonly chargeEnergyAdded: KiloWattHours;
 };
 
-export type TeslaClientService = ElectricVehicle & {
+export type TeslaClientService = ElectricVehicle["Service"] & {
   readonly authenticateFromAuthCodeGrant: (
     authorizationCode: string
   ) => Effect.Effect<

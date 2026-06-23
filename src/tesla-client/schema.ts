@@ -8,13 +8,6 @@ export const TeslaTokenResponseSchema = Schema.Struct({
 
 export type TeslaTokenResponse = Schema.Schema.Type<typeof TeslaTokenResponseSchema>;
 
-export const TeslaErrorResponseSchema = Schema.Struct({
-  error: Schema.String,
-  error_description: Schema.optional(Schema.String)
-});
-
-export type TeslaErrorResponse = Schema.Schema.Type<typeof TeslaErrorResponseSchema>;
-
 export const TeslaCachedTokenSchema = Schema.Struct({
   access_token: Schema.RedactedFromValue(Schema.String),
   refresh_token: Schema.RedactedFromValue(Schema.String)

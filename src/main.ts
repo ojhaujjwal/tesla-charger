@@ -6,7 +6,7 @@ import { AppConfig } from "./config.js";
 import { Watt } from "./domain/brands.js";
 import { httpServerLayer } from "./http-server-layer.js";
 import { AlphaEssCloudApiDataAdapterLayer } from "./data-adapter/alpha-ess-api.data-adapter.js";
-import { TeslaClientLayer } from "./tesla-client/index.js";
+import { TeslaClientLayer, TeslaClient } from "./tesla-client/index.js";
 import { App, AppLayer, type TimingConfig } from "./app.js";
 import type { ChargingConfig } from "./domain/charging-session.js";
 import { BatteryStateManager } from "./battery-state-manager.js";
@@ -20,6 +20,9 @@ import { WeatherAwareBufferControllerLayer } from "./charging-speed-controller/w
 import { AppRuntime } from "./app-runtime.js";
 import { ApiRoutes } from "./http/index.js";
 import { SolcastForecastLayer } from "./solar-forecast/solcast.adapter.js";
+import { TeslaChargerEventPubSub } from "./domain/events.js";
+import { ElectricVehicle } from "./domain/electric-vehicle.js";
+import { ChargingSessionLive } from "./application/charging-session.js";
 
 const createTeslaClientLayer = (config: {
   readonly appDomain: string;
@@ -38,8 +41,7 @@ const chargingConfig: ChargingConfig = {
 
 const timingConfigBase = {
   syncIntervalInMs: 5000,
-  vehicleAwakeningTimeInMs: 10 * 1000,
-  inactivityTimeInSeconds: 15 * 60
+  vehicleAwakeningTimeInMs: 10 * 1000
 };
 
 const programBody = Effect.fn("programBody")(function* () {
@@ -173,6 +175,23 @@ const cli = Command.make(
           timingConfig,
           costPerKwh
         }).pipe(
+          Layer.provideMerge(
+            ChargingSessionLive({
+              chargingConfig,
+              watchCadenceInSeconds: 4,
+              syncIntervalInMs: timingConfig.syncIntervalInMs,
+              vehicleAwakeningTimeInMs: timingConfig.vehicleAwakeningTimeInMs,
+              asleepRetryCount: 2,
+              abruptRetryCount: 10
+            })
+          ),
+          Layer.provideMerge(TeslaChargerEventPubSub.layer),
+          Layer.provideMerge(
+            Layer.effect(
+              ElectricVehicle,
+              Effect.map(TeslaClient, (t) => ElectricVehicle.of(t))
+            )
+          ),
           Layer.provideMerge(controllerLayer),
           Layer.provideMerge(BatteryStateManager.layer),
           Layer.provideMerge(AppRuntime.layer),

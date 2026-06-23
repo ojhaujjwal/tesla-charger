@@ -1,6 +1,11 @@
-import { Brand } from "effect";
+import { Brand, Context, Effect } from "effect";
 import type { Ampere, KiloWattHours } from "./brands.js";
 import { KiloWattHours as KWh } from "./brands.js";
+import type { GridImportExhaustedError } from "../errors/grid-import-exhausted.error.js";
+import type { VehicleNotWakingUpError } from "../errors/vehicle-not-waking-up.error.js";
+import type { DataNotAvailableError, SourceNotAvailableError } from "../data-adapter/types.js";
+import type { InadequateDataToDetermineSpeedError } from "../charging-speed-controller/types.js";
+import type { VehicleCommandFailedError } from "./errors.js";
 
 // Branded state variants — each carries its status as a phantom type tag.
 // At runtime these are plain objects (e.g. { status: "Idle" }).
@@ -46,7 +51,6 @@ export type StartResult = {
   readonly state: StartingState;
   readonly events: readonly [ChargingControlEvent];
   readonly waitSeconds: number;
-  readonly recordFluctuation: true;
 };
 
 export const requestChargeStart = (state: IdleState, targetAmpere: Ampere, config: ChargingConfig): StartResult => {
@@ -54,8 +58,7 @@ export const requestChargeStart = (state: IdleState, targetAmpere: Ampere, confi
   return {
     state: _Starting({ status: "Starting", targetAmpere }),
     events: [{ type: "ChargingStarted" }],
-    waitSeconds,
-    recordFluctuation: true
+    waitSeconds
   };
 };
 
@@ -77,7 +80,6 @@ export type AmpereChangeResult =
       readonly state: ChangingAmpereState;
       readonly events: readonly [ChargingControlEvent];
       readonly waitSeconds: number;
-      readonly recordFluctuation: true;
     }
   | { readonly state: ChargingState; readonly unchanged: true };
 
@@ -92,12 +94,10 @@ export const requestAmpereChange = (
   return {
     state: _ChangingAmpere({ status: "ChangingAmpere", current, target: targetAmpere }),
     events: [{ type: "AmpereChangeInitiated" as const, previous: current, current: targetAmpere }],
-    waitSeconds: ampDiff * config.waitPerAmereInSeconds,
-    recordFluctuation: true
+    waitSeconds: ampDiff * config.waitPerAmereInSeconds
   };
 };
 
-// --- Transition: ChangingAmpere → Charging ---
 export const completeAmpereChange = (
   state: ChangingAmpereState
 ): { readonly state: ChargingState; readonly events: readonly [ChargingControlEvent]; readonly waitSeconds: 0 } => {
@@ -109,7 +109,6 @@ export const completeAmpereChange = (
   };
 };
 
-// --- Transition: active state → Stopping ---
 export type ActiveState = StartingState | ChargingState | ChangingAmpereState;
 
 export const requestChargeStop = (
@@ -122,7 +121,6 @@ export const requestChargeStop = (
   };
 };
 
-// --- Transition: Stopping → Idle ---
 export const completeChargeStop = (
   _state: StoppingState
 ): { readonly state: IdleState; readonly events: readonly [ChargingControlEvent]; readonly waitSeconds: 0 } => {
@@ -167,8 +165,28 @@ export const withSessionStarted = (stats: ChargingSessionStats): ChargingSession
   sessionStartedAt: new Date()
 });
 
-export enum AppStatus {
-  Pending,
-  Running,
-  Stopped
-}
+export type SessionOutcome = { readonly status: "Running" } | { readonly status: "Completed" };
+
+export type CycleResult = {
+  readonly state: ChargingControlState;
+  readonly stats: ChargingSessionStats;
+  readonly outcome: SessionOutcome;
+};
+
+export type CycleError =
+  | GridImportExhaustedError
+  | VehicleNotWakingUpError
+  | DataNotAvailableError
+  | SourceNotAvailableError
+  | InadequateDataToDetermineSpeedError
+  | VehicleCommandFailedError;
+
+export class ChargingSession extends Context.Service<
+  ChargingSession,
+  {
+    readonly runCycle: (
+      controlState: ChargingControlState,
+      sessionStats: ChargingSessionStats
+    ) => Effect.Effect<CycleResult, CycleError>;
+  }
+>()("@tesla-charger/ChargingSession") {}

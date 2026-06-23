@@ -5,12 +5,8 @@ import { HttpClient, HttpRouter } from "effect/unstable/http";
 import { HttpApi, HttpApiBuilder } from "effect/unstable/httpapi";
 import { AppRuntime } from "../../../app-runtime.js";
 import { BatteryStateManager, type BatteryState } from "../../../battery-state-manager.js";
-import {
-  AppStatus,
-  _Idle,
-  type ChargingControlState,
-  type ChargingSessionStats
-} from "../../../domain/charging-session.js";
+import { AppStatus } from "../../../app-runtime.js";
+import { _Idle, type ChargingControlState, type ChargingSessionStats } from "../../../domain/charging-session.js";
 import { StateGroup } from "../../../http/state.js";
 import { KiloWattHours as KWh, StateOfCharge } from "../../../domain/brands.js";
 

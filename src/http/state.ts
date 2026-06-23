@@ -2,7 +2,7 @@ import { Effect, Ref, Schema } from "effect";
 import { HttpApiBuilder, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
 import { AppRuntime } from "../app-runtime.js";
 import { BatteryStateManager } from "../battery-state-manager.js";
-import { AppStatus } from "../domain/charging-session.js";
+import { AppStatus } from "../app-runtime.js";
 
 const ChargingControlStateSchema = Schema.Union([
   Schema.Struct({ status: Schema.Literal("Idle") }),

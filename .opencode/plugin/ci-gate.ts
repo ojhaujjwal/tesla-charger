@@ -40,7 +40,6 @@ const notify = (
   variant: ToastVariant,
   title = "ci-gate",
 ): void => {
-  console.log(`[ci-gate] ${message}`)
   try {
     void client.tui?.showToast({
       body: { title, message, variant, duration: variant === "error" ? 10_000 : 4_000 },
