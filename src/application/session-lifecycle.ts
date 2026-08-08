@@ -4,7 +4,7 @@ import type { ChargingControlState, ChargingSessionStats } from "../domain/charg
 import { withDailyImportRecorded, withChargeEnergyRecorded, withSessionStarted } from "../domain/charging-session.js";
 import { computeSessionSummary, type SessionSummary } from "../domain/session-summary.js";
 import type { TeslaChargerEvent } from "../domain/events.js";
-import { Duration, Effect, Fiber, PubSub, Ref } from "effect";
+import { DateTime, Duration, Effect, Fiber, PubSub, Ref } from "effect";
 import { startEventLogger } from "../event-logger/index.js";
 import type { TimingConfig } from "../app.js";
 import { KiloWattHours as KWh, Voltage } from "../domain/brands.js";
@@ -27,7 +27,8 @@ export const beginSession = Effect.fn("beginSession")(function* (
   yield* Effect.sleep(1000);
 
   const initialData = yield* dataAdapter.queryLatestValues(["daily_import"]);
-  yield* Ref.update(statsRef, (s) => withDailyImportRecorded(withSessionStarted(s), KWh(initialData.daily_import)));
+  const startedStats = yield* withSessionStarted(yield* Ref.get(statsRef));
+  yield* Ref.set(statsRef, withDailyImportRecorded(startedStats, KWh(initialData.daily_import)));
 
   const initialChargeState = yield* teslaClient.getChargeState().pipe(Effect.catch(() => Effect.succeed(null)));
 
@@ -87,7 +88,8 @@ export const endSession = Effect.fn("endSession")(function* (params: {
     finalChargeEnergyAdded: finalChargeState.chargeEnergyAdded,
     finalDailyImport: KWh(finalDataValues.daily_import),
     finalVoltage: Voltage(finalDataValues.voltage),
-    costPerKwh: params.costPerKwh
+    costPerKwh: params.costPerKwh,
+    now: yield* DateTime.now
   });
 
   yield* PubSub.publish(params.pubSub, { _tag: "SessionEnded", summary });

@@ -1,4 +1,4 @@
-import { Effect, Ref, Schema } from "effect";
+import { DateTime, Effect, Ref, Schema } from "effect";
 import { HttpApiBuilder, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
 import { AppRuntime } from "../app-runtime.js";
 import { BatteryStateManager } from "../battery-state-manager.js";
@@ -14,7 +14,7 @@ const ChargingControlStateSchema = Schema.Union([
 
 const ChargingSessionStatsSchema = Schema.Struct({
   ampereFluctuations: Schema.Number,
-  sessionStartedAt: Schema.NullOr(Schema.Date),
+  sessionStartedAt: Schema.NullOr(Schema.DateTimeUtcFromDate),
   chargeEnergyAddedAtStartKwh: Schema.Number,
   dailyImportValueAtStart: Schema.Number
 });
@@ -58,7 +58,10 @@ export const StateHandlers = Effect.fn("StateHandlers")(function* (
       const battery = batteryStateManager.get();
       return {
         control,
-        stats,
+        stats: {
+          ...stats,
+          sessionStartedAt: stats.sessionStartedAt ? DateTime.toUtc(stats.sessionStartedAt) : null
+        },
         appStatus: AppStatus[appStatus],
         battery
       };

@@ -1,11 +1,15 @@
+import { DateTime, Option } from "effect";
 import type { WeatherAwareBufferConfig, SunTimes } from "./types.js";
 
 // Pure functions for solar position calculations
 
-export const calculateSunTimes = (date: Date, latitude: number): SunTimes => {
+export const calculateSunTimes = (date: DateTime.DateTime, latitude: number): SunTimes => {
   // Calculate day of year (1-365)
-  const startOfYear = new Date(date.getFullYear(), 0, 1);
-  const dayOfYear = Math.floor((date.getTime() - startOfYear.getTime()) / (1000 * 60 * 60 * 24));
+  const year = DateTime.getPartUtc(date, "year");
+  const startOfYear = Option.getOrThrow(DateTime.make({ year, month: 1, day: 1 }));
+  const dayOfYear = Math.floor(
+    (DateTime.toEpochMillis(date) - DateTime.toEpochMillis(startOfYear)) / (1000 * 60 * 60 * 24)
+  );
 
   // Solar declination angle (in radians)
   const declinationRad = ((23.45 * Math.PI) / 180) * Math.sin((2 * Math.PI * (284 + dayOfYear)) / 365);
@@ -48,9 +52,11 @@ export const calculateDefaultMonthlyPeakFactors = (latitude: number): readonly n
 
   // Calculate for each month (using 15th as representative day)
   for (let month = 0; month < 12; month++) {
-    const date = new Date(2024, month, 15); // Use 2024 as reference year
-    const startOfYear = new Date(2024, 0, 1);
-    const dayOfYear = Math.floor((date.getTime() - startOfYear.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+    // Reference year 2024; DateTime month is 1-based, so month+1
+    const date = Option.getOrThrow(DateTime.make({ year: 2024, month: month + 1, day: 15 }));
+    const startOfYear = Option.getOrThrow(DateTime.make({ year: 2024, month: 1, day: 1 }));
+    const dayOfYear =
+      Math.floor((DateTime.toEpochMillis(date) - DateTime.toEpochMillis(startOfYear)) / (1000 * 60 * 60 * 24)) + 1;
 
     // Solar declination angle (in radians)
     const declinationRad = ((23.45 * Math.PI) / 180) * Math.sin((2 * Math.PI * (284 + dayOfYear)) / 365);
@@ -77,7 +83,7 @@ export const calculateDefaultMonthlyPeakFactors = (latitude: number): readonly n
   return [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
 };
 
-export const expectedCapacityKw = (date: Date, hour: number, config: WeatherAwareBufferConfig): number => {
+export const expectedCapacityKw = (date: DateTime.DateTime, hour: number, config: WeatherAwareBufferConfig): number => {
   // Get monthly peak factors (use provided or calculate)
   const monthlyPeakFactors = config.monthlyPeakFactors ?? calculateDefaultMonthlyPeakFactors(config.latitude);
 
@@ -101,7 +107,7 @@ export const expectedCapacityKw = (date: Date, hour: number, config: WeatherAwar
   const dailyShape = Math.pow(Math.cos((hourAngle * Math.PI) / 2), 2);
 
   // Get monthly factor for this month (0-11)
-  const monthIndex = date.getMonth();
+  const monthIndex = DateTime.getPartUtc(date, "month") - 1; // DateTime month 1-based, array 0-based
   const monthFactor = monthlyPeakFactors[monthIndex] ?? 1.0;
 
   // Final capacity = peak * monthly factor * daily shape

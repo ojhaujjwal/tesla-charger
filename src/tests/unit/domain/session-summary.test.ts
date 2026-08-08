@@ -1,13 +1,16 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import {
-  createInitialChargingSessionStats,
-  withSessionStarted,
-  recordFluctuation
-} from "../../../domain/charging-session.js";
+import { describe, it, expect } from "@effect/vitest";
+import { DateTime, Option } from "effect";
+import { createInitialChargingSessionStats, recordFluctuation } from "../../../domain/charging-session.js";
 import { computeSessionSummary } from "../../../domain/session-summary.js";
 import { KiloWattHours as KWh, Voltage } from "../../../domain/brands.js";
 
 const defaultStats = createInitialChargingSessionStats();
+
+// Fixed instants for deterministic tests (UTC)
+const at = (iso: string) => Option.getOrThrow(DateTime.make(iso));
+
+// Helper: build stats with a fixed sessionStartedAt without touching the Clock.
+const startedStats = (iso: string) => ({ ...defaultStats, sessionStartedAt: at(iso) });
 
 describe("SessionSummary computation", () => {
   describe("when no session was started", () => {
@@ -17,7 +20,8 @@ describe("SessionSummary computation", () => {
         finalChargeEnergyAdded: KWh(0),
         finalDailyImport: KWh(0),
         finalVoltage: Voltage(230),
-        costPerKwh: 0.3
+        costPerKwh: 0.3,
+        now: at("2025-06-01T13:00:00Z")
       });
 
       expect(summary.sessionDurationMs).toBe(0);
@@ -31,57 +35,43 @@ describe("SessionSummary computation", () => {
   });
 
   describe("with a completed charging session", () => {
-    beforeEach(() => {
-      vi.useFakeTimers();
-    });
-
-    afterEach(() => {
-      vi.useRealTimers();
-    });
-
     it("computes energy charged as final minus start", () => {
-      vi.setSystemTime(new Date("2025-06-01T12:00:00Z"));
-      const stats = withSessionStarted(defaultStats);
-
-      vi.setSystemTime(new Date("2025-06-01T13:00:00Z"));
+      const stats = startedStats("2025-06-01T12:00:00Z");
       const summary = computeSessionSummary({
         stats,
         finalChargeEnergyAdded: KWh(7.5),
         finalDailyImport: KWh(0),
         finalVoltage: Voltage(230),
-        costPerKwh: 0.3
+        costPerKwh: 0.3,
+        now: at("2025-06-01T13:00:00Z")
       });
 
       expect(summary.totalEnergyChargedKwh).toBe(7.5);
     });
 
     it("computes grid import as final minus start", () => {
-      vi.setSystemTime(new Date("2025-06-01T12:00:00Z"));
-      const stats = withSessionStarted(defaultStats);
-
-      vi.setSystemTime(new Date("2025-06-01T13:00:00Z"));
+      const stats = startedStats("2025-06-01T12:00:00Z");
       const summary = computeSessionSummary({
         stats,
         finalChargeEnergyAdded: KWh(7.5),
         finalDailyImport: KWh(3.0),
         finalVoltage: Voltage(230),
-        costPerKwh: 0.3
+        costPerKwh: 0.3,
+        now: at("2025-06-01T13:00:00Z")
       });
 
       expect(summary.gridImportKwh).toBe(3.0);
     });
 
     it("computes solar energy as total minus grid import, floored at 0", () => {
-      vi.setSystemTime(new Date("2025-06-01T12:00:00Z"));
-      const stats = withSessionStarted(defaultStats);
-
-      vi.setSystemTime(new Date("2025-06-01T13:00:00Z"));
+      const stats = startedStats("2025-06-01T12:00:00Z");
       const allSolar = computeSessionSummary({
         stats,
         finalChargeEnergyAdded: KWh(7.5),
         finalDailyImport: KWh(0),
         finalVoltage: Voltage(230),
-        costPerKwh: 0.3
+        costPerKwh: 0.3,
+        now: at("2025-06-01T13:00:00Z")
       });
       expect(allSolar.solarEnergyUsedKwh).toBe(7.5);
 
@@ -90,7 +80,8 @@ describe("SessionSummary computation", () => {
         finalChargeEnergyAdded: KWh(7.5),
         finalDailyImport: KWh(3.0),
         finalVoltage: Voltage(230),
-        costPerKwh: 0.3
+        costPerKwh: 0.3,
+        now: at("2025-06-01T13:00:00Z")
       });
       expect(partialSolar.solarEnergyUsedKwh).toBe(4.5);
 
@@ -99,86 +90,77 @@ describe("SessionSummary computation", () => {
         finalChargeEnergyAdded: KWh(5.0),
         finalDailyImport: KWh(7.0),
         finalVoltage: Voltage(230),
-        costPerKwh: 0.3
+        costPerKwh: 0.3,
+        now: at("2025-06-01T13:00:00Z")
       });
       expect(noSolar.solarEnergyUsedKwh).toBe(0);
     });
 
     it("calculates session duration from start to now", () => {
-      vi.setSystemTime(new Date("2025-06-01T12:00:00Z"));
-      const stats = withSessionStarted(defaultStats);
-
-      vi.setSystemTime(new Date("2025-06-01T14:30:00Z"));
       const summary = computeSessionSummary({
-        stats,
+        stats: startedStats("2025-06-01T12:00:00Z"),
         finalChargeEnergyAdded: KWh(15),
         finalDailyImport: KWh(5),
         finalVoltage: Voltage(230),
-        costPerKwh: 0.3
+        costPerKwh: 0.3,
+        now: at("2025-06-01T14:30:00Z")
       });
 
       expect(summary.sessionDurationMs).toBe(9_000_000);
     });
 
     it("includes fluctuation count in the summary", () => {
-      vi.setSystemTime(new Date("2025-06-01T12:00:00Z"));
-      const stats = recordFluctuation(recordFluctuation(withSessionStarted(defaultStats)));
-
-      vi.setSystemTime(new Date("2025-06-01T13:00:00Z"));
+      const stats = recordFluctuation(recordFluctuation(startedStats("2025-06-01T12:00:00Z")));
       const summary = computeSessionSummary({
         stats,
         finalChargeEnergyAdded: KWh(7.5),
         finalDailyImport: KWh(0),
         finalVoltage: Voltage(230),
-        costPerKwh: 0.3
+        costPerKwh: 0.3,
+        now: at("2025-06-01T13:00:00Z")
       });
 
       expect(summary.ampereFluctuations).toBe(2);
     });
 
     it("calculates grid import cost as gridImportKwh * costPerKwh", () => {
-      vi.setSystemTime(new Date("2025-06-01T12:00:00Z"));
-      const stats = withSessionStarted(defaultStats);
-
-      vi.setSystemTime(new Date("2025-06-01T13:00:00Z"));
       const summary = computeSessionSummary({
-        stats,
+        stats: startedStats("2025-06-01T12:00:00Z"),
         finalChargeEnergyAdded: KWh(7.5),
         finalDailyImport: KWh(4.0),
         finalVoltage: Voltage(230),
-        costPerKwh: 0.25
+        costPerKwh: 0.25,
+        now: at("2025-06-01T13:00:00Z")
       });
 
       expect(summary.gridImportCost).toBe(1.0);
     });
 
     it("calculates average charging speed in amps", () => {
-      vi.setSystemTime(new Date("2025-06-01T12:00:00Z"));
-      const stats = withSessionStarted(defaultStats);
-
-      // 1 hour session, 7.5 kWh added, 230V
-      // speed = (7.5 * 1000) / (230 * 1) = 7500 / 230 ≈ 32.61
-      vi.setSystemTime(new Date("2025-06-01T13:00:00Z"));
       const summary = computeSessionSummary({
-        stats,
+        stats: startedStats("2025-06-01T12:00:00Z"),
         finalChargeEnergyAdded: KWh(7.5),
         finalDailyImport: KWh(0),
         finalVoltage: Voltage(230),
-        costPerKwh: 0.3
+        costPerKwh: 0.3,
+        // 1 hour session, 7.5 kWh added, 230V
+        // speed = (7.5 * 1000) / (230 * 1) = 7500 / 230 ≈ 32.61
+        now: at("2025-06-01T13:00:00Z")
       });
 
       expect(summary.averageChargingSpeedAmps).toBeCloseTo(32.61, 1);
     });
 
     it("returns 0 average speed when duration is 0", () => {
-      const stats = withSessionStarted(defaultStats);
+      const stats = startedStats("2025-06-01T12:00:00Z");
 
       const summary = computeSessionSummary({
         stats,
         finalChargeEnergyAdded: KWh(0),
         finalDailyImport: KWh(0),
         finalVoltage: Voltage(230),
-        costPerKwh: 0.3
+        costPerKwh: 0.3,
+        now: at("2025-06-01T12:00:00Z")
       });
 
       expect(summary.averageChargingSpeedAmps).toBe(0);
@@ -190,7 +172,8 @@ describe("SessionSummary computation", () => {
         finalChargeEnergyAdded: KWh(7.5),
         finalDailyImport: KWh(0),
         finalVoltage: Voltage(230),
-        costPerKwh: 0.3
+        costPerKwh: 0.3,
+        now: at("2025-06-01T12:00:00Z")
       });
 
       expect(summary.averageChargingSpeedAmps).toBe(0);

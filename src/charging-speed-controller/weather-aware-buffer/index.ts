@@ -1,6 +1,6 @@
 import { DataAdapter } from "../../data-adapter/types.js";
 import { ChargingSpeedController, InadequateDataToDetermineSpeedError } from "../types.js";
-import { Clock, Effect, Layer } from "effect";
+import { Clock, DateTime, Effect, Layer, Option } from "effect";
 import { SolarForecast } from "../../solar-forecast/types.js";
 import { BatteryStateManager } from "../../battery-state-manager.js";
 import type { WeatherAwareBufferConfig } from "./types.js";
@@ -39,7 +39,7 @@ export const WeatherAwareBufferControllerLayer = (
         determineChargingSpeed: Effect.fn("determineChargingSpeed")(
           function* (currentChargingSpeed: Ampere) {
             const nowMs = yield* Clock.currentTimeMillis;
-            const now = new Date(nowMs);
+            const now = Option.getOrThrow(DateTime.make(nowMs));
 
             const forecast = yield* solarForecast.getForecast().pipe(
               Effect.catch(() =>
@@ -51,7 +51,7 @@ export const WeatherAwareBufferControllerLayer = (
 
             const batteryState = batteryStateManager.get();
 
-            const forecastHash = forecast.periods.map((p) => p.period_end).join(",");
+            const forecastHash = forecast.periods.map((p) => DateTime.toEpochMillis(p.period_end)).join(",");
             const batteryHash = batteryState
               ? `${batteryState.batteryLevel}-${batteryState.chargeLimitSoc}`
               : undefined;
@@ -72,15 +72,19 @@ export const WeatherAwareBufferControllerLayer = (
             const simulation = cachedSimulation;
 
             const currentPeriod = forecast.periods.find((p) => {
-              const periodEnd = new Date(p.period_end);
-              return periodEnd >= now && periodEnd.getTime() - now.getTime() < 30 * 60 * 1000;
+              const periodEnd = p.period_end;
+              return (
+                DateTime.Order(periodEnd, now) >= 0 &&
+                DateTime.toEpochMillis(periodEnd) - DateTime.toEpochMillis(now) < 30 * 60 * 1000
+              );
             });
 
             let finalBuffer = config.minBufferPower;
 
             if (currentPeriod) {
-              const periodEnd = new Date(currentPeriod.period_end);
-              const periodHourUtc = periodEnd.getUTCHours() + periodEnd.getUTCMinutes() / 60;
+              const periodEnd = currentPeriod.period_end;
+              const periodHourUtc =
+                DateTime.getPartUtc(periodEnd, "hour") + DateTime.getPartUtc(periodEnd, "minute") / 60;
               const localHour = periodHourUtc;
 
               const expectedCap = expectedCapacityKw(periodEnd, localHour, {

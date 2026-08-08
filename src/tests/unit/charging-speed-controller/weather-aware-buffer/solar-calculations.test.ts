@@ -1,4 +1,7 @@
 import { describe, it, expect } from "@effect/vitest";
+import { DateTime, Option } from "effect";
+
+const at = (iso: string) => Option.getOrThrow(DateTime.make(iso));
 import {
   calculateSunTimes,
   calculateDefaultMonthlyPeakFactors,
@@ -11,7 +14,7 @@ describe("solar-calculations", () => {
   describe("calculateSunTimes", () => {
     it("should calculate sunrise and sunset for a known location and date", () => {
       // Sydney, Australia (latitude -33.8688) on January 15 (summer)
-      const date = new Date("2024-01-15T12:00:00Z");
+      const date = at("2024-01-15T12:00:00Z");
       const latitude = -33.8688;
       const result = calculateSunTimes(date, latitude);
 
@@ -26,8 +29,8 @@ describe("solar-calculations", () => {
     it("should show longer days in summer vs winter (southern hemisphere)", () => {
       const latitude = -33.8688; // Sydney
 
-      const summerDate = new Date("2024-01-15T12:00:00Z"); // January (summer)
-      const winterDate = new Date("2024-07-15T12:00:00Z"); // July (winter)
+      const summerDate = at("2024-01-15T12:00:00Z"); // January (summer)
+      const winterDate = at("2024-07-15T12:00:00Z"); // July (winter)
 
       const summerTimes = calculateSunTimes(summerDate, latitude);
       const winterTimes = calculateSunTimes(winterDate, latitude);
@@ -41,7 +44,7 @@ describe("solar-calculations", () => {
 
     it("should handle northern hemisphere correctly", () => {
       // New York (latitude 40.7128) on June 15 (summer)
-      const date = new Date("2024-06-15T12:00:00Z");
+      const date = at("2024-06-15T12:00:00Z");
       const latitude = 40.7128;
       const result = calculateSunTimes(date, latitude);
 
@@ -116,7 +119,7 @@ describe("solar-calculations", () => {
     };
 
     it("should return peak capacity at solar noon", () => {
-      const date = new Date("2024-01-15T12:00:00Z"); // January (summer)
+      const date = at("2024-01-15T12:00:00Z"); // January (summer)
       const noonHour = 12;
       const capacity = expectedCapacityKw(date, noonHour, baseConfig);
 
@@ -126,7 +129,7 @@ describe("solar-calculations", () => {
     });
 
     it("should return lower capacity mid-morning (~78% of noon)", () => {
-      const date = new Date("2024-01-15T12:00:00Z");
+      const date = at("2024-01-15T12:00:00Z");
       const morningHour = 10;
       const noonHour = 12;
 
@@ -139,7 +142,7 @@ describe("solar-calculations", () => {
     });
 
     it("should return 0 before sunrise", () => {
-      const date = new Date("2024-01-15T12:00:00Z");
+      const date = at("2024-01-15T12:00:00Z");
       const earlyHour = 4; // Before sunrise
       const capacity = expectedCapacityKw(date, earlyHour, baseConfig);
 
@@ -147,7 +150,7 @@ describe("solar-calculations", () => {
     });
 
     it("should return 0 after sunset", () => {
-      const date = new Date("2024-01-15T12:00:00Z");
+      const date = at("2024-01-15T12:00:00Z");
       const lateHour = 20; // After sunset
       const capacity = expectedCapacityKw(date, lateHour, baseConfig);
 
@@ -155,8 +158,8 @@ describe("solar-calculations", () => {
     });
 
     it("should return lower peak in winter month", () => {
-      const summerDate = new Date("2024-01-15T12:00:00Z"); // January
-      const winterDate = new Date("2024-07-15T12:00:00Z"); // July
+      const summerDate = at("2024-01-15T12:00:00Z"); // January
+      const winterDate = at("2024-07-15T12:00:00Z"); // July
 
       const summerCapacity = expectedCapacityKw(summerDate, 12, baseConfig);
       const winterCapacity = expectedCapacityKw(winterDate, 12, baseConfig);

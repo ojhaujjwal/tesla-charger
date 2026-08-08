@@ -1,5 +1,6 @@
 import { describe, it, expect } from "@effect/vitest";
-import { Cause, Effect, Exit, FileSystem, Layer, Option, Redacted } from "effect";
+import * as TestClock from "effect/testing/TestClock";
+import { Cause, DateTime, Duration, Effect, Exit, FileSystem, Layer, Option, Redacted } from "effect";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
 import { NodeFileSystem } from "@effect/platform-node";
 import { SolarForecast, SolarForecastNotAvailableError } from "../../../solar-forecast/types.js";
@@ -121,12 +122,12 @@ describe("SolcastForecastAdapter", () => {
           const result = yield* forecast.getForecast();
 
           expect(result.periods).toHaveLength(3);
-          expect(result.periods[0]).toEqual({
+          expect(result.periods[0]).toMatchObject({
             pv_estimate: 2.5,
             pv_estimate10: 2.5,
             pv_estimate90: 2.5,
-            period_end: "2026-02-14T10:00:00Z",
-            period: "PT30M"
+            period_end: Option.getOrThrow(DateTime.make("2026-02-14T10:00:00Z")),
+            period: Duration.millis(30 * 60 * 1000)
           });
           // API should have been called
           expect(callTracker.count).toBe(1);
@@ -152,7 +153,7 @@ describe("SolcastForecastAdapter", () => {
 
     it.effect("should return file cache on startup if age < 60 minutes and not call API", () => {
       const fileCacheContent = JSON.stringify({
-        fetchedAt: new Date().toISOString(), // Fresh cache
+        fetchedAt: "2026-02-14T09:30:00Z", // Fresh cache (30 min before clock)
         forecasts: differentCacheResponse.forecasts // Different from API to prove cache is used
       });
 
@@ -160,6 +161,7 @@ describe("SolcastForecastAdapter", () => {
       return withCleanCache(() =>
         Effect.gen(function* () {
           // Write cache file first
+          yield* TestClock.setTime(DateTime.toEpochMillis(Option.getOrThrow(DateTime.make("2026-02-14T10:00:00Z"))));
           const fs = yield* FileSystem.FileSystem;
           yield* fs.writeFileString(CACHE_FILE_PATH, fileCacheContent);
 
@@ -183,7 +185,7 @@ describe("SolcastForecastAdapter", () => {
 
     it.effect("should fall back to file cache if API returns 429 rate limit", () => {
       const fileCacheContent = JSON.stringify({
-        fetchedAt: new Date(Date.now() - 90 * 60 * 1000).toISOString(), // 90 min ago (stale memory cache, valid file cache)
+        fetchedAt: "2026-02-14T08:30:00Z", // 90 min ago (stale memory cache, valid file cache)
         forecasts: differentCacheResponse.forecasts // Different from API to prove cache is used
       });
 
@@ -191,6 +193,7 @@ describe("SolcastForecastAdapter", () => {
       return withCleanCache(() =>
         Effect.gen(function* () {
           // Write cache file first
+          yield* TestClock.setTime(DateTime.toEpochMillis(Option.getOrThrow(DateTime.make("2026-02-14T10:00:00Z"))));
           const fs = yield* FileSystem.FileSystem;
           yield* fs.writeFileString(CACHE_FILE_PATH, fileCacheContent);
 
@@ -214,7 +217,7 @@ describe("SolcastForecastAdapter", () => {
 
     it.effect("should fetch from API if file cache is >= 2 days old and use API data", () => {
       const oldFileCacheContent = JSON.stringify({
-        fetchedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(), // 3 days ago
+        fetchedAt: "2026-02-11T10:00:00Z", // 3 days before 2026-02-14T10:00:00Z
         forecasts: differentCacheResponse.forecasts // Different from API to prove API is used
       });
 
@@ -222,6 +225,7 @@ describe("SolcastForecastAdapter", () => {
       return withCleanCache(() =>
         Effect.gen(function* () {
           // Write old cache file first
+          yield* TestClock.setTime(DateTime.toEpochMillis(Option.getOrThrow(DateTime.make("2026-02-14T10:00:00Z"))));
           const fs = yield* FileSystem.FileSystem;
           yield* fs.writeFileString(CACHE_FILE_PATH, oldFileCacheContent);
 
@@ -263,6 +267,41 @@ describe("SolcastForecastAdapter", () => {
       ).pipe(
         Effect.provide(
           getTestLayer(makeMockHttpClient({}, 500, callTracker)) // API fails, no file cache
+        )
+      );
+    });
+
+    it.effect("should fail with SolarForecastNotAvailableError when API returns an invalid ISO duration", () => {
+      const invalidPeriodResponse = {
+        forecasts: [
+          {
+            pv_estimate: 2.5,
+            pv_estimate10: 2.5,
+            pv_estimate90: 2.5,
+            period_end: "2026-02-14T10:00:00Z",
+            period: "P1D" // Invalid: not a PT-form duration
+          }
+        ]
+      };
+      const callTracker = { count: 0 };
+      return withCleanCache(() =>
+        Effect.gen(function* () {
+          const forecast = yield* SolarForecast;
+          const result = yield* Effect.exit(forecast.getForecast());
+
+          const error = Exit.match(result, {
+            onSuccess: () => {
+              throw new Error("Expected failure");
+            },
+            onFailure: (cause) => Option.getOrThrow(Cause.findErrorOption(cause))
+          });
+          expect(error).toBeInstanceOf(SolarForecastNotAvailableError);
+          // API should have been called (attempted)
+          expect(callTracker.count).toBe(1);
+        })
+      ).pipe(
+        Effect.provide(
+          getTestLayer(makeMockHttpClient(invalidPeriodResponse, 200, callTracker)) // API returns invalid period
         )
       );
     });

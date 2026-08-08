@@ -1,5 +1,18 @@
 import { describe, it, expect } from "@effect/vitest";
-import { Cause, Duration, Effect, Exit, Fiber, FileSystem, Layer, Option, Redacted, Sink, Stream } from "effect";
+import {
+  Cause,
+  Duration,
+  Effect,
+  Exit,
+  Fiber,
+  FileSystem,
+  Layer,
+  Option,
+  Random,
+  Redacted,
+  Sink,
+  Stream
+} from "effect";
 import * as TestClock from "effect/testing/TestClock";
 import { HttpClient, HttpClientResponse, HttpClientError } from "effect/unstable/http";
 import { ChildProcessSpawner } from "effect/unstable/process";
@@ -119,7 +132,7 @@ const makeTestLayer = (
 const withTestDir = <A, E, R>(f: (tmpDir: string) => Effect.Effect<A, E, R>) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    const tmpDir = `/tmp/tesla-client-test-${Date.now()}-${Math.random()}`;
+    const tmpDir = `/tmp/tesla-client-test-${yield* Random.nextIntBetween(1_000_000_000, 9_999_999_999)}`;
     yield* fs.makeDirectory(tmpDir, { recursive: true });
     yield* Effect.addFinalizer(() =>
       fs.exists(tmpDir).pipe(

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "@effect/vitest";
-import { Effect, Layer, Ref } from "effect";
+import { DateTime, Effect, Layer, Option, Ref } from "effect";
 import { NodeHttpServer } from "@effect/platform-node";
 import { HttpClient, HttpRouter } from "effect/unstable/http";
 import { HttpApi, HttpApiBuilder } from "effect/unstable/httpapi";
@@ -16,7 +16,7 @@ describe("HTTP /state", () => {
       const controlRef = yield* Ref.make<ChargingControlState>(_Idle({ status: "Idle" }));
       const statsRef = yield* Ref.make<ChargingSessionStats>({
         ampereFluctuations: 5,
-        sessionStartedAt: new Date("2026-05-17T10:00:00Z"),
+        sessionStartedAt: Option.getOrThrow(DateTime.make("2026-05-17T10:00:00Z")),
         chargeEnergyAddedAtStartKwh: KWh(1.5),
         dailyImportValueAtStart: KWh(0.5)
       });
@@ -46,7 +46,10 @@ describe("HTTP /state", () => {
                   const battery = batteryStateManager.get();
                   return {
                     control,
-                    stats,
+                    stats: {
+                      ...stats,
+                      sessionStartedAt: stats.sessionStartedAt ? DateTime.toUtc(stats.sessionStartedAt) : null
+                    },
                     appStatus: AppStatus[appStatus],
                     battery
                   };

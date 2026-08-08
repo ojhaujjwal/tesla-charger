@@ -1,4 +1,6 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect } from "@effect/vitest";
+import { DateTime, Duration, Effect, Option } from "effect";
+import * as TestClock from "effect/testing/TestClock";
 import {
   createInitialChargingControlState,
   createInitialChargingSessionStats,
@@ -205,11 +207,32 @@ describe("ChargingSessionStats", () => {
   });
 
   describe("when session starts", () => {
-    it("records the start timestamp", () => {
-      const stats = createInitialChargingSessionStats();
-      const next = withSessionStarted(stats);
+    it.effect("records the start timestamp from the Clock", () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(1_749_787_200_000); // 2025-06-01T12:00:00Z
 
-      expect(next.sessionStartedAt).toBeInstanceOf(Date);
-    });
+        const stats = createInitialChargingSessionStats();
+        const next = yield* withSessionStarted(stats);
+
+        expect(next.sessionStartedAt).not.toBeNull();
+        const startedAt: DateTime.DateTime = Option.getOrThrow(Option.fromNullishOr(next.sessionStartedAt));
+        expect(DateTime.toEpochMillis(startedAt)).toBe(1_749_787_200_000);
+      }).pipe(Effect.scoped)
+    );
+
+    it.effect("records different start times for different Clock times", () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(1_749_787_200_000);
+        const stats = createInitialChargingSessionStats();
+        const first = yield* withSessionStarted(stats);
+
+        yield* TestClock.adjust(Duration.minutes(30));
+        const second = yield* withSessionStarted(stats);
+
+        const firstMs = DateTime.toEpochMillis(Option.getOrThrow(Option.fromNullishOr(first.sessionStartedAt)));
+        const secondMs = DateTime.toEpochMillis(Option.getOrThrow(Option.fromNullishOr(second.sessionStartedAt)));
+        expect(secondMs - firstMs).toBe(30 * 60 * 1000);
+      }).pipe(Effect.scoped)
+    );
   });
 });

@@ -433,7 +433,7 @@ describe("App", () => {
       batteryState = {
         batteryLevel: StateOfCharge(80),
         chargeLimitSoc: StateOfCharge(80),
-        queriedAtMs: Date.now()
+        queriedAtMs: 1715600000000
       };
 
       // Ensure charging is active - keep returning 10A so charging stays active

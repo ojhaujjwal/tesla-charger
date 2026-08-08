@@ -1,4 +1,4 @@
-import { Duration, Effect, Layer, Redacted, Schedule, Schema } from "effect";
+import { Clock, Duration, Effect, Layer, Redacted, Schedule, Schema } from "effect";
 import type { Redacted as RedactedType } from "effect/Redacted";
 import { DataAdapter, DataNotAvailableError, SourceNotAvailableError, type Field, type IDataAdapter } from "./types.js";
 import { HttpClient } from "effect/unstable/http";
@@ -118,7 +118,7 @@ export class AlphaEssCloudApiDataAdapter implements IDataAdapter {
     const httpClient = this.httpClient;
 
     return Effect.gen(function* () {
-      const timestamp = Math.floor(Date.now() / 1000).toString();
+      const timestamp = Math.floor((yield* Clock.currentTimeMillis) / 1000).toString();
       const signature = generateSignature(config.appId, config.appSecret, timestamp);
 
       // Make API request

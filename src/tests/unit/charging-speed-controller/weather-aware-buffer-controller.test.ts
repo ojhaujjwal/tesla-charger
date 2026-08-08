@@ -2,7 +2,7 @@ import * as TestClock from "effect/testing/TestClock";
 import { describe, it, expect, beforeEach } from "@effect/vitest";
 import { vi } from "vitest";
 import type { MockedObject } from "vitest";
-import { Effect, Layer, Duration } from "effect";
+import { DateTime, Duration, Effect, Layer, Option } from "effect";
 import {
   calculateSunTimes,
   calculateDefaultMonthlyPeakFactors,
@@ -16,6 +16,8 @@ import { ChargingSpeedController } from "../../../charging-speed-controller/type
 import { DataAdapter, type IDataAdapter } from "../../../data-adapter/types.js";
 import { SolarForecast, SolarForecastNotAvailableError } from "../../../solar-forecast/types.js";
 import { BatteryStateManager, type BatteryState } from "../../../battery-state-manager.js";
+const at = (iso: string) => Option.getOrThrow(DateTime.make(iso));
+
 import {
   Ampere,
   KiloWattHours as KWh,
@@ -30,7 +32,7 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
   describe("calculateSunTimes", () => {
     it("should calculate sunrise and sunset for a known location and date", () => {
       // Sydney, Australia (latitude -33.8688) on January 15 (summer)
-      const date = new Date("2024-01-15T12:00:00Z");
+      const date = at("2024-01-15T12:00:00Z");
       const latitude = -33.8688;
       const result = calculateSunTimes(date, latitude);
 
@@ -45,8 +47,8 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
     it("should show longer days in summer vs winter (southern hemisphere)", () => {
       const latitude = -33.8688; // Sydney
 
-      const summerDate = new Date("2024-01-15T12:00:00Z"); // January (summer)
-      const winterDate = new Date("2024-07-15T12:00:00Z"); // July (winter)
+      const summerDate = at("2024-01-15T12:00:00Z"); // January (summer)
+      const winterDate = at("2024-07-15T12:00:00Z"); // July (winter)
 
       const summerTimes = calculateSunTimes(summerDate, latitude);
       const winterTimes = calculateSunTimes(winterDate, latitude);
@@ -60,7 +62,7 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
 
     it("should handle northern hemisphere correctly", () => {
       // New York (latitude 40.7128) on June 15 (summer)
-      const date = new Date("2024-06-15T12:00:00Z");
+      const date = at("2024-06-15T12:00:00Z");
       const latitude = 40.7128;
       const result = calculateSunTimes(date, latitude);
 
@@ -135,7 +137,7 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
     };
 
     it("should return peak capacity at solar noon", () => {
-      const date = new Date("2024-01-15T12:00:00Z"); // January (summer)
+      const date = at("2024-01-15T12:00:00Z"); // January (summer)
       const noonHour = 12;
       const capacity = expectedCapacityKw(date, noonHour, baseConfig);
 
@@ -145,7 +147,7 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
     });
 
     it("should return lower capacity mid-morning (~78% of noon)", () => {
-      const date = new Date("2024-01-15T12:00:00Z");
+      const date = at("2024-01-15T12:00:00Z");
       const morningHour = 10;
       const noonHour = 12;
 
@@ -158,7 +160,7 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
     });
 
     it("should return 0 before sunrise", () => {
-      const date = new Date("2024-01-15T12:00:00Z");
+      const date = at("2024-01-15T12:00:00Z");
       const earlyHour = 4; // Before sunrise
       const capacity = expectedCapacityKw(date, earlyHour, baseConfig);
 
@@ -166,7 +168,7 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
     });
 
     it("should return 0 after sunset", () => {
-      const date = new Date("2024-01-15T12:00:00Z");
+      const date = at("2024-01-15T12:00:00Z");
       const lateHour = 20; // After sunset
       const capacity = expectedCapacityKw(date, lateHour, baseConfig);
 
@@ -174,8 +176,8 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
     });
 
     it("should return lower peak in winter month", () => {
-      const summerDate = new Date("2024-01-15T12:00:00Z"); // January
-      const winterDate = new Date("2024-07-15T12:00:00Z"); // July
+      const summerDate = at("2024-01-15T12:00:00Z"); // January
+      const winterDate = at("2024-07-15T12:00:00Z"); // July
 
       const summerCapacity = expectedCapacityKw(summerDate, 12, baseConfig);
       const winterCapacity = expectedCapacityKw(winterDate, 12, baseConfig);
@@ -246,13 +248,13 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
             pv_estimate: 8.0, // High production
             pv_estimate10: 8.0,
             pv_estimate90: 8.0,
-            period_end: "2024-01-15T12:30:00Z"
+            period_end: Option.getOrThrow(DateTime.make("2024-01-15T12:30:00Z"))
           },
           {
             pv_estimate: 8.5,
             pv_estimate10: 8.5,
             pv_estimate90: 8.5,
-            period_end: "2024-01-15T13:00:00Z"
+            period_end: Option.getOrThrow(DateTime.make("2024-01-15T13:00:00Z"))
           }
         ]
       };
@@ -260,7 +262,7 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
         batteryLevel: StateOfCharge(70),
         chargeLimitSoc: StateOfCharge(80) // Only needs 10% = 7.5 kWh
       };
-      const now = new Date("2024-01-15T12:00:00Z");
+      const now = at("2024-01-15T12:00:00Z");
 
       const result = simulateCharge(baseConfig, forecast, batteryState, now);
 
@@ -275,13 +277,13 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
             pv_estimate: 1.0, // Low production (cloudy)
             pv_estimate10: 1.0,
             pv_estimate90: 1.0,
-            period_end: "2024-01-15T12:30:00Z"
+            period_end: Option.getOrThrow(DateTime.make("2024-01-15T12:30:00Z"))
           },
           {
             pv_estimate: 1.5,
             pv_estimate10: 1.5,
             pv_estimate90: 1.5,
-            period_end: "2024-01-15T13:00:00Z"
+            period_end: Option.getOrThrow(DateTime.make("2024-01-15T13:00:00Z"))
           }
         ]
       };
@@ -289,7 +291,7 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
         batteryLevel: StateOfCharge(30),
         chargeLimitSoc: StateOfCharge(80) // Needs 50% = 37.5 kWh
       };
-      const now = new Date("2024-01-15T12:00:00Z");
+      const now = at("2024-01-15T12:00:00Z");
 
       const result = simulateCharge(baseConfig, forecast, batteryState, now);
 
@@ -304,7 +306,7 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
             pv_estimate: 8.0,
             pv_estimate10: 8.0,
             pv_estimate90: 8.0,
-            period_end: "2024-01-15T19:00:00Z" // After cutoff (18:00)
+            period_end: Option.getOrThrow(DateTime.make("2024-01-15T19:00:00Z")) // After cutoff (18:00)
           }
         ]
       };
@@ -312,7 +314,7 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
         batteryLevel: StateOfCharge(50),
         chargeLimitSoc: StateOfCharge(80)
       };
-      const now = new Date("2024-01-15T18:30:00Z"); // After cutoff
+      const now = at("2024-01-15T18:30:00Z"); // After cutoff
 
       const result = simulateCharge(baseConfig, forecast, batteryState, now);
 
@@ -402,8 +404,8 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
                 pv_estimate: 8.0, // High production
                 pv_estimate10: 8.0,
                 pv_estimate90: 8.0,
-                period_end: "2024-01-15T12:30:00Z",
-                period: "PT30M"
+                period_end: Option.getOrThrow(DateTime.make("2024-01-15T12:30:00Z")),
+                period: Duration.minutes(30)
               }
             ]
           })
@@ -411,7 +413,7 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
         batteryState = {
           batteryLevel: StateOfCharge(50),
           chargeLimitSoc: StateOfCharge(80),
-          queriedAtMs: Date.now()
+          queriedAtMs: 1715600000000
         };
         mockDataAdapter.queryLatestValues.mockReturnValue(
           Effect.succeed({
@@ -447,8 +449,8 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
                 pv_estimate: 1.0, // Low production (cloudy)
                 pv_estimate10: 1.0,
                 pv_estimate90: 1.0,
-                period_end: "2024-01-15T12:30:00Z",
-                period: "PT30M"
+                period_end: Option.getOrThrow(DateTime.make("2024-01-15T12:30:00Z")),
+                period: Duration.minutes(30)
               }
             ]
           })
@@ -456,7 +458,7 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
         batteryState = {
           batteryLevel: StateOfCharge(50),
           chargeLimitSoc: StateOfCharge(80),
-          queriedAtMs: Date.now()
+          queriedAtMs: 1715600000000
         };
         mockDataAdapter.queryLatestValues.mockReturnValue(
           Effect.succeed({
@@ -492,8 +494,8 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
                 pv_estimate: 2.0, // Moderate production
                 pv_estimate10: 2.0,
                 pv_estimate90: 2.0,
-                period_end: "2024-01-15T12:30:00Z",
-                period: "PT30M"
+                period_end: Option.getOrThrow(DateTime.make("2024-01-15T12:30:00Z")),
+                period: Duration.minutes(30)
               }
             ]
           })
@@ -501,7 +503,7 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
         batteryState = {
           batteryLevel: StateOfCharge(30),
           chargeLimitSoc: StateOfCharge(80), // Needs a lot
-          queriedAtMs: Date.now()
+          queriedAtMs: 1715600000000
         };
         mockDataAdapter.queryLatestValues.mockReturnValue(
           Effect.succeed({
@@ -542,8 +544,8 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
                 pv_estimate: 8.0,
                 pv_estimate10: 8.0,
                 pv_estimate90: 8.0,
-                period_end: "2024-01-15T12:30:00Z",
-                period: "PT30M"
+                period_end: Option.getOrThrow(DateTime.make("2024-01-15T12:30:00Z")),
+                period: Duration.minutes(30)
               }
             ]
           })
@@ -551,7 +553,7 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
         batteryState = {
           batteryLevel: StateOfCharge(50),
           chargeLimitSoc: StateOfCharge(80),
-          queriedAtMs: Date.now()
+          queriedAtMs: 1715600000000
         };
         // Very high export -> should hit 32A limit
         mockDataAdapter.queryLatestValues.mockReturnValue(

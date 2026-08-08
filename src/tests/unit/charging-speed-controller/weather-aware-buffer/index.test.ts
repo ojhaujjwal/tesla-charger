@@ -2,7 +2,7 @@ import * as TestClock from "effect/testing/TestClock";
 import { describe, it, expect, beforeEach } from "@effect/vitest";
 import { vi } from "vitest";
 import type { MockedObject } from "vitest";
-import { Effect, Layer, Duration } from "effect";
+import { DateTime, Duration, Effect, Layer, Option } from "effect";
 import {
   WeatherAwareBufferControllerLayer,
   type WeatherAwareBufferConfig
@@ -102,8 +102,8 @@ describe("WeatherAwareBufferController - Integration", () => {
               pv_estimate: 8.0, // High production
               pv_estimate10: 8.0,
               pv_estimate90: 8.0,
-              period_end: "2024-01-15T12:30:00Z",
-              period: "PT30M"
+              period_end: Option.getOrThrow(DateTime.make("2024-01-15T12:30:00Z")),
+              period: Duration.minutes(30)
             }
           ]
         })
@@ -111,7 +111,7 @@ describe("WeatherAwareBufferController - Integration", () => {
       batteryState = {
         batteryLevel: StateOfCharge(50),
         chargeLimitSoc: StateOfCharge(80),
-        queriedAtMs: Date.now()
+        queriedAtMs: 1715600000000
       };
       mockDataAdapter.queryLatestValues.mockReturnValue(
         Effect.succeed({
@@ -147,8 +147,8 @@ describe("WeatherAwareBufferController - Integration", () => {
               pv_estimate: 1.0, // Low production (cloudy)
               pv_estimate10: 1.0,
               pv_estimate90: 1.0,
-              period_end: "2024-01-15T12:30:00Z",
-              period: "PT30M"
+              period_end: Option.getOrThrow(DateTime.make("2024-01-15T12:30:00Z")),
+              period: Duration.minutes(30)
             }
           ]
         })
@@ -156,7 +156,7 @@ describe("WeatherAwareBufferController - Integration", () => {
       batteryState = {
         batteryLevel: StateOfCharge(50),
         chargeLimitSoc: StateOfCharge(80),
-        queriedAtMs: Date.now()
+        queriedAtMs: 1715600000000
       };
       mockDataAdapter.queryLatestValues.mockReturnValue(
         Effect.succeed({
@@ -192,8 +192,8 @@ describe("WeatherAwareBufferController - Integration", () => {
               pv_estimate: 2.0, // Moderate production
               pv_estimate10: 2.0,
               pv_estimate90: 2.0,
-              period_end: "2024-01-15T12:30:00Z",
-              period: "PT30M"
+              period_end: Option.getOrThrow(DateTime.make("2024-01-15T12:30:00Z")),
+              period: Duration.minutes(30)
             }
           ]
         })
@@ -201,7 +201,7 @@ describe("WeatherAwareBufferController - Integration", () => {
       batteryState = {
         batteryLevel: StateOfCharge(30),
         chargeLimitSoc: StateOfCharge(80), // Needs a lot
-        queriedAtMs: Date.now()
+        queriedAtMs: 1715600000000
       };
       mockDataAdapter.queryLatestValues.mockReturnValue(
         Effect.succeed({
@@ -242,8 +242,8 @@ describe("WeatherAwareBufferController - Integration", () => {
               pv_estimate: 8.0,
               pv_estimate10: 8.0,
               pv_estimate90: 8.0,
-              period_end: "2024-01-15T12:30:00Z",
-              period: "PT30M"
+              period_end: Option.getOrThrow(DateTime.make("2024-01-15T12:30:00Z")),
+              period: Duration.minutes(30)
             }
           ]
         })
@@ -251,7 +251,7 @@ describe("WeatherAwareBufferController - Integration", () => {
       batteryState = {
         batteryLevel: StateOfCharge(50),
         chargeLimitSoc: StateOfCharge(80),
-        queriedAtMs: Date.now()
+        queriedAtMs: 1715600000000
       };
       // Very high export -> should hit 32A limit
       mockDataAdapter.queryLatestValues.mockReturnValue(

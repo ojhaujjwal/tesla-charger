@@ -1,4 +1,4 @@
-import { Brand, Context, Effect } from "effect";
+import { Brand, Context, DateTime, Effect } from "effect";
 import type { Ampere, KiloWattHours } from "./brands.js";
 import { KiloWattHours as KWh } from "./brands.js";
 import type { GridImportExhaustedError } from "../errors/grid-import-exhausted.error.js";
@@ -140,7 +140,7 @@ export const createInitialChargingSessionStats = (): ChargingSessionStats => ({
 
 export type ChargingSessionStats = {
   readonly ampereFluctuations: number;
-  readonly sessionStartedAt: Date | null;
+  readonly sessionStartedAt: DateTime.DateTime | null;
   readonly chargeEnergyAddedAtStartKwh: KiloWattHours;
   readonly dailyImportValueAtStart: KiloWattHours;
 };
@@ -160,10 +160,11 @@ export const withChargeEnergyRecorded = (stats: ChargingSessionStats, value: Kil
   chargeEnergyAddedAtStartKwh: value
 });
 
-export const withSessionStarted = (stats: ChargingSessionStats): ChargingSessionStats => ({
-  ...stats,
-  sessionStartedAt: new Date()
-});
+export const withSessionStarted = (stats: ChargingSessionStats): Effect.Effect<ChargingSessionStats> =>
+  Effect.gen(function* () {
+    const now = yield* DateTime.now;
+    return { ...stats, sessionStartedAt: now };
+  });
 
 export type SessionOutcome = { readonly status: "Running" } | { readonly status: "Completed" };
 

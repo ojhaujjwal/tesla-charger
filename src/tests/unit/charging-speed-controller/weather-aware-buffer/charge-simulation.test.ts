@@ -1,4 +1,7 @@
 import { describe, it, expect } from "@effect/vitest";
+import { DateTime, Option } from "effect";
+
+const at = (iso: string) => Option.getOrThrow(DateTime.make(iso));
 import { simulateCharge } from "../../../../charging-speed-controller/weather-aware-buffer/charge-simulation.js";
 import type { WeatherAwareBufferConfig } from "../../../../charging-speed-controller/weather-aware-buffer/types.js";
 import {
@@ -31,13 +34,13 @@ describe("charge-simulation", () => {
             pv_estimate: 8.0, // High production
             pv_estimate10: 8.0,
             pv_estimate90: 8.0,
-            period_end: "2024-01-15T12:30:00Z"
+            period_end: Option.getOrThrow(DateTime.make("2024-01-15T12:30:00Z"))
           },
           {
             pv_estimate: 8.5,
             pv_estimate10: 8.5,
             pv_estimate90: 8.5,
-            period_end: "2024-01-15T13:00:00Z"
+            period_end: Option.getOrThrow(DateTime.make("2024-01-15T13:00:00Z"))
           }
         ]
       };
@@ -45,7 +48,7 @@ describe("charge-simulation", () => {
         batteryLevel: StateOfCharge(70),
         chargeLimitSoc: StateOfCharge(80) // Only needs 10% = 7.5 kWh
       };
-      const now = new Date("2024-01-15T12:00:00Z");
+      const now = at("2024-01-15T12:00:00Z");
 
       const result = simulateCharge(baseConfig, forecast, batteryState, now);
 
@@ -60,13 +63,13 @@ describe("charge-simulation", () => {
             pv_estimate: 1.0, // Low production (cloudy)
             pv_estimate10: 1.0,
             pv_estimate90: 1.0,
-            period_end: "2024-01-15T12:30:00Z"
+            period_end: Option.getOrThrow(DateTime.make("2024-01-15T12:30:00Z"))
           },
           {
             pv_estimate: 1.5,
             pv_estimate10: 1.5,
             pv_estimate90: 1.5,
-            period_end: "2024-01-15T13:00:00Z"
+            period_end: Option.getOrThrow(DateTime.make("2024-01-15T13:00:00Z"))
           }
         ]
       };
@@ -74,7 +77,7 @@ describe("charge-simulation", () => {
         batteryLevel: StateOfCharge(30),
         chargeLimitSoc: StateOfCharge(80) // Needs 50% = 37.5 kWh
       };
-      const now = new Date("2024-01-15T12:00:00Z");
+      const now = at("2024-01-15T12:00:00Z");
 
       const result = simulateCharge(baseConfig, forecast, batteryState, now);
 
@@ -89,7 +92,7 @@ describe("charge-simulation", () => {
             pv_estimate: 8.0,
             pv_estimate10: 8.0,
             pv_estimate90: 8.0,
-            period_end: "2024-01-15T19:00:00Z" // After cutoff (18:00)
+            period_end: Option.getOrThrow(DateTime.make("2024-01-15T19:00:00Z")) // After cutoff (18:00)
           }
         ]
       };
@@ -97,7 +100,7 @@ describe("charge-simulation", () => {
         batteryLevel: StateOfCharge(50),
         chargeLimitSoc: StateOfCharge(80)
       };
-      const now = new Date("2024-01-15T18:30:00Z"); // After cutoff
+      const now = at("2024-01-15T18:30:00Z"); // After cutoff
 
       const result = simulateCharge(baseConfig, forecast, batteryState, now);
 

@@ -1,3 +1,4 @@
+import { DateTime } from "effect";
 import type { WeatherAwareBufferConfig, SimulationResult } from "./types.js";
 import { calculateDefaultMonthlyPeakFactors, expectedCapacityKw } from "./solar-calculations.js";
 import { periodConfidence } from "./forecast-confidence.js";
@@ -11,14 +12,14 @@ export const simulateCharge = (
   forecast: {
     readonly periods: readonly {
       readonly pv_estimate: number;
-      readonly period_end: string;
+      readonly period_end: DateTime.Utc;
     }[];
   },
   batteryState: {
     readonly batteryLevel: StateOfCharge;
     readonly chargeLimitSoc: StateOfCharge;
   } | null,
-  now: Date
+  now: DateTime.DateTime
 ): SimulationResult => {
   if (!batteryState) {
     return {
@@ -48,10 +49,10 @@ export const simulateCharge = (
 
   // Walk through forecast periods
   for (const period of forecast.periods) {
-    const periodEnd = new Date(period.period_end);
+    const periodEnd = period.period_end; // already DateTime.Utc
 
     // Skip if period is before now
-    if (periodEnd < now) {
+    if (DateTime.Order(periodEnd, now) < 0) {
       continue;
     }
 
@@ -59,7 +60,7 @@ export const simulateCharge = (
     // Note: Solcast API may return UTC timestamps, but we need local solar time for calculations
     // For simplicity, treat the hour component as local solar time
     // In production, ensure timestamps are converted to local timezone before calling this function
-    const periodHourUtc = periodEnd.getUTCHours() + periodEnd.getUTCMinutes() / 60;
+    const periodHourUtc = DateTime.getPartUtc(periodEnd, "hour") + DateTime.getPartUtc(periodEnd, "minute") / 60;
 
     // Use UTC hour directly as local hour (assumes API returns local time in UTC format)
     // TODO: Properly convert UTC to local timezone using location's timezone

@@ -1,6 +1,7 @@
 import type { ChargingSessionStats } from "./charging-session.js";
 import { type KiloWattHours, KiloWattHours as KWh } from "./brands.js";
 import type { Voltage } from "./brands.js";
+import { DateTime } from "effect";
 
 export type SessionSummary = {
   readonly sessionDurationMs: number;
@@ -18,8 +19,12 @@ export const computeSessionSummary = (params: {
   readonly finalDailyImport: KiloWattHours;
   readonly finalVoltage: Voltage;
   readonly costPerKwh: number;
+  readonly now: DateTime.DateTime;
 }): SessionSummary => {
-  const sessionDurationMs = params.stats.sessionStartedAt ? Date.now() - params.stats.sessionStartedAt.getTime() : 0;
+  const sessionStartedAt = params.stats.sessionStartedAt;
+  const sessionDurationMs = sessionStartedAt
+    ? DateTime.toEpochMillis(params.now) - DateTime.toEpochMillis(sessionStartedAt)
+    : 0;
 
   const totalEnergyChargedKwh = KWh(params.finalChargeEnergyAdded - params.stats.chargeEnergyAddedAtStartKwh);
   const gridImportKwh = KWh(params.finalDailyImport - params.stats.dailyImportValueAtStart);
