@@ -29,9 +29,7 @@ const createTeslaClientLayer = (config: {
   readonly clientId: string;
   readonly clientSecret: Redacted.Redacted<string>;
   readonly vin: string;
-}) => {
-  return TeslaClientLayer(config);
-};
+}) => TeslaClientLayer(config);
 
 const chargingConfig: ChargingConfig = {
   waitPerAmereInSeconds: 2.2,
