@@ -23,6 +23,7 @@ import { SolcastForecastLayer } from "./solar-forecast/solcast.adapter.js";
 import { TeslaChargerEventPubSub } from "./domain/events.js";
 import { ElectricVehicle } from "./domain/electric-vehicle.js";
 import { ChargingSessionLive } from "./application/charging-session.js";
+import { layer as jsonlTraceExportLayer } from "./tracing/jsonl-trace-exporter.js";
 
 const createTeslaClientLayer = (config: {
   readonly appDomain: string;
@@ -101,6 +102,16 @@ const cli = Command.make(
         const costPerKwh = yield* AppConfig.cost.perKwh;
 
         const bufferPower = yield* AppConfig.excessSolar.bufferPower;
+
+        const traceFileDirectory = yield* AppConfig.tracing.fileDirectory;
+        const traceLevel = yield* AppConfig.tracing.traceLevel;
+
+        const traceLayer = Option.isSome(traceFileDirectory)
+          ? jsonlTraceExportLayer({
+              directory: traceFileDirectory.value,
+              minimumTraceLevel: traceLevel
+            })
+          : Layer.empty;
 
         const controllerTag = Option.getOrElse(parsed.controller, () => "default" as const);
         let controllerLayer;
@@ -194,7 +205,8 @@ const cli = Command.make(
           Layer.provideMerge(BatteryStateManager.layer),
           Layer.provideMerge(AppRuntime.layer),
           Layer.provideMerge(AlphaEssCloudApiDataAdapterLayer),
-          Layer.provideMerge(teslaLayer)
+          Layer.provideMerge(teslaLayer),
+          Layer.provideMerge(traceLayer)
         );
       })
     );

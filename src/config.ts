@@ -1,4 +1,4 @@
-import { Config as EffectConfig } from "effect";
+import { Config as EffectConfig, LogLevel, Schema } from "effect";
 import {
   Ampere,
   AmpereFromString,
@@ -88,5 +88,12 @@ export const AppConfig = {
 
   httpApi: {
     port: EffectConfig.int("HTTP_API_PORT").pipe(EffectConfig.withDefault(8080))
+  },
+
+  tracing: {
+    fileDirectory: EffectConfig.option(EffectConfig.string("TRACE_DESTINATION")),
+    traceLevel: EffectConfig.schema(Schema.Literals(LogLevel.values), "TRACE_LEVEL").pipe(
+      EffectConfig.withDefault("All")
+    )
   }
 };

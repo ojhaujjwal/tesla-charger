@@ -11,7 +11,9 @@ export default defineConfig({
       "**/dist/**",
       "**/cypress/**",
       "**/.{idea,git,cache,output,temp}/**",
-      "**/coverage/**"
+      "**/coverage/**",
+      "**/.worktree/**",
+      "**/.worktrees/**"
     ]
   }
 });

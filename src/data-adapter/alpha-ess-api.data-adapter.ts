@@ -1,7 +1,7 @@
-import { Clock, Duration, Effect, Layer, Redacted, Schedule, Schema } from "effect";
+import { Array, Clock, Duration, Effect, Layer, Redacted, Schedule, Schema } from "effect";
 import type { Redacted as RedactedType } from "effect/Redacted";
 import { DataAdapter, DataNotAvailableError, SourceNotAvailableError, type Field, type IDataAdapter } from "./types.js";
-import { HttpClient } from "effect/unstable/http";
+import { Headers, HttpClient } from "effect/unstable/http";
 import { AppConfig } from "./../config.js";
 import { createHash } from "crypto";
 import { Voltage } from "../domain/brands.js";
@@ -12,6 +12,8 @@ export type AlphaEssConfig = {
   readonly sysSn: string;
   readonly baseUrl: string;
 };
+
+const REDACTED_HEADER_NAMES: ReadonlyArray<string | RegExp> = [/^app.?id$/i, /^sign$/i];
 
 function isFieldRecord<F extends string>(obj: Record<string, number>, fields: readonly F[]): obj is Record<F, number> {
   return fields.every((field) => field in obj && typeof obj[field] === "number");
@@ -156,6 +158,7 @@ export class AlphaEssCloudApiDataAdapter implements IDataAdapter {
 
       return result;
     }).pipe(
+      Effect.updateService(Headers.CurrentRedactedNames, (names) => Array.appendAll(names, REDACTED_HEADER_NAMES)),
       Effect.timeout(Duration.millis(this.TIMEOUT_MS)),
       Effect.retry({
         schedule: Schedule.exponential(Duration.seconds(2), 2).pipe(Schedule.take(6)),

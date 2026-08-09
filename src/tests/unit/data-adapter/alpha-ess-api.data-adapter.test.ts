@@ -6,6 +6,7 @@ import {
 } from "../../../data-adapter/alpha-ess-api.data-adapter.js";
 import { DataAdapter, DataNotAvailableError, SourceNotAvailableError } from "../../../data-adapter/types.js";
 import { HttpClient, HttpClientRequest, HttpClientResponse, HttpClientError } from "effect/unstable/http";
+import { tracerLayer, toJsonSpan, type TraceSpanJson } from "../../../tracing/tracer.js";
 import { describe, it, expect } from "@effect/vitest";
 
 const mockResponse = (req: HttpClientRequest.HttpClientRequest, body: string): HttpClientResponse.HttpClientResponse =>
@@ -35,6 +36,49 @@ describe("AlphaEssCloudApiDataAdapter", () => {
     sysSn: "test-sys-sn",
     baseUrl: "https://test.alphaess.com"
   };
+
+  it.effect("should redact the sign and appId request headers in captured trace spans", () =>
+    Effect.gen(function* () {
+      const spans: Array<TraceSpanJson> = [];
+      const adapter = new AlphaEssCloudApiDataAdapter(
+        mockConfig,
+        makeMockHttpClient({
+          code: 200,
+          msg: "Success",
+          expMsg: null,
+          data: {
+            ppv: 0,
+            ppvDetail: { ppv1: 0, ppv2: 0, ppv3: 0, ppv4: 0, pmeterDc: 0 },
+            soc: 0,
+            pev: 0,
+            pevDetail: { ev1Power: null, ev2Power: null, ev3Power: null, ev4Power: null },
+            prealL1: 0,
+            prealL2: 0,
+            prealL3: 0,
+            pbat: 0,
+            pgrid: 0,
+            pload: 0,
+            pgridDetail: { pmeterL1: 0, pmeterL2: 0, pmeterL3: 0 }
+          },
+          extra: null
+        })
+      );
+
+      yield* adapter.queryLatestValues(["current_production"]).pipe(
+        Effect.provide(
+          tracerLayer({
+            minimumTraceLevel: "All",
+            onSpan: (span) => spans.push(toJsonSpan(span))
+          })
+        )
+      );
+
+      const httpSpan = spans.find((span) => span.name === "http.client GET");
+      expect(httpSpan).toBeDefined();
+      expect(httpSpan?.attributes["http.request.header.sign"]).toBe("<redacted>");
+      expect(httpSpan?.attributes["http.request.header.appid"]).toBe("<redacted>");
+    })
+  );
 
   describe("should parse Alpha ESS API response and return correct values for requested fields", () => {
     [

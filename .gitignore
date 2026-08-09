@@ -12,6 +12,9 @@ node_modules
 /.solcast-cache.json
 
 .vscode
+.DS_Store
 
+.worktree
+.worktrees
 .ralph-auto
 progress-auto.txt

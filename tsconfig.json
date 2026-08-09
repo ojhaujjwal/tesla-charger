@@ -146,5 +146,5 @@
     ]
   },
   "include": ["src"],
-  "exclude": ["node_modules", "repos"]
+  "exclude": ["node_modules", "repos", ".worktree", ".worktrees"]
 }

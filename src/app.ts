@@ -103,7 +103,7 @@ export const AppLayer = (config: {
         batteryStateManagerFiber = sessionFibers.batteryStateManagerFiber;
         eventLoggerFiber = sessionFibers.eventLoggerFiber;
 
-        const runSyncCycle = Effect.fn("runSyncCycle")(function* () {
+        const runSyncCycle = Effect.fn("runSyncCycle", { root: true })(function* () {
           const controlState = yield* Ref.get(appRuntime.controlRef);
           const sessionStats = yield* Ref.get(appRuntime.statsRef);
 

@@ -6,6 +6,8 @@
     "**/.tsbuildinfo",
     "**/*.md",
     "**/.ralph/**",
+    ".worktree/**",
+    ".worktrees/**",
     "repos/**",
     ".opencode/plugin/**"
   ],
