@@ -1,4 +1,4 @@
-import { Cause, ConfigProvider, DateTime, Effect, Option, Exit, Layer } from "effect";
+import { Cause, ConfigProvider, DateTime, Duration, Effect, Option, Exit, Layer } from "effect";
 import * as TestClock from "effect/testing/TestClock";
 import { AlphaEssCloudApiDataAdapterLayer } from "../../../data-adapter/alpha-ess-api.data-adapter.js";
 import { DataAdapter, DataNotAvailableError, SourceNotAvailableError } from "../../../data-adapter/types.js";
@@ -437,6 +437,108 @@ describe("AlphaEssCloudApiDataAdapter", () => {
       expect(requests).toHaveLength(1);
       expect(requests[0]).toContain("/api/getOneDayPowerBySn");
       expect(requests[0]).toContain(`queryDate=${DateTime.formatIsoDate(now)}`);
+    }).pipe(Effect.provide(adapterLayer(httpClient)));
+  });
+
+  it.effect("should not make another request for a second call within the same 5-minute sample slot", () => {
+    const now = localTime({ year: 2026, month: 8, day: 4, hour: 12, minute: 0 });
+    const requests: Array<string> = [];
+    const httpClient = makeHistoricalHttpClient(
+      {
+        [DateTime.formatIsoDate(now)]: historicalResponse([
+          sampleMinutesAgo(now, 25, { ppv: 400 }),
+          sampleMinutesAgo(now, 5, { ppv: 500 })
+        ])
+      },
+      requests
+    );
+
+    return Effect.gen(function* () {
+      yield* TestClock.setTime(DateTime.toEpochMillis(now));
+
+      const adapter = yield* DataAdapter;
+      yield* adapter.getLowestValueInLastXMinutes("current_production", 30);
+      expect(requests).toHaveLength(1);
+
+      yield* TestClock.adjust(Duration.minutes(4));
+      const result = yield* adapter.getLowestValueInLastXMinutes("current_production", 30);
+
+      expect(result).toBe(400);
+      expect(requests).toHaveLength(1);
+    }).pipe(Effect.provide(adapterLayer(httpClient)));
+  });
+
+  it.effect("should refetch a day once the 5-minute sample slot boundary passes", () => {
+    const now = localTime({ year: 2026, month: 8, day: 4, hour: 12, minute: 0 });
+    const requests: Array<string> = [];
+    let response = historicalResponse([sampleMinutesAgo(now, 25, { ppv: 400 })]);
+    const httpClient = HttpClient.make((req) => {
+      requests.push(req.url);
+      return Effect.succeed(mockResponse(req, JSON.stringify(response)));
+    });
+
+    return Effect.gen(function* () {
+      yield* TestClock.setTime(DateTime.toEpochMillis(now));
+
+      const adapter = yield* DataAdapter;
+      expect(yield* adapter.getLowestValueInLastXMinutes("current_production", 30)).toBe(400);
+      expect(requests).toHaveLength(1);
+
+      yield* TestClock.adjust(Duration.minutes(5));
+      response = historicalResponse([sampleMinutesAgo(now, 25, { ppv: 400 }), sampleMinutesAgo(now, 2, { ppv: 150 })]);
+
+      expect(yield* adapter.getLowestValueInLastXMinutes("current_production", 30)).toBe(150);
+      expect(requests).toHaveLength(2);
+    }).pipe(Effect.provide(adapterLayer(httpClient)));
+  });
+
+  it.effect("should compute the minimum across cached and freshly fetched days", () => {
+    const now = localTime({ year: 2026, month: 8, day: 4, hour: 0, minute: 10 });
+    const today = DateTime.formatIsoDate(now);
+    const yesterday = DateTime.formatIsoDate(DateTime.subtract(now, { days: 1 }));
+    const requests: Array<string> = [];
+    const httpClient = makeHistoricalHttpClient(
+      {
+        [today]: historicalResponse([sampleMinutesAgo(now, 8, { ppv: 300 }), sampleMinutesAgo(now, 4, { ppv: 250 })]),
+        [yesterday]: historicalResponse([sampleMinutesAgo(now, 20, { ppv: 90 })])
+      },
+      requests
+    );
+
+    return Effect.gen(function* () {
+      yield* TestClock.setTime(DateTime.toEpochMillis(now));
+
+      const adapter = yield* DataAdapter;
+      expect(yield* adapter.getLowestValueInLastXMinutes("current_production", 10)).toBe(250);
+      expect(requests).toHaveLength(1);
+
+      expect(yield* adapter.getLowestValueInLastXMinutes("current_production", 30)).toBe(90);
+      expect(requests).toHaveLength(2);
+    }).pipe(Effect.provide(adapterLayer(httpClient)));
+  });
+
+  it.effect("should re-apply the window filter to cached samples", () => {
+    const now = localTime({ year: 2026, month: 8, day: 4, hour: 12, minute: 0 });
+    const requests: Array<string> = [];
+    const httpClient = makeHistoricalHttpClient(
+      {
+        [DateTime.formatIsoDate(now)]: historicalResponse([
+          sampleMinutesAgo(now, 50, { ppv: 10 }),
+          sampleMinutesAgo(now, 10, { ppv: 200 })
+        ])
+      },
+      requests
+    );
+
+    return Effect.gen(function* () {
+      yield* TestClock.setTime(DateTime.toEpochMillis(now));
+
+      const adapter = yield* DataAdapter;
+      expect(yield* adapter.getLowestValueInLastXMinutes("current_production", 60)).toBe(10);
+
+      yield* TestClock.adjust(Duration.minutes(1));
+      expect(yield* adapter.getLowestValueInLastXMinutes("current_production", 30)).toBe(200);
+      expect(requests).toHaveLength(1);
     }).pipe(Effect.provide(adapterLayer(httpClient)));
   });
 

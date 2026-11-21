@@ -1,4 +1,17 @@
-import { Array, Clock, DateTime, Duration, Effect, Layer, Redacted, Schedule, Schema } from "effect";
+import {
+  Array,
+  Clock,
+  DateTime,
+  Duration,
+  Effect,
+  HashMap,
+  Layer,
+  Option,
+  Redacted,
+  Ref,
+  Schedule,
+  Schema
+} from "effect";
 import { Digest } from "effect/crypto";
 import { Headers, HttpClient } from "effect/http";
 import { AppConfig } from "./../config.js";
@@ -6,6 +19,8 @@ import { Voltage } from "../domain/brands.js";
 import { DataAdapter, DataNotAvailableError, SourceNotAvailableError, type Field } from "./types.js";
 
 const TIMEOUT_MS = 5_000;
+
+const POWER_SAMPLE_INTERVAL_MS = 5 * 60_000;
 
 const REDACTED_HEADER_NAMES: ReadonlyArray<string | RegExp> = [/^app.?id$/i, /^sign$/i];
 
@@ -72,6 +87,13 @@ const HistoricalSampleSchema = Schema.Struct({
 
 type HistoricalSampleValueField = "ppv" | "load" | "feedIn" | "gridCharge";
 
+type HistoricalSample = Schema.Schema.Type<typeof HistoricalSampleSchema>;
+
+type CachedDay = {
+  readonly samples: ReadonlyArray<HistoricalSample>;
+  readonly expiresAt: number;
+};
+
 const HistoricalResponseSchema = Schema.Struct({
   code: Schema.Number,
   msg: Schema.String,
@@ -136,6 +158,8 @@ export const AlphaEssCloudApiDataAdapterLayer = Layer.effect(
       )
     );
 
+    const cachedDays = yield* Ref.make(HashMap.empty<string, CachedDay>());
+
     // Alpha ESS signs the request headers as sha512(appId + appSecret + timeStamp), lowercase hex.
     const generateSignature = Effect.fn("generateSignature")(function* (timestamp: string) {
       const input = `${Redacted.value(appId)}${Redacted.value(appSecret)}${timestamp}`;
@@ -193,69 +217,19 @@ export const AlphaEssCloudApiDataAdapterLayer = Layer.effect(
       Effect.catchTag("HttpClientError", () => Effect.fail(new SourceNotAvailableError()))
     );
 
-    const queryOneDayPower = Effect.fn("queryOneDayPower")(function* (queryDate: string) {
-      const responseBody = yield* fetchSigned("getOneDayPowerBySn", { sysSn, queryDate });
+    const queryOneDayPower = Effect.fn("queryOneDayPower")(
+      function* (queryDate: string) {
+        const responseBody = yield* fetchSigned("getOneDayPowerBySn", { sysSn, queryDate });
 
-      const parsed = yield* Schema.decodeUnknownEffect(HistoricalResponseSchema)(responseBody).pipe(
-        Effect.catchTag("SchemaError", () => Effect.die(new Error(`Unrecognized response from Alpha ESS API`)))
-      );
+        const parsed = yield* Schema.decodeUnknownEffect(HistoricalResponseSchema)(responseBody).pipe(
+          Effect.catchTag("SchemaError", () => Effect.die(new Error(`Unrecognized response from Alpha ESS API`)))
+        );
 
-      if (parsed.code !== 200 || !parsed.data) {
-        return yield* new DataNotAvailableError();
-      }
-
-      return parsed.data;
-    });
-
-    const getLowestValueInLastXMinutes = Effect.fn("getLowestValueInLastXMinutes")(
-      function* (field: Field, minutes: number) {
-        const valueField = historicalFieldMap[field];
-        if (!valueField) {
+        if (parsed.code !== 200 || !parsed.data) {
           return yield* new DataNotAvailableError();
         }
 
-        const zone = DateTime.zoneMakeLocal();
-        const now = DateTime.setZone(yield* DateTime.now, zone);
-        const nowMs = DateTime.toEpochMillis(now);
-        const cutoffMs = nowMs - minutes * 60_000;
-
-        const dates: string[] = [];
-        for (
-          let cursor = DateTime.makeUnsafe(cutoffMs);
-          DateTime.toEpochMillis(cursor) <= nowMs;
-          cursor = DateTime.add(cursor, { days: 1 })
-        ) {
-          const date = DateTime.formatIsoDate(DateTime.setZone(cursor, zone));
-          if (!dates.includes(date)) {
-            dates.push(date);
-          }
-        }
-
-        const today = DateTime.formatIsoDate(now);
-        if (!dates.includes(today)) {
-          dates.push(today);
-        }
-
-        const samples = yield* Effect.forEach(dates, queryOneDayPower, { concurrency: 1 });
-
-        let lowest: number | undefined;
-        for (const sample of samples.flat()) {
-          // getOneDayPowerBySn reports uploadTime as a zone-less wall clock.
-          const uploadedAt = DateTime.makeZonedUnsafe(sample.uploadTime, {
-            timeZone: zone,
-            adjustForTimeZone: true
-          });
-          if (DateTime.toEpochMillis(uploadedAt) < cutoffMs) continue;
-
-          const value = sample[valueField];
-          lowest = lowest === undefined ? value : Math.min(lowest, value);
-        }
-
-        if (lowest === undefined) {
-          return yield* new DataNotAvailableError();
-        }
-
-        return lowest;
+        return parsed.data;
       },
       Effect.timeout(Duration.millis(TIMEOUT_MS)),
       Effect.retry({
@@ -266,6 +240,81 @@ export const AlphaEssCloudApiDataAdapterLayer = Layer.effect(
       Effect.catchTag("TimeoutError", () => Effect.fail(new SourceNotAvailableError())),
       Effect.catchTag("HttpClientError", () => Effect.fail(new SourceNotAvailableError()))
     );
+
+    // A day's history can only gain samples when a 5-minute slot closes, so a
+    // fetched day stays valid until the next slot boundary.
+    const cachedDayPower = Effect.fn("cachedDayPower")(function* (queryDate: string, nowMs: number) {
+      const cached = HashMap.get(yield* Ref.get(cachedDays), queryDate);
+      if (Option.isSome(cached) && cached.value.expiresAt > nowMs) {
+        return cached.value.samples;
+      }
+
+      const samples = yield* queryOneDayPower(queryDate);
+      yield* Ref.update(cachedDays, (cache) =>
+        HashMap.set(
+          HashMap.filter(cache, (day) => day.expiresAt > nowMs),
+          queryDate,
+          {
+            samples,
+            expiresAt: (Math.floor(nowMs / POWER_SAMPLE_INTERVAL_MS) + 1) * POWER_SAMPLE_INTERVAL_MS
+          }
+        )
+      );
+      return samples;
+    });
+
+    const getLowestValueInLastXMinutes = Effect.fn("getLowestValueInLastXMinutes")(function* (
+      field: Field,
+      minutes: number
+    ) {
+      const valueField = historicalFieldMap[field];
+      if (!valueField) {
+        return yield* new DataNotAvailableError();
+      }
+
+      const zone = DateTime.zoneMakeLocal();
+      const now = DateTime.setZone(yield* DateTime.now, zone);
+      const nowMs = DateTime.toEpochMillis(now);
+      const cutoffMs = nowMs - minutes * 60_000;
+
+      const dates: string[] = [];
+      for (
+        let cursor = DateTime.makeUnsafe(cutoffMs);
+        DateTime.toEpochMillis(cursor) <= nowMs;
+        cursor = DateTime.add(cursor, { days: 1 })
+      ) {
+        const date = DateTime.formatIsoDate(DateTime.setZone(cursor, zone));
+        if (!dates.includes(date)) {
+          dates.push(date);
+        }
+      }
+
+      const today = DateTime.formatIsoDate(now);
+      if (!dates.includes(today)) {
+        dates.push(today);
+      }
+
+      const daySamples = yield* Effect.forEach(dates, (date) => cachedDayPower(date, nowMs), { concurrency: 1 });
+
+      let lowest: number | undefined;
+      for (const sample of daySamples.flat()) {
+        // getOneDayPowerBySn reports uploadTime as a zone-less wall clock.
+        const uploadedAt = DateTime.makeZonedUnsafe(sample.uploadTime, {
+          timeZone: zone,
+          adjustForTimeZone: true
+        });
+        if (DateTime.toEpochMillis(uploadedAt) < cutoffMs) continue;
+
+        const value = sample[valueField];
+        lowest = lowest === undefined ? value : Math.min(lowest, value);
+      }
+
+      if (lowest === undefined) {
+        return yield* new DataNotAvailableError();
+      }
+
+      return lowest;
+    });
 
     return DataAdapter.of({
       queryLatestValues,
