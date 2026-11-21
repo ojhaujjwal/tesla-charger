@@ -5,6 +5,7 @@ import {
   ContextDeadlineExceededError,
   UnableToFetchAccessTokenError,
   VehicleAsleepError,
+  VehicleChargeCompleteError,
   VehicleCommandFailedError
 } from "./errors.js";
 import { Context, Duration, Effect, FileSystem, Layer, Redacted, Schedule, Schema, Stream, pipe } from "effect";
@@ -24,6 +25,16 @@ const FLEET_API_BASE_URL = "https://fleet-api.prd.na.vn.cloud.tesla.com";
 
 type CommandResult = Effect.Effect<void, VehicleAsleepError | VehicleCommandFailedError>;
 
+type ChargeCommandResult = Effect.Effect<
+  void,
+  VehicleAsleepError | VehicleCommandFailedError | VehicleChargeCompleteError
+>;
+
+// tesla-control reports state-mismatch rejections as
+// "car could not execute command: <reason>" on stderr.
+const isCarRejection = (err: VehicleCommandFailedError, reason: string): boolean =>
+  err.stderr?.includes(`car could not execute command: ${reason}`) ?? false;
+
 export type ChargeState = {
   readonly batteryLevel: StateOfCharge;
   readonly chargeLimitSoc: StateOfCharge;
@@ -41,9 +52,10 @@ export type TeslaClientService = ElectricVehicle["Service"] & {
   readonly setupAccessTokenAutoRefreshRecurring: (
     timeoutInSeconds: number
   ) => Effect.Effect<void, AuthenticationFailedError>;
-  readonly startCharging: () => CommandResult;
+  readonly startCharging: () => ChargeCommandResult;
   readonly stopCharging: () => CommandResult;
-  readonly setAmpere: (ampere: Ampere) => CommandResult;
+  readonly setAmpere: (ampere: Ampere) => ChargeCommandResult;
+  readonly setChargeLimit: (limit: StateOfCharge) => CommandResult;
   readonly wakeUpCar: () => Effect.Effect<void, VehicleCommandFailedError>;
   readonly getChargeState: () => Effect.Effect<ChargeState, ChargeStateQueryFailedError>;
 };
@@ -326,6 +338,24 @@ export const TeslaClientLayer = (config: {
         );
       });
 
+      // A "complete" rejection is verified against fresh vehicle data so
+      // callers can tell a reached charge limit from an anomalous vehicle
+      // state instead of trusting the stderr message alone.
+      const chargeCompleteFromRejection = Effect.fn("chargeCompleteFromRejection")(function* (
+        err: VehicleCommandFailedError,
+        command: string
+      ) {
+        const chargeState = yield* getChargeState().pipe(Effect.catch(() => Effect.succeed(null)));
+        return yield* new VehicleChargeCompleteError({
+          message: `Vehicle rejected ${command} because charging is already complete`,
+          stderr: err.stderr,
+          ...(chargeState !== null && {
+            batteryLevel: chargeState.batteryLevel,
+            chargeLimitSoc: chargeState.chargeLimitSoc
+          })
+        });
+      });
+
       return {
         authenticateFromAuthCodeGrant: (authorizationCode: string) =>
           authenticateFromAuthCodeGrantInternal(authorizationCode).pipe(
@@ -339,14 +369,33 @@ export const TeslaClientLayer = (config: {
           }),
         startCharging: () =>
           execTeslaControl(["charging-start"]).pipe(
-            Effect.catchTag("VehicleCommandFailed", (err) => {
-              return err.stderr?.includes("car could not execute command: is_charging")
-                ? Effect.void
-                : Effect.fail(err);
-            })
+            Effect.catchTag(
+              "VehicleCommandFailed",
+              (err): Effect.Effect<void, VehicleCommandFailedError | VehicleChargeCompleteError> => {
+                if (isCarRejection(err, "is_charging")) return Effect.void;
+                if (isCarRejection(err, "complete")) return chargeCompleteFromRejection(err, "charging-start");
+                return Effect.fail(err);
+              }
+            )
           ),
-        stopCharging: () => execTeslaControl(["charging-stop"]),
-        setAmpere: (ampere: Ampere) => execTeslaControl(["charging-set-amps", `${ampere}`]),
+        stopCharging: () =>
+          execTeslaControl(["charging-stop"]).pipe(
+            Effect.catchTag("VehicleCommandFailed", (err) =>
+              // Already in the desired state — treat as success.
+              isCarRejection(err, "not_charging") ? Effect.void : Effect.fail(err)
+            )
+          ),
+        setAmpere: (ampere: Ampere) =>
+          execTeslaControl(["charging-set-amps", `${ampere}`]).pipe(
+            Effect.catchTag(
+              "VehicleCommandFailed",
+              (err): Effect.Effect<void, VehicleCommandFailedError | VehicleChargeCompleteError> =>
+                isCarRejection(err, "complete")
+                  ? chargeCompleteFromRejection(err, "charging-set-amps")
+                  : Effect.fail(err)
+            )
+          ),
+        setChargeLimit: (limit: StateOfCharge) => execTeslaControl(["charging-set-limit", `${limit}`]),
         wakeUpCar: () =>
           execTeslaControl(["wake"]).pipe(
             Effect.catchTag("VehicleAsleepError", () =>

@@ -1,9 +1,14 @@
 import { describe, it, vitest, beforeEach, expect } from "@effect/vitest";
 import type { MockedObject } from "@effect/vitest";
-import { Effect, Duration, Fiber, Layer, Redacted, PubSub } from "effect";
+import { DateTime, Effect, Duration, Fiber, Layer, Redacted, PubSub } from "effect";
 import * as TestClock from "effect/testing/TestClock";
 import { TeslaClient, type TeslaClientService } from "../../tesla-client/index.js";
-import { VehicleAsleepError } from "../../tesla-client/errors.js";
+import {
+  ChargeStateQueryFailedError,
+  VehicleAsleepError,
+  VehicleCommandFailedError,
+  VehicleChargeCompleteError
+} from "../../tesla-client/errors.js";
 import { DataAdapter, type IDataAdapter } from "../../data-adapter/types.js";
 import { ChargingSpeedController } from "../../charging-speed-controller/types.js";
 import type { ChargingConfig } from "../../domain/charging-session.js";
@@ -14,7 +19,7 @@ import type { TeslaChargerEvent } from "../../domain/events.js";
 import { TeslaChargerEventPubSub } from "../../domain/events.js";
 import { ElectricVehicle } from "../../domain/electric-vehicle.js";
 import { ChargingSessionLive } from "../../application/charging-session.js";
-import { Ampere, KiloWattHours as KWh, StateOfCharge } from "../../domain/brands.js";
+import { Ampere, KiloWattHours as KWh, StateOfCharge, TimeOfDay } from "../../domain/brands.js";
 
 describe("App", () => {
   const teslaClientMock: MockedObject<TeslaClientService> = {
@@ -24,6 +29,7 @@ describe("App", () => {
     startCharging: vitest.fn(),
     stopCharging: vitest.fn(),
     setAmpere: vitest.fn(),
+    setChargeLimit: vitest.fn(),
     wakeUpCar: vitest.fn(),
     getChargeState: vitest.fn()
   };
@@ -71,13 +77,15 @@ describe("App", () => {
 
   const provideAppLayer = <R>(
     appEffect: Effect.Effect<void, never, App | R>,
-    timingConfig: TimingConfig = defaultTimingConfig
+    timingConfig: TimingConfig = defaultTimingConfig,
+    forceChargeToHundredPercent = false
   ) =>
     appEffect.pipe(
       Effect.provide(
         AppLayer({
           chargingConfig: defaultChargingConfig,
-          timingConfig
+          timingConfig,
+          forceChargeToHundredPercent
         }).pipe(
           Layer.provideMerge(
             ChargingSessionLive({
@@ -112,6 +120,7 @@ describe("App", () => {
     teslaClientMock.startCharging.mockReturnValue(Effect.void);
     teslaClientMock.stopCharging.mockReturnValue(Effect.void);
     teslaClientMock.setAmpere.mockReturnValue(Effect.void);
+    teslaClientMock.setChargeLimit.mockReturnValue(Effect.void);
     teslaClientMock.wakeUpCar.mockReturnValue(Effect.void);
     teslaClientMock.getChargeState.mockReturnValue(
       Effect.succeed({ batteryLevel: StateOfCharge(50), chargeLimitSoc: StateOfCharge(80), chargeEnergyAdded: KWh(0) })
@@ -491,6 +500,211 @@ describe("App", () => {
 
       yield* Fiber.interrupt(fiber);
     }).pipe(provideAppLayer)
+  );
+
+  it.effect("should end the session gracefully when the vehicle reports charging complete on start", () =>
+    Effect.gen(function* () {
+      // Car battery is full: Tesla rejects charging-start with "complete"
+      // instead of starting a charge.
+      teslaClientMock.startCharging.mockReturnValue(
+        Effect.fail(
+          new VehicleChargeCompleteError({
+            message: "Vehicle rejected charging-start because charging is already complete"
+          })
+        )
+      );
+
+      // Collect events published to the PubSub
+      const receivedEvents: TeslaChargerEvent[] = [];
+      batteryStateManagerMock.start.mockImplementation((pubSub: PubSub.PubSub<TeslaChargerEvent>) =>
+        Effect.gen(function* () {
+          const subscription = yield* PubSub.subscribe(pubSub);
+          return yield* PubSub.take(subscription).pipe(
+            Effect.tap((event) =>
+              Effect.sync(() => {
+                receivedEvents.push(event);
+              })
+            ),
+            Effect.forever
+          );
+        }).pipe(Effect.scoped)
+      );
+
+      const app = yield* App;
+      const fiber = yield* Effect.forkChild(app.start());
+
+      // Pass startup sleep
+      yield* TestClock.adjust(Duration.seconds(1));
+
+      // The first sync cycle hits the VehicleChargeComplete rejection, the
+      // session ends on its own and app.start() must complete successfully.
+      const exit = yield* Fiber.await(fiber);
+      expect(exit._tag).toBe("Success");
+
+      // Allow subscriber fibers to process events
+      yield* TestClock.adjust(Duration.millis(1));
+
+      // The vehicle never charged, so no stop command is needed.
+      expect(teslaClientMock.stopCharging).not.toHaveBeenCalled();
+
+      const sessionEnded = receivedEvents.find((e) => e._tag === "SessionEnded");
+      expect(sessionEnded).toBeDefined();
+    }).pipe(provideAppLayer)
+  );
+
+  it.effect("should complete shutdown even when the vehicle fails to stop charging", () =>
+    Effect.gen(function* () {
+      // The car finished charging on its own while the app still believes it
+      // is charging: every stop attempt is rejected with "not_charging".
+      teslaClientMock.stopCharging.mockReturnValue(
+        Effect.fail(
+          new VehicleCommandFailedError({
+            message: "Command failed. Stderr: car could not execute command: not_charging",
+            stderr: "car could not execute command: not_charging"
+          })
+        )
+      );
+
+      // Battery is at its charge limit: the session completes after the first
+      // cycle, triggering shutdown while the control state is still "Charging".
+      batteryState = {
+        batteryLevel: StateOfCharge(80),
+        chargeLimitSoc: StateOfCharge(80),
+        queriedAtMs: 0
+      };
+
+      chargingSpeedControllerMock.determineChargingSpeed.mockReturnValue(Effect.succeed(Ampere(10)));
+
+      // Collect events published to the PubSub
+      const receivedEvents: TeslaChargerEvent[] = [];
+      batteryStateManagerMock.start.mockImplementation((pubSub: PubSub.PubSub<TeslaChargerEvent>) =>
+        Effect.gen(function* () {
+          const subscription = yield* PubSub.subscribe(pubSub);
+          return yield* PubSub.take(subscription).pipe(
+            Effect.tap((event) =>
+              Effect.sync(() => {
+                receivedEvents.push(event);
+              })
+            ),
+            Effect.forever
+          );
+        }).pipe(Effect.scoped)
+      );
+
+      const app = yield* App;
+      const fiber = yield* Effect.forkChild(app.start());
+
+      // Pass startup sleep
+      yield* TestClock.adjust(Duration.seconds(1));
+
+      // First cycle: start + setAmpere + ramp-up watch (~30s) + sync interval (5s)
+      yield* TestClock.adjust(Duration.seconds(40));
+
+      // Shutdown must succeed (summary recorded, fibers interrupted) even
+      // though the vehicle refuses to stop charging.
+      const exit = yield* Fiber.await(fiber);
+      expect(exit._tag).toBe("Success");
+
+      // Allow subscriber fibers to process events
+      yield* TestClock.adjust(Duration.millis(1));
+
+      expect(teslaClientMock.stopCharging).toHaveBeenCalled();
+
+      const sessionEnded = receivedEvents.find((e) => e._tag === "SessionEnded");
+      expect(sessionEnded).toBeDefined();
+    }).pipe(provideAppLayer)
+  );
+
+  it.effect("should raise the vehicle charge limit to 100% on startup when enabled", () =>
+    Effect.gen(function* () {
+      // Default getChargeState mock reports chargeLimitSoc: 80.
+      const app = yield* App;
+      const fiber = yield* Effect.forkChild(app.start());
+
+      // Pass startup sleep
+      yield* TestClock.adjust(Duration.seconds(1));
+
+      expect(teslaClientMock.setChargeLimit).toHaveBeenCalledTimes(1);
+      expect(teslaClientMock.setChargeLimit).toHaveBeenCalledWith(StateOfCharge(100));
+
+      yield* Fiber.interrupt(fiber);
+    }).pipe((eff) => provideAppLayer(eff, defaultTimingConfig, true))
+  );
+
+  it.effect("should not touch the charge limit when it is already 100%", () =>
+    Effect.gen(function* () {
+      teslaClientMock.getChargeState.mockReturnValue(
+        Effect.succeed({
+          batteryLevel: StateOfCharge(100),
+          chargeLimitSoc: StateOfCharge(100),
+          chargeEnergyAdded: KWh(0)
+        })
+      );
+
+      const app = yield* App;
+      const fiber = yield* Effect.forkChild(app.start());
+
+      // Pass startup sleep
+      yield* TestClock.adjust(Duration.seconds(1));
+
+      expect(teslaClientMock.setChargeLimit).not.toHaveBeenCalled();
+
+      yield* Fiber.interrupt(fiber);
+    }).pipe((eff) => provideAppLayer(eff, defaultTimingConfig, true))
+  );
+
+  it.effect("should skip forcing the charge to 100% when charge state is unavailable at startup", () =>
+    Effect.gen(function* () {
+      teslaClientMock.getChargeState.mockReturnValue(
+        Effect.fail(new ChargeStateQueryFailedError({ message: "vehicle is offline or asleep" }))
+      );
+
+      const app = yield* App;
+      const fiber = yield* Effect.forkChild(app.start());
+
+      // Pass startup sleep
+      yield* TestClock.adjust(Duration.seconds(1));
+
+      // Startup is not derailed by the missing charge state.
+      expect(teslaClientMock.setChargeLimit).not.toHaveBeenCalled();
+      expect(teslaClientMock.startCharging).toHaveBeenCalled();
+
+      yield* Fiber.interrupt(fiber);
+    }).pipe((eff) => provideAppLayer(eff, defaultTimingConfig, true))
+  );
+
+  it.effect("should not force the charge to 100% when disabled", () =>
+    Effect.gen(function* () {
+      const app = yield* App;
+      const fiber = yield* Effect.forkChild(app.start());
+
+      // Pass startup sleep
+      yield* TestClock.adjust(Duration.seconds(1));
+
+      expect(teslaClientMock.setChargeLimit).not.toHaveBeenCalled();
+
+      yield* Fiber.interrupt(fiber);
+    }).pipe(provideAppLayer)
+  );
+
+  it.effect("should shut down at the configured time of day", () =>
+    Effect.gen(function* () {
+      const localNow = DateTime.setZone(yield* DateTime.now, DateTime.zoneMakeLocal());
+      const { hour, minute } = DateTime.toParts(localNow);
+      const shutdownAt = TimeOfDay((hour * 60 + minute + 1) % 1440);
+
+      yield* Effect.gen(function* () {
+        const app = yield* App;
+        const fiber = yield* Effect.forkChild(app.start());
+
+        // Pass startup sleep (1s) and reach the configured shutdown minute.
+        yield* TestClock.adjust(Duration.seconds(1));
+        yield* TestClock.adjust(Duration.minutes(1));
+
+        const exit = yield* Fiber.await(fiber);
+        expect(exit._tag).toBe("Success");
+      }).pipe((effect) => provideAppLayer(effect, { ...defaultTimingConfig, shutdownAt }));
+    })
   );
 
   it.effect("should publish SessionEnded with summary when stop() is called", () =>

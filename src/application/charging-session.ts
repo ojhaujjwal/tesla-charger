@@ -177,8 +177,35 @@ export const ChargingSessionLive = (config: {
                 currentProduction: err.currentProduction
               })
             )
+          ),
+          Effect.catchTag("VehicleChargeComplete", (err) =>
+            Effect.gen(function* () {
+              if (err.batteryLevel !== undefined && err.chargeLimitSoc !== undefined) {
+                if (err.batteryLevel >= err.chargeLimitSoc) {
+                  yield* Effect.logInfo("Vehicle charge limit reached, ending session", {
+                    batteryLevel: err.batteryLevel,
+                    chargeLimitSoc: err.chargeLimitSoc
+                  });
+                } else {
+                  yield* Effect.logWarning(
+                    "Vehicle rejected charging although battery is below its charge limit, ending session",
+                    { batteryLevel: err.batteryLevel, chargeLimitSoc: err.chargeLimitSoc, reason: err.message }
+                  );
+                }
+              } else {
+                yield* Effect.logWarning(
+                  "Vehicle reported charging complete (could not verify via API), ending session",
+                  { reason: err.message }
+                );
+              }
+              return { chargeComplete: true };
+            })
           )
         );
+
+        if ("chargeComplete" in syncResult) {
+          return { state: controlState, stats: sessionStats, outcome: { status: "Completed" as const } };
+        }
 
         yield* Effect.sleep(config.syncIntervalInMs);
 

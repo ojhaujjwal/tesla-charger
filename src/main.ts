@@ -80,26 +80,23 @@ const cli = Command.make(
       "conservative",
       "excess-feed-in-solar",
       "weather-aware"
-    ] as const).pipe(Flag.withAlias("c"), Flag.optional, Flag.withDescription("Charging controller strategy")),
-    maxRuntimeHours: Flag.integer("max-runtime-hours").pipe(
-      Flag.withAlias("t"),
-      Flag.optional,
-      Flag.withDescription("Maximum runtime in hours before auto-shutdown")
-    )
+    ] as const).pipe(Flag.withAlias("c"), Flag.optional, Flag.withDescription("Charging controller strategy"))
   },
   (parsed) => {
     const MainLayer = Layer.unwrap(
       Effect.gen(function* () {
-        const timingConfig: TimingConfig = {
-          ...timingConfigBase,
-          ...(Option.isSome(parsed.maxRuntimeHours) && { maxRuntimeHours: parsed.maxRuntimeHours.value })
-        };
-
         const teslaAppDomain = yield* AppConfig.tesla.appDomain;
         const teslaClientId = yield* AppConfig.tesla.oauth2ClientId;
         const teslaClientSecret = yield* AppConfig.tesla.oauth2ClientSecret;
         const teslaVin = yield* AppConfig.tesla.vin;
         const costPerKwh = yield* AppConfig.cost.perKwh;
+        const shutdownAt = yield* AppConfig.shutdown.at;
+        const forceChargeToHundredPercent = yield* AppConfig.charging.forceChargeToHundredPercent;
+
+        const timingConfig: TimingConfig = {
+          ...timingConfigBase,
+          ...(Option.isSome(shutdownAt) && { shutdownAt: shutdownAt.value })
+        };
 
         const bufferPower = yield* AppConfig.excessSolar.bufferPower;
 
@@ -182,7 +179,8 @@ const cli = Command.make(
         return AppLayer({
           chargingConfig,
           timingConfig,
-          costPerKwh
+          costPerKwh,
+          forceChargeToHundredPercent
         }).pipe(
           Layer.provideMerge(
             ChargingSessionLive({
