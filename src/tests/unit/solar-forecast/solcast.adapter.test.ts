@@ -202,6 +202,68 @@ describe("SolcastForecastAdapter", () => {
       );
     });
 
+    it.effect("should read back a file cache it wrote itself without calling the API", () => {
+      const callTracker = { count: 0 };
+      return withCleanCache(() =>
+        Effect.gen(function* () {
+          yield* TestClock.setTime(DateTime.toEpochMillis(Option.getOrThrow(DateTime.make("2026-02-14T10:00:00Z"))));
+
+          const first = yield* Effect.gen(function* () {
+            const forecast = yield* SolarForecast;
+            return yield* forecast.getForecast();
+          }).pipe(Effect.provide(getTestLayer(makeMockHttpClient(mockSolcastResponse, 200, callTracker))));
+
+          expect(first.periods[0].pv_estimate).toBe(2.5);
+          expect(callTracker.count).toBe(1);
+
+          const fs = yield* FileSystem.FileSystem;
+          const onDisk: { forecasts: Array<{ period: unknown }> } = JSON.parse(
+            yield* fs.readFileString(CACHE_FILE_PATH)
+          );
+          expect(onDisk.forecasts[0].period).toBe("PT30M");
+
+          yield* TestClock.adjust(Duration.minutes(30));
+
+          const freshCallTracker = { count: 0 };
+          const second = yield* Effect.gen(function* () {
+            const forecast = yield* SolarForecast;
+            return yield* forecast.getForecast();
+          }).pipe(Effect.provide(getTestLayer(makeMockHttpClient(differentCacheResponse, 200, freshCallTracker))));
+
+          expect(second.periods).toEqual(first.periods);
+          expect(freshCallTracker.count).toBe(0);
+        })
+      ).pipe(Effect.provide(NodeFileSystem.layer));
+    });
+
+    it.effect("should fall back to a stale file cache written by the adapter when the API fails", () => {
+      const callTracker = { count: 0 };
+      return withCleanCache(() =>
+        Effect.gen(function* () {
+          yield* TestClock.setTime(DateTime.toEpochMillis(Option.getOrThrow(DateTime.make("2026-02-14T10:00:00Z"))));
+
+          const first = yield* Effect.gen(function* () {
+            const forecast = yield* SolarForecast;
+            return yield* forecast.getForecast();
+          }).pipe(Effect.provide(getTestLayer(makeMockHttpClient(mockSolcastResponse, 200, callTracker))));
+
+          expect(first.periods[0].pv_estimate).toBe(2.5);
+
+          // Stale for the memory cache, still within the file cache's maximum age.
+          yield* TestClock.adjust(Duration.hours(2));
+
+          const freshCallTracker = { count: 0 };
+          const second = yield* Effect.gen(function* () {
+            const forecast = yield* SolarForecast;
+            return yield* forecast.getForecast();
+          }).pipe(Effect.provide(getTestLayer(makeMockHttpClient({}, 500, freshCallTracker))));
+
+          expect(second.periods).toEqual(first.periods);
+          expect(freshCallTracker.count).toBe(1);
+        })
+      ).pipe(Effect.provide(NodeFileSystem.layer));
+    });
+
     it.effect("should fall back to file cache if API returns 429 rate limit", () => {
       const fileCacheContent = JSON.stringify({
         fetchedAt: "2026-02-14T08:30:00Z", // 90 min ago (stale memory cache, valid file cache)
