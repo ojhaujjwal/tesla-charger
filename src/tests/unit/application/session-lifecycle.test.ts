@@ -1,8 +1,9 @@
 import { describe, expect, it } from "@effect/vitest";
-import { DateTime, Duration, Effect, Fiber, Ref } from "effect";
+import { Cause, DateTime, Deferred, Duration, Effect, Exit, Fiber, PubSub, Ref } from "effect";
 import * as TestClock from "effect/testing/TestClock";
 import { sleepUntilTimeOfDay } from "../../../application/session-lifecycle.js";
 import { TimeOfDay } from "../../../domain/brands.js";
+import type { TeslaChargerEvent } from "../../../domain/events.js";
 
 const utc = DateTime.zoneMakeOffset(0);
 
@@ -56,6 +57,48 @@ describe("sleepUntilTimeOfDay", () => {
       expect(yield* Ref.get(stopped)).toBe(true);
 
       yield* Fiber.join(fiber);
+    })
+  );
+});
+
+describe("flushPublishedEvents assumptions", () => {
+  it.effect("shutdown drops messages subscribers have not pulled", () =>
+    Effect.gen(function* () {
+      const pubSub = yield* PubSub.unbounded<TeslaChargerEvent>();
+      const subscription = yield* PubSub.subscribe(pubSub);
+
+      yield* PubSub.publish(pubSub, { _tag: "ChargingStarted" });
+      expect(yield* PubSub.size(pubSub)).toBe(1);
+
+      yield* PubSub.shutdown(pubSub);
+
+      const exit = yield* Effect.exit(PubSub.take(subscription));
+      expect(Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)).toBe(true);
+    })
+  );
+
+  it.effect("shutdown leaves a take that already pulled a message to complete", () =>
+    Effect.gen(function* () {
+      const pubSub = yield* PubSub.unbounded<TeslaChargerEvent>();
+      const subscription = yield* PubSub.subscribe(pubSub);
+      const processing = yield* Deferred.make<void>();
+      const received = yield* Ref.make<Array<string>>([]);
+
+      const subscriber = yield* Effect.gen(function* () {
+        const event = yield* PubSub.take(subscription);
+        yield* Deferred.await(processing);
+        yield* Ref.update(received, (events) => [...events, event._tag]);
+        yield* PubSub.take(subscription);
+      }).pipe(Effect.forkChild);
+      yield* Effect.yieldNow;
+
+      yield* PubSub.publish(pubSub, { _tag: "ChargingStarted" });
+      yield* PubSub.shutdown(pubSub);
+      yield* Deferred.succeed(processing, undefined);
+
+      const exit = yield* Fiber.await(subscriber);
+      expect(Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)).toBe(true);
+      expect(yield* Ref.get(received)).toEqual(["ChargingStarted"]);
     })
   );
 });

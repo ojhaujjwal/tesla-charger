@@ -1,6 +1,6 @@
 import { describe, it, vitest, beforeEach, expect } from "@effect/vitest";
 import type { MockedObject } from "@effect/vitest";
-import { DateTime, Effect, Duration, Fiber, Layer, Redacted, PubSub } from "effect";
+import { DateTime, Deferred, Duration, Effect, Fiber, Layer, Redacted, PubSub, Ref } from "effect";
 import * as TestClock from "effect/testing/TestClock";
 import { TeslaClient, type TeslaClientService } from "../../tesla-client/index.js";
 import {
@@ -141,12 +141,12 @@ describe("App", () => {
 
     chargingSpeedControllerMock.determineChargingSpeed.mockReturnValue(Effect.succeed(Ampere(10)));
 
-    // Mock BatteryStateManager.start to return a no-op effect
-    batteryStateManagerMock.start.mockImplementation(() => {
+    // Mock BatteryStateManager.start to subscribe like the real one and wait
+    // until the PubSub shuts down.
+    batteryStateManagerMock.start.mockImplementation((pubSub: PubSub.PubSub<TeslaChargerEvent>) => {
       return Effect.gen(function* () {
-        yield* PubSub.unbounded();
-        // Just wait forever - will be interrupted when app stops
-        return yield* Effect.never;
+        const subscription = yield* PubSub.subscribe(pubSub);
+        return yield* Effect.forever(PubSub.take(subscription));
       }).pipe(Effect.scoped);
     });
   });
@@ -541,9 +541,6 @@ describe("App", () => {
       const exit = yield* Fiber.await(fiber);
       expect(exit._tag).toBe("Success");
 
-      // Allow subscriber fibers to process events
-      yield* TestClock.adjust(Duration.millis(1));
-
       // The vehicle never charged, so no stop command is needed.
       expect(teslaClientMock.stopCharging).not.toHaveBeenCalled();
 
@@ -604,9 +601,6 @@ describe("App", () => {
       // though the vehicle refuses to stop charging.
       const exit = yield* Fiber.await(fiber);
       expect(exit._tag).toBe("Success");
-
-      // Allow subscriber fibers to process events
-      yield* TestClock.adjust(Duration.millis(1));
 
       expect(teslaClientMock.stopCharging).toHaveBeenCalled();
 
@@ -820,9 +814,6 @@ describe("App", () => {
       // Stop the app
       yield* app.stop();
 
-      // Allow subscriber fibers to process events
-      yield* TestClock.adjust(Duration.millis(1));
-
       // Verify SessionEnded event was published with expected summary
       const sessionEnded = receivedEvents.find(
         (e): e is Extract<TeslaChargerEvent, { _tag: "SessionEnded" }> => e._tag === "SessionEnded"
@@ -837,6 +828,150 @@ describe("App", () => {
         ampereFluctuations: 3, // 0->6, 6->10, 10->15 = 3 fluctuations
         gridImportCost: expect.any(Number)
       });
+
+      yield* Fiber.interrupt(fiber);
+    }).pipe(provideAppLayer)
+  );
+
+  it.effect("should interrupt each session fiber exactly once when stopped", () =>
+    Effect.gen(function* () {
+      const tokenRefreshInterrupts = yield* Ref.make(0);
+      teslaClientMock.setupAccessTokenAutoRefreshRecurring.mockReturnValue(
+        Effect.never.pipe(Effect.onInterrupt(() => Ref.update(tokenRefreshInterrupts, (n) => n + 1)))
+      );
+
+      const consumerInterrupts = yield* Ref.make(0);
+      batteryStateManagerMock.start.mockImplementation((pubSub: PubSub.PubSub<TeslaChargerEvent>) =>
+        Effect.gen(function* () {
+          const subscription = yield* PubSub.subscribe(pubSub);
+          return yield* Effect.forever(PubSub.take(subscription));
+        }).pipe(
+          Effect.scoped,
+          Effect.onInterrupt(() => Ref.update(consumerInterrupts, (n) => n + 1))
+        )
+      );
+
+      const app = yield* App;
+      const fiber = yield* Effect.forkChild(app.start());
+      yield* TestClock.adjust(Duration.seconds(1));
+
+      const cyclesBeforeStop = chargingSpeedControllerMock.determineChargingSpeed.mock.calls.length;
+
+      yield* app.stop();
+      yield* app.stop();
+
+      expect(yield* Ref.get(consumerInterrupts)).toBe(1);
+      expect(yield* Ref.get(tokenRefreshInterrupts)).toBe(1);
+
+      // No sync cycle keeps running on the stopped session.
+      yield* TestClock.adjust(Duration.minutes(1));
+      expect(chargingSpeedControllerMock.determineChargingSpeed.mock.calls.length).toBe(cyclesBeforeStop);
+
+      yield* Fiber.interrupt(fiber);
+    }).pipe(provideAppLayer)
+  );
+
+  it.effect("should only shut down once when stop() is called twice", () =>
+    Effect.gen(function* () {
+      const receivedEvents: TeslaChargerEvent[] = [];
+      batteryStateManagerMock.start.mockImplementation((pubSub: PubSub.PubSub<TeslaChargerEvent>) =>
+        Effect.gen(function* () {
+          const subscription = yield* PubSub.subscribe(pubSub);
+          return yield* Effect.forever(
+            PubSub.take(subscription).pipe(Effect.tap((event) => Effect.sync(() => receivedEvents.push(event))))
+          );
+        }).pipe(Effect.scoped)
+      );
+
+      const app = yield* App;
+      const fiber = yield* Effect.forkChild(app.start());
+      yield* TestClock.adjust(Duration.seconds(35));
+      expect(teslaClientMock.startCharging).toHaveBeenCalled();
+
+      yield* app.stop();
+
+      const afterFirstStop = {
+        getChargeState: teslaClientMock.getChargeState.mock.calls.length,
+        stopCharging: teslaClientMock.stopCharging.mock.calls.length,
+        sessionEnded: receivedEvents.filter((event) => event._tag === "SessionEnded").length
+      };
+      expect(afterFirstStop.sessionEnded).toBe(1);
+
+      yield* app.stop();
+
+      expect(teslaClientMock.getChargeState.mock.calls.length).toBe(afterFirstStop.getChargeState);
+      expect(teslaClientMock.stopCharging.mock.calls.length).toBe(afterFirstStop.stopCharging);
+      expect(receivedEvents.filter((event) => event._tag === "SessionEnded")).toHaveLength(1);
+
+      yield* Fiber.interrupt(fiber);
+    }).pipe(provideAppLayer)
+  );
+
+  it.effect("should drain SessionEnded to subscribers before stop() returns", () =>
+    Effect.gen(function* () {
+      const receivedEvents: TeslaChargerEvent[] = [];
+      batteryStateManagerMock.start.mockImplementation((pubSub: PubSub.PubSub<TeslaChargerEvent>) =>
+        Effect.gen(function* () {
+          const subscription = yield* PubSub.subscribe(pubSub);
+          return yield* Effect.forever(
+            PubSub.take(subscription).pipe(
+              Effect.flatMap((event) => Effect.yieldNow.pipe(Effect.as(event))),
+              Effect.tap((event) => Effect.sync(() => receivedEvents.push(event)))
+            )
+          );
+        }).pipe(Effect.scoped)
+      );
+
+      const app = yield* App;
+      const fiber = yield* Effect.forkChild(app.start());
+      yield* TestClock.adjust(Duration.seconds(1));
+
+      yield* app.stop();
+
+      expect(receivedEvents.map((event) => event._tag)).toContain("SessionEnded");
+
+      yield* Fiber.interrupt(fiber);
+    }).pipe(provideAppLayer)
+  );
+
+  it.effect("should flush SessionEnded published while a subscriber is busy", () =>
+    Effect.gen(function* () {
+      // No charging events before shutdown: SessionEnded is the only published event.
+      chargingSpeedControllerMock.determineChargingSpeed.mockReturnValue(Effect.succeed(Ampere(0)));
+
+      const receivedEvents: TeslaChargerEvent[] = [];
+      const gate = yield* Deferred.make<void>();
+      const pubSubReady = yield* Deferred.make<PubSub.PubSub<TeslaChargerEvent>>();
+
+      batteryStateManagerMock.start.mockImplementation((pubSub: PubSub.PubSub<TeslaChargerEvent>) => {
+        return Effect.gen(function* () {
+          yield* Deferred.succeed(pubSubReady, pubSub);
+          const subscription = yield* PubSub.subscribe(pubSub);
+          yield* Deferred.await(gate);
+          return yield* Effect.forever(
+            PubSub.take(subscription).pipe(Effect.tap((event) => Effect.sync(() => receivedEvents.push(event))))
+          );
+        }).pipe(Effect.scoped);
+      });
+
+      const app = yield* App;
+      const fiber = yield* Effect.forkChild(app.start());
+      yield* TestClock.adjust(Duration.seconds(1));
+      yield* Effect.yieldNow;
+
+      const pubSub = yield* Deferred.await(pubSubReady);
+      const stopFiber = yield* Effect.forkChild(app.stop());
+      let buffered = yield* PubSub.size(pubSub);
+      while (buffered === 0) {
+        yield* Effect.yieldNow;
+        buffered = yield* PubSub.size(pubSub);
+      }
+      expect(buffered).toBe(1);
+
+      yield* Deferred.succeed(gate, undefined);
+      yield* Fiber.join(stopFiber);
+
+      expect(receivedEvents.map((event) => event._tag)).toEqual(["SessionEnded"]);
 
       yield* Fiber.interrupt(fiber);
     }).pipe(provideAppLayer)
