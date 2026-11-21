@@ -4,7 +4,7 @@ Run `effect-solutions show testing` to get all testing guides.
 
 ## Replacing `beforeEach` / `afterEach`
 
-Use `it.scoped()` and `Effect.addFinalizer()` to manage per-test setup and teardown. Each test gets its own scope, and finalizers run automatically when the test ends.
+Use `it.effect()` and `Effect.addFinalizer()` to manage per-test setup and teardown. `it.effect` already runs the test inside `Effect.scoped` with `TestEnv` provided, so a finalizer registered inside the test runs automatically when it ends.
 
 ```ts
 import { it } from "@effect/vitest";
@@ -25,7 +25,7 @@ const withTestDir = <A, E, R>(f: (tmpDir: string) => Effect.Effect<A, E, R>) =>
     return yield* f(tmpDir);
   });
 
-it.scoped("uses isolated temp directory", () =>
+it.effect("uses isolated temp directory", () =>
   withTestDir((tmpDir) =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
