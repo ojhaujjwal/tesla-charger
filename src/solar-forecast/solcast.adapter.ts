@@ -44,7 +44,13 @@ const SolarForecastPeriodSchema = Schema.Struct({
           onSome: (duration) => Effect.succeed(duration)
         })
       ),
-      encode: SchemaGetter.forbidden(() => "encoding is not supported")
+      encode: SchemaGetter.transformEffect((duration: Duration.Duration) =>
+        Option.match(Duration.formatIso(duration), {
+          onNone: () =>
+            Effect.fail(new SchemaIssue.InvalidValue({ message: "Cannot encode an infinite duration as ISO 8601" })),
+          onSome: (iso) => Effect.succeed(iso)
+        })
+      )
     })
   )
 });
@@ -153,7 +159,10 @@ export const SolcastForecastLayer = (
             fetchedAt: DateTime.formatIso(yield* DateTime.now),
             forecasts: parsed.forecasts
           };
-          yield* fileSystem.writeFileString(CACHE_FILE_PATH, JSON.stringify(fileCache));
+          yield* fileSystem.writeFileString(
+            CACHE_FILE_PATH,
+            yield* Schema.encodeEffect(Schema.fromJsonString(FileCacheSchema))(fileCache)
+          );
 
           return result;
         },
