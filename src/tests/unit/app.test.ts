@@ -1,5 +1,5 @@
 import { describe, it, expect } from "@effect/vitest";
-import { DateTime, Deferred, Duration, Effect, Fiber, Layer, PubSub, Ref } from "effect";
+import { Cause, DateTime, Deferred, Duration, Effect, Exit, Fiber, Layer, Option, PubSub, Ref } from "effect";
 import * as TestClock from "effect/testing/TestClock";
 import { TeslaClient } from "../../tesla-client/index.js";
 import {
@@ -8,7 +8,8 @@ import {
   VehicleCommandFailedError,
   VehicleChargeCompleteError
 } from "../../tesla-client/errors.js";
-import type { ChargingConfig } from "../../domain/charging-session.js";
+import { ChargingSession, type ChargingConfig } from "../../domain/charging-session.js";
+import { GridImportExhaustedError } from "../../errors/grid-import-exhausted.error.js";
 import { App, AppLayer, type TimingConfig } from "../../app.js";
 import { AppRuntime } from "../../app-runtime.js";
 import { BatteryStateManager } from "../../battery-state-manager.js";
@@ -56,6 +57,7 @@ describe("App", () => {
       latestValues?: ReadonlyArray<DataAdapterResponse>;
       chargingSpeeds?: ReadonlyArray<Ampere>;
       batteryStateManager?: Layer.Layer<BatteryStateManager>;
+      chargingSession?: Layer.Layer<ChargingSession>;
     } = {}
   ) => {
     const timingConfig = options.timingConfig ?? defaultTimingConfig;
@@ -63,22 +65,23 @@ describe("App", () => {
     const dataAdapter = makeDataAdapterTest({ latestValues: options.latestValues ?? [defaultDataValues] });
     const chargingSpeedController = makeChargingSpeedControllerTest(options.chargingSpeeds ?? [Ampere(10)]);
     const batteryStateManager = makeBatteryStateManagerTest();
+    const chargingSession =
+      options.chargingSession ??
+      ChargingSessionLive({
+        chargingConfig: defaultChargingConfig,
+        watchCadenceInSeconds: 4,
+        syncIntervalInMs: timingConfig.syncIntervalInMs,
+        vehicleAwakeningTimeInMs: timingConfig.vehicleAwakeningTimeInMs,
+        asleepRetryCount: 2,
+        abruptRetryCount: 10
+      });
 
     const layer = AppLayer({
       chargingConfig: defaultChargingConfig,
       timingConfig,
       forceChargeToHundredPercent: options.forceChargeToHundredPercent ?? false
     }).pipe(
-      Layer.provideMerge(
-        ChargingSessionLive({
-          chargingConfig: defaultChargingConfig,
-          watchCadenceInSeconds: 4,
-          syncIntervalInMs: timingConfig.syncIntervalInMs,
-          vehicleAwakeningTimeInMs: timingConfig.vehicleAwakeningTimeInMs,
-          asleepRetryCount: 2,
-          abruptRetryCount: 10
-        })
-      ),
+      Layer.provideMerge(chargingSession),
       Layer.provideMerge(TestElectricVehicle),
       Layer.provideMerge(TeslaChargerEventPubSub.layer),
       Layer.provideMerge(AppRuntime.layer),
@@ -353,6 +356,37 @@ describe("App", () => {
     }).pipe(Effect.provide(env.layer));
   });
 
+  it.effect("should end as a typed GridImportExhausted failure with the session summary published", () => {
+    const env = makeAppTest({
+      // The ramp-up watch cannot surface its abort through `Effect.race`, so
+      // inject the terminal condition at the sync-cycle seam.
+      chargingSession: Layer.succeed(
+        ChargingSession,
+        ChargingSession.of({
+          runCycle: () =>
+            Effect.fail(new GridImportExhaustedError({ initialProduction: 5000, currentProduction: 1000 }))
+        })
+      )
+    });
+
+    return Effect.gen(function* () {
+      const { fiber } = yield* startApp;
+      yield* TestClock.adjust(Duration.seconds(1));
+
+      const exit = yield* Fiber.await(fiber);
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        expect(Cause.hasDies(exit.cause)).toBe(false);
+        const failure = Cause.findErrorOption(exit.cause);
+        expect(Option.isSome(failure) && failure.value._tag).toBe("GridImportExhausted");
+      }
+
+      // The subscriber was alive when the summary was published: a defect that
+      // closes the session scope first would leave this empty.
+      expect(env.batteryStateManager.events.map((event) => event._tag)).toContain("SessionEnded");
+    }).pipe(Effect.provide(env.layer));
+  });
+
   it.effect("should complete shutdown even when the vehicle fails to stop charging", () => {
     const env = makeAppTest();
     // The car finished charging on its own while the app still believes it
@@ -549,6 +583,30 @@ describe("App", () => {
         ampereFluctuations: 3, // 0->6, 6->10, 10->15 = 3 fluctuations
         gridImportCost: expect.any(Number)
       });
+    }).pipe(Effect.provide(env.layer));
+  });
+
+  it.effect("should stop charging when interrupted during ramp-up before the cycle commits", () => {
+    const env = makeAppTest({ chargingSpeeds: [Ampere(10)] });
+
+    return Effect.gen(function* () {
+      const { fiber } = yield* startApp;
+
+      // Pass startup sleep, then sit in the ~30s ramp-up watch. The cycle has
+      // already issued startCharging/setAmpere but has not committed controlRef.
+      yield* TestClock.adjust(Duration.seconds(1));
+      yield* TestClock.adjust(Duration.seconds(5));
+      expect(env.tesla.startCharging).toHaveBeenCalledTimes(1);
+      expect(env.tesla.setAmpere).toHaveBeenCalledWith(Ampere(10));
+      expect(env.tesla.stopCharging).not.toHaveBeenCalled();
+
+      yield* Fiber.interrupt(fiber);
+
+      expect(env.tesla.stopCharging).toHaveBeenCalled();
+      expect(env.tesla.stopCharging.mock.invocationCallOrder[0]).toBeGreaterThan(
+        env.tesla.setAmpere.mock.invocationCallOrder[0]
+      );
+      expect(env.batteryStateManager.events.map((event) => event._tag)).toContain("SessionEnded");
     }).pipe(Effect.provide(env.layer));
   });
 
