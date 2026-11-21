@@ -151,6 +151,25 @@ describe("SolcastForecastAdapter", () => {
       ).pipe(Effect.provide(getTestLayer(makeMockHttpClient(mockSolcastResponse, 200, callTracker))));
     });
 
+    it.effect("should refetch from the API when the memory cache expires", () => {
+      const callTracker = { count: 0 };
+      return withCleanCache(() =>
+        Effect.gen(function* () {
+          yield* TestClock.setTime(DateTime.toEpochMillis(Option.getOrThrow(DateTime.make("2026-02-14T10:00:00Z"))));
+
+          const forecast = yield* SolarForecast;
+          yield* forecast.getForecast();
+          expect(callTracker.count).toBe(1);
+
+          yield* TestClock.adjust(Duration.minutes(61));
+
+          const result = yield* forecast.getForecast();
+          expect(result.periods).toHaveLength(3);
+          expect(callTracker.count).toBe(2);
+        })
+      ).pipe(Effect.provide(getTestLayer(makeMockHttpClient(mockSolcastResponse, 200, callTracker))));
+    });
+
     it.effect("should return file cache on startup if age < 60 minutes and not call API", () => {
       const fileCacheContent = JSON.stringify({
         fetchedAt: "2026-02-14T09:30:00Z", // Fresh cache (30 min before clock)
