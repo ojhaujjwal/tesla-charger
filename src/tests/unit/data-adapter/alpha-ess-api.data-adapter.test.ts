@@ -1,9 +1,6 @@
-import { Cause, Effect, Option, Exit, Layer, Redacted, ConfigProvider } from "effect";
-import {
-  AlphaEssCloudApiDataAdapter,
-  AlphaEssCloudApiDataAdapterLayer,
-  type AlphaEssConfig
-} from "../../../data-adapter/alpha-ess-api.data-adapter.js";
+import { Cause, ConfigProvider, Effect, Option, Exit, Layer } from "effect";
+import * as TestClock from "effect/testing/TestClock";
+import { AlphaEssCloudApiDataAdapterLayer } from "../../../data-adapter/alpha-ess-api.data-adapter.js";
 import { DataAdapter, DataNotAvailableError, SourceNotAvailableError } from "../../../data-adapter/types.js";
 import { HttpClient, HttpClientRequest, HttpClientResponse, HttpClientError } from "effect/http";
 import { tracerLayer, toJsonSpan, type TraceSpanJson } from "../../../tracing/tracer.js";
@@ -20,6 +17,30 @@ const mockResponse = (req: HttpClientRequest.HttpClientRequest, body: string): H
 const makeMockHttpClient = (responseJson: unknown): HttpClient.HttpClient =>
   HttpClient.make((req) => Effect.succeed(mockResponse(req, JSON.stringify(responseJson))));
 
+const powerData = (overrides: Record<string, unknown> = {}) => ({
+  ppv: 0,
+  ppvDetail: { ppv1: 0, ppv2: 0, ppv3: 0, ppv4: 0, pmeterDc: 0 },
+  soc: 0,
+  pev: 0,
+  pevDetail: { ev1Power: null, ev2Power: null, ev3Power: null, ev4Power: null },
+  prealL1: 0,
+  prealL2: 0,
+  prealL3: 0,
+  pbat: 0,
+  pgrid: 0,
+  pload: 0,
+  pgridDetail: { pmeterL1: 0, pmeterL2: 0, pmeterL3: 0 },
+  ...overrides
+});
+
+const okResponse = {
+  code: 200,
+  msg: "Success",
+  expMsg: null,
+  data: powerData(),
+  extra: null
+};
+
 const TestConfigLayer = ConfigProvider.layer(
   ConfigProvider.fromUnknown({
     ALPHA_ESS_API_APP_ID: "asdfasdf",
@@ -29,54 +50,71 @@ const TestConfigLayer = ConfigProvider.layer(
   })
 );
 
+const adapterLayer = (httpClient: HttpClient.HttpClient, configLayer: Layer.Layer<never> = TestConfigLayer) =>
+  AlphaEssCloudApiDataAdapterLayer.pipe(
+    Layer.provide(Layer.succeed(HttpClient.HttpClient, httpClient)),
+    Layer.provide(configLayer)
+  );
+
+const queryLatestValues = (httpClient: HttpClient.HttpClient, configLayer: Layer.Layer<never> = TestConfigLayer) =>
+  Effect.gen(function* () {
+    const adapter = yield* DataAdapter;
+    return yield* adapter.queryLatestValues(["current_production"]);
+  }).pipe(Effect.provide(adapterLayer(httpClient, configLayer)));
+
 describe("AlphaEssCloudApiDataAdapter", () => {
-  const mockConfig: AlphaEssConfig = {
-    appId: Redacted.make("test-app-id"),
-    appSecret: Redacted.make("test-app-secret"),
-    sysSn: "test-sys-sn",
-    baseUrl: "https://test.alphaess.com"
-  };
+  it.effect(
+    "should apply the tracer header filter and redact the sign and appId request headers in captured spans",
+    () =>
+      Effect.gen(function* () {
+        yield* TestClock.setTime(1_700_000_000_000);
 
-  it.effect("should redact the sign and appId request headers in captured trace spans", () =>
+        const spans: Array<TraceSpanJson> = [];
+
+        yield* queryLatestValues(makeMockHttpClient(okResponse)).pipe(
+          Effect.provide(
+            tracerLayer({
+              minimumTraceLevel: "All",
+              onSpan: (span) => spans.push(toJsonSpan(span))
+            })
+          )
+        );
+
+        const httpSpan = spans.find((span) => span.name === "GET");
+        expect(httpSpan).toBeDefined();
+        expect(httpSpan?.attributes["http.request.header.sign"]).toBe("<redacted>");
+        expect(httpSpan?.attributes["http.request.header.appid"]).toBe("<redacted>");
+        expect(httpSpan?.attributes["http.request.header.timestamp"]).toBe("1700000000");
+      })
+  );
+
+  it.effect("should sign requests with the lowercase sha512 hex of appId + appSecret + timestamp", () =>
     Effect.gen(function* () {
-      const spans: Array<TraceSpanJson> = [];
-      const adapter = new AlphaEssCloudApiDataAdapter(
-        mockConfig,
-        makeMockHttpClient({
-          code: 200,
-          msg: "Success",
-          expMsg: null,
-          data: {
-            ppv: 0,
-            ppvDetail: { ppv1: 0, ppv2: 0, ppv3: 0, ppv4: 0, pmeterDc: 0 },
-            soc: 0,
-            pev: 0,
-            pevDetail: { ev1Power: null, ev2Power: null, ev3Power: null, ev4Power: null },
-            prealL1: 0,
-            prealL2: 0,
-            prealL3: 0,
-            pbat: 0,
-            pgrid: 0,
-            pload: 0,
-            pgridDetail: { pmeterL1: 0, pmeterL2: 0, pmeterL3: 0 }
-          },
-          extra: null
-        })
-      );
+      yield* TestClock.setTime(1_700_000_000_999);
 
-      yield* adapter.queryLatestValues(["current_production"]).pipe(
-        Effect.provide(
-          tracerLayer({
-            minimumTraceLevel: "All",
-            onSpan: (span) => spans.push(toJsonSpan(span))
+      let request: HttpClientRequest.HttpClientRequest | undefined;
+      const httpClient = HttpClient.make((req) => {
+        request = req;
+        return Effect.succeed(mockResponse(req, JSON.stringify(okResponse)));
+      });
+
+      yield* queryLatestValues(
+        httpClient,
+        ConfigProvider.layer(
+          ConfigProvider.fromUnknown({
+            ALPHA_ESS_API_APP_ID: "known-app-id",
+            ALPHA_ESS_API_APP_SECRET: "known-app-secret",
+            ALPHA_ESS_API_SYS_SN: "test-sys-sn",
+            ALPHA_ESS_API_BASE_URL: "https://test.alphaess.com"
           })
         )
       );
 
-      const httpSpan = spans.find((span) => span.name === "GET");
-      expect(httpSpan).toBeDefined();
-      expect(httpSpan?.attributes["http.request.header.sign"]).toBe("<redacted>");
-      expect(httpSpan?.attributes["http.request.header.appid"]).toBe("<redacted>");
+      expect(request?.headers["timestamp"]).toBe("1700000000");
+      // Pinned sha512("known-app-id" + "known-app-secret" + "1700000000"), as produced by the previous node:crypto implementation.
+      expect(request?.headers["sign"]).toBe(
+        "54381952de4476acdfa60c5b513dbe45475eb1e2415fbd19eb6afe040808640d2e75d04a998553ac757ecf498df7e48e62f562c834e9cd03a711c3554fb22dad"
+      );
     })
   );
 
@@ -223,11 +261,7 @@ describe("AlphaEssCloudApiDataAdapter", () => {
         extra: null
       };
 
-      const mockHttpClient = makeMockHttpClient(errorResponse);
-
-      const adapter = new AlphaEssCloudApiDataAdapter(mockConfig, mockHttpClient);
-
-      const result = yield* Effect.exit(adapter.queryLatestValues(["current_production"]));
+      const result = yield* Effect.exit(queryLatestValues(makeMockHttpClient(errorResponse)));
       const resultErr = Exit.match(result, {
         onSuccess: () => {
           throw new Error("Expected failure");
@@ -248,11 +282,7 @@ describe("AlphaEssCloudApiDataAdapter", () => {
         extra: null
       };
 
-      const mockHttpClient = makeMockHttpClient(invalidResponse);
-
-      const adapter = new AlphaEssCloudApiDataAdapter(mockConfig, mockHttpClient);
-
-      const result = yield* Effect.exit(adapter.queryLatestValues(["current_production"]));
+      const result = yield* Effect.exit(queryLatestValues(makeMockHttpClient(invalidResponse)));
 
       if (Exit.isFailure(result)) {
         expect(Cause.hasDies(result.cause)).toBe(true);
@@ -277,9 +307,7 @@ describe("AlphaEssCloudApiDataAdapter", () => {
         );
       });
 
-      const adapter = new AlphaEssCloudApiDataAdapter(mockConfig, failingHttpClient);
-
-      const result = yield* Effect.exit(adapter.queryLatestValues(["current_production"]));
+      const result = yield* Effect.exit(queryLatestValues(failingHttpClient));
 
       const resultErr = Exit.match(result, {
         onSuccess: () => {
@@ -307,9 +335,7 @@ describe("AlphaEssCloudApiDataAdapter", () => {
         );
       });
 
-      const adapter = new AlphaEssCloudApiDataAdapter(mockConfig, failingHttpClient);
-
-      const result = yield* Effect.exit(adapter.queryLatestValues(["current_production"]));
+      const result = yield* Effect.exit(queryLatestValues(failingHttpClient));
       const resultErr = Exit.match(result, {
         onSuccess: () => {
           throw new Error("Expected failure");
@@ -331,9 +357,7 @@ describe("AlphaEssCloudApiDataAdapter", () => {
         );
       });
 
-      const adapter = new AlphaEssCloudApiDataAdapter(mockConfig, failingHttpClient);
-
-      const result = yield* Effect.exit(adapter.queryLatestValues(["current_production"]));
+      const result = yield* Effect.exit(queryLatestValues(failingHttpClient));
       const resultErr = Exit.match(result, {
         onSuccess: () => {
           throw new Error("Expected failure");
@@ -347,11 +371,9 @@ describe("AlphaEssCloudApiDataAdapter", () => {
 
   it.effect("should fail with DataNotAvailableError when calling getLowestValueInLastXMinutes", () =>
     Effect.gen(function* () {
-      const mockHttpClient = makeMockHttpClient({});
+      const adapter = yield* DataAdapter;
 
-      const adapter = new AlphaEssCloudApiDataAdapter(mockConfig, mockHttpClient);
-
-      const result = yield* Effect.exit(adapter.getLowestValueInLastXMinutes());
+      const result = yield* Effect.exit(adapter.getLowestValueInLastXMinutes("current_production", 10));
       const resultErr = Exit.match(result, {
         onSuccess: () => {
           throw new Error("Expected failure");
@@ -359,6 +381,6 @@ describe("AlphaEssCloudApiDataAdapter", () => {
         onFailure: (cause) => Option.getOrThrow(Cause.findErrorOption(cause))
       });
       expect(resultErr).toBeInstanceOf(DataNotAvailableError);
-    })
+    }).pipe(Effect.provide(adapterLayer(makeMockHttpClient({}))))
   );
 });

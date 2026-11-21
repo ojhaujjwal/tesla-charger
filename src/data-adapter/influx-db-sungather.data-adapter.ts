@@ -1,8 +1,9 @@
 import { Duration, Effect, Layer, Redacted, Schema } from "effect";
-import type { Redacted as RedactedType } from "effect/Redacted";
-import { HttpClient, HttpBody } from "effect/http";
-import { type IDataAdapter, type Field, DataNotAvailableError, SourceNotAvailableError, DataAdapter } from "./types.js";
+import { HttpBody, HttpClient } from "effect/http";
 import { AppConfig } from "../config.js";
+import { DataAdapter, DataNotAvailableError, SourceNotAvailableError, type Field } from "./types.js";
+
+const TIMEOUT_MS = 10_000;
 
 export const InfluxFieldSchema = Schema.Union([
   Schema.Literal("phase_a_voltage"),
@@ -57,133 +58,113 @@ const parseCsv = Effect.fn("parseCsv")(function* <F extends Field>(rows: string[
   return result;
 });
 
-export class SunGatherInfluxDbDataAdapter implements IDataAdapter {
-  private readonly TIMEOUT_MS = 10_000;
+export const SunGatherInfluxDbDataAdapterLayer = Layer.effect(
+  DataAdapter,
+  Effect.gen(function* () {
+    const influxUrl = yield* AppConfig.influx.url;
+    const influxToken = yield* AppConfig.influx.token;
+    const org = yield* AppConfig.influx.org;
+    const bucket = yield* AppConfig.influx.bucket;
+    const httpClient = yield* HttpClient.HttpClient;
 
-  constructor(
-    private influxUrl: string,
-    private influxToken: RedactedType<string>,
-    private org: string,
-    private bucket: string,
-    private httpClient: HttpClient.HttpClient
-  ) {}
+    const queryLatestValues = Effect.fn("queryLatestValues")(
+      function* <F extends Field>(fields: F[]) {
+        const url = `${influxUrl}/api/v2/query?org=${org}&pretty=true`;
 
-  public queryLatestValues<F extends Field>(
-    fields: F[]
-  ): Effect.Effect<Record<F, number>, DataNotAvailableError | SourceNotAvailableError> {
-    const url = `${this.influxUrl}/api/v2/query?org=${this.org}&pretty=true`;
-    const influxToken = this.influxToken;
+        const filterExpression = fields
+          .map((field) => fieldMap[field] ?? field)
+          .map((field) => `r._field == "${field}"`)
+          .join(" or ");
 
-    const filterExpression = fields
-      .map((field) => fieldMap[field] ?? field)
-      .map((field) => `r._field == "${field}"`)
-      .join(" or ");
-
-    const body = `
-      from(bucket: "${this.bucket}")
+        const body = `
+      from(bucket: "${bucket}")
             |> range(start: -1h)
             |> filter(fn: (r) => ${filterExpression})
             |> last()
     `;
 
-    const client = this.httpClient;
+        const response = yield* httpClient.post(url, {
+          headers: {
+            "Content-Type": "application/vnd.flux",
+            Accept: "application/csv",
+            Authorization: `Token ${Redacted.value(influxToken)}`
+          },
+          body: HttpBody.raw(body)
+        });
 
-    return Effect.gen({ self: this }, function* () {
-      const response = yield* client.post(url, {
-        headers: {
-          "Content-Type": "application/vnd.flux",
-          Accept: "application/csv",
-          Authorization: `Token ${Redacted.value(influxToken)}`
-        },
-        body: HttpBody.raw(body)
-      });
+        const lines = (yield* response.text).trim().split("\n");
 
-      const lines = (yield* response.text).trim().split("\n");
-
-      if (lines.length < 2) {
-        yield* Effect.logWarning("No data found in latest value query");
-        return yield* new DataNotAvailableError();
-      }
-
-      const result = yield* parseCsv(lines, fields);
-
-      const mappedResult: Record<string, number> = {};
-      for (const field of fields) {
-        const mappedField = fieldMap[field] ?? field;
-        if (!(mappedField in result)) {
-          yield* Effect.logError(`No data found for field ${field}`);
+        if (lines.length < 2) {
+          yield* Effect.logWarning("No data found in latest value query");
           return yield* new DataNotAvailableError();
         }
-        mappedResult[field] = result[mappedField];
-      }
 
-      if (!isFieldRecord(mappedResult, fields)) {
-        return yield* Effect.die(new Error("Failed to build mapped result"));
-      }
+        const result = yield* parseCsv(lines, fields);
 
-      return mappedResult;
-    }).pipe(
-      Effect.timeout(Duration.millis(this.TIMEOUT_MS)),
+        const mappedResult: Record<string, number> = {};
+        for (const field of fields) {
+          const mappedField = fieldMap[field] ?? field;
+          if (!(mappedField in result)) {
+            yield* Effect.logError(`No data found for field ${field}`);
+            return yield* new DataNotAvailableError();
+          }
+          mappedResult[field] = result[mappedField];
+        }
+
+        if (!isFieldRecord(mappedResult, fields)) {
+          return yield* Effect.die(new Error("Failed to build mapped result"));
+        }
+
+        return mappedResult;
+      },
+      Effect.timeout(Duration.millis(TIMEOUT_MS)),
       Effect.retry({ times: 2, while: (err) => err._tag === "TimeoutError" }),
       Effect.catchTag("TimeoutError", () => Effect.fail(new SourceNotAvailableError())),
-      Effect.catchTag("HttpClientError", () => Effect.fail(new SourceNotAvailableError())),
-      Effect.withSpan("queryLatestValues")
+      Effect.catchTag("HttpClientError", () => Effect.fail(new SourceNotAvailableError()))
     );
-  }
 
-  getLowestValueInLastXMinutes(field: Field, minutes: number) {
-    const mappedField = fieldMap[field] ?? field;
+    const getLowestValueInLastXMinutes = Effect.fn("getLowestValueInLastXMinutes")(
+      function* (field: Field, minutes: number) {
+        const mappedField = fieldMap[field] ?? field;
 
-    const client = this.httpClient;
-
-    return Effect.gen({ self: this }, function* () {
-      const response = yield* client.post(`${this.influxUrl}/api/v2/query?org=${this.org}&pretty=true`, {
-        headers: {
-          "Content-Type": "application/vnd.flux",
-          Accept: "application/csv",
-          Authorization: `Token ${Redacted.value(this.influxToken)}`
-        },
-        body: HttpBody.raw(`
-              from(bucket: "${this.bucket}")
+        const response = yield* httpClient.post(`${influxUrl}/api/v2/query?org=${org}&pretty=true`, {
+          headers: {
+            "Content-Type": "application/vnd.flux",
+            Accept: "application/csv",
+            Authorization: `Token ${Redacted.value(influxToken)}`
+          },
+          body: HttpBody.raw(`
+              from(bucket: "${bucket}")
                 |> range(start: -${minutes}m)
                 |> filter(fn: (r) => r._field == "${mappedField}")
                 |> min()
             `)
-      });
+        });
 
-      const lines = (yield* response.text).trim().split("\n");
+        const lines = (yield* response.text).trim().split("\n");
 
-      if (lines.length < 2) {
-        yield* Effect.logWarning("No data found in last x minutes");
-        return yield* new DataNotAvailableError();
-      }
+        if (lines.length < 2) {
+          yield* Effect.logWarning("No data found in last x minutes");
+          return yield* new DataNotAvailableError();
+        }
 
-      const result = yield* parseCsv(lines, [field]);
+        const result = yield* parseCsv(lines, [field]);
 
-      if (!(mappedField in result)) {
-        return yield* new DataNotAvailableError();
-      }
+        if (!(mappedField in result)) {
+          return yield* new DataNotAvailableError();
+        }
 
-      return result[mappedField];
-    }).pipe(
-      Effect.timeout(Duration.millis(this.TIMEOUT_MS)),
+        return result[mappedField];
+      },
+      Effect.timeout(Duration.millis(TIMEOUT_MS)),
       Effect.retry({ times: 2, while: (err) => err._tag === "TimeoutError" }),
       Effect.catchTag("TimeoutError", () => Effect.fail(new SourceNotAvailableError())),
-      Effect.catchTag("HttpClientError", () => Effect.fail(new SourceNotAvailableError())),
-      Effect.withSpan("getLowestValueInLastXMinutes")
+      Effect.catchTag("HttpClientError", () => Effect.fail(new SourceNotAvailableError()))
     );
-  }
-}
 
-export const SunGatherInfluxDbDataAdapterLayer = Layer.effect(
-  DataAdapter,
-  Effect.gen(function* () {
-    return new SunGatherInfluxDbDataAdapter(
-      yield* AppConfig.influx.url,
-      yield* AppConfig.influx.token,
-      yield* AppConfig.influx.org,
-      yield* AppConfig.influx.bucket,
-      yield* HttpClient.HttpClient
-    );
+    return DataAdapter.of({
+      queryLatestValues,
+      getLowestValueInLastXMinutes
+    });
   }).pipe(Effect.withSpan("SunGatherInfluxDbDataAdapterLayer"))
 );
