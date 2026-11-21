@@ -113,6 +113,7 @@ const makeTestLayer = (
   overrides: {
     httpClient?: HttpClient.HttpClient;
     commandExecutor?: ChildProcessSpawner.ChildProcessSpawner["Service"];
+    fileSystem?: Layer.Layer<FileSystem.FileSystem>;
   }
 ) =>
   TeslaClientLayer({
@@ -130,7 +131,7 @@ const makeTestLayer = (
         overrides.commandExecutor ?? makeMockChildProcessSpawner([{ exitCode: 0, stderr: "" }])
       )
     ),
-    Layer.provideMerge(NodeFileSystem.layer)
+    Layer.provideMerge(overrides.fileSystem ?? NodeFileSystem.layer)
   );
 
 const withTestDir = <A, E, R>(f: (tmpDir: string) => Effect.Effect<A, E, R>) =>
@@ -431,6 +432,48 @@ describe("TeslaClient", () => {
   });
 
   describe("setupAccessTokenAutoRefreshRecurring", () => {
+    it.effect("should refresh the access token on every interval", () => {
+      let callCount = 0;
+      const httpClient = HttpClient.make((req) => {
+        callCount++;
+        return Effect.succeed(
+          HttpClientResponse.fromWeb(
+            req,
+            new Response(validTokenJson, { status: 200, headers: { "Content-Type": "application/json" } })
+          )
+        );
+      });
+      const cachedTokenFile = JSON.stringify({
+        access_token: "existing-access-token",
+        refresh_token: "existing-refresh-token"
+      });
+
+      return Effect.gen(function* () {
+        const client = yield* TeslaClient;
+        const fiber = yield* Effect.forkChild(client.setupAccessTokenAutoRefreshRecurring(60));
+        // Let the immediate first refresh run and register its sleep.
+        yield* Effect.yieldNow;
+
+        // Two intervals after the immediate first refresh: a genuinely
+        // recurring schedule must have refreshed three times in total.
+        yield* TestClock.adjust(Duration.seconds(60));
+        yield* TestClock.adjust(Duration.seconds(60));
+
+        expect(callCount).toBeGreaterThanOrEqual(3);
+        yield* Fiber.interrupt(fiber);
+      }).pipe(
+        Effect.provide(
+          makeTestLayer("/tmp/tesla-client-test", {
+            httpClient,
+            fileSystem: FileSystem.layerNoop({
+              readFileString: () => Effect.succeed(cachedTokenFile),
+              writeFileString: () => Effect.void
+            })
+          })
+        )
+      );
+    });
+
     it.live(
       "should set up recurring access token refresh successfully",
       () => {
