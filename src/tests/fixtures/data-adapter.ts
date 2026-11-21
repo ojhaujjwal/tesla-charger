@@ -63,12 +63,20 @@ export const makeDataAdapterTest = (config: {
     return isFailure(response) ? Effect.fail(response.failure) : Effect.succeed(pick(response, fields));
   };
 
+  const lowestValue = config.lowestValue;
+  const getLowestValueInLastXMinutes = (): Effect.Effect<number, DataAdapterFailure> => {
+    if (lowestValue === undefined) {
+      throw new Error(`DataAdapter test script has no value for "lowestValue"`);
+    }
+    return Effect.succeed(lowestValue);
+  };
+
   return {
     layer: Layer.succeed(
       DataAdapter,
       DataAdapter.of({
         queryLatestValues,
-        getLowestValueInLastXMinutes: () => Effect.succeed(config.lowestValue ?? 0)
+        getLowestValueInLastXMinutes
       })
     ),
     respond: (response) => {
