@@ -61,8 +61,10 @@ export const ChargingSessionLive = (config: {
         }
       });
 
+      // First exit wins: `Effect.race` would ignore the poll's failure while the
+      // timer runs, letting grid import pass unnoticed.
       const rampUpWatch = Effect.fn("rampUpWatch")(function* (waitSeconds: number, initialProduction: number) {
-        return yield* Effect.race(
+        return yield* Effect.raceFirst(
           Effect.void.pipe(Effect.delay(Duration.seconds(waitSeconds))),
           Effect.repeat(
             Effect.gen(function* () {

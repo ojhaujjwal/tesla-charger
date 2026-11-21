@@ -230,7 +230,7 @@ describe("App", () => {
     }).pipe(Effect.provide(env.layer));
   });
 
-  it.effect("should handle AbruptProductionDropError by retrying", () => {
+  it.effect("should end with GridImportExhausted when grid import appears during ramp-up", () => {
     const goodResponse: DataValues = {
       current_production: 5000,
       import_from_grid: 0,
@@ -251,49 +251,41 @@ describe("App", () => {
     };
     const env = makeAppTest({
       latestValues: [goodResponse],
-      chargingSpeeds: [Ampere(6), Ampere(6), Ampere(10), Ampere(8)]
+      chargingSpeeds: [Ampere(6), Ampere(6), Ampere(10)]
     });
 
     return Effect.gen(function* () {
       const { fiber } = yield* startApp;
 
-      // Pass startup (1s)
+      // Pass startup (1s), loop 1's start ramp and loop 2, and reach loop 3's
+      // 6A -> 10A ramp.
       yield* TestClock.adjust(Duration.seconds(2));
-
-      // Loop 1 (6A). SetAmpere at ~0s, then wait (6-0)*2 + 10 = 22s and sync 5s.
-      // Advance a bit to catch the first setAmpere call.
-      yield* TestClock.adjust(Duration.seconds(5)); // T=7s. In Wait Phase of Loop 1.
-
-      expect(env.tesla.setAmpere).toHaveBeenCalledTimes(1);
-      expect(env.tesla.setAmpere).toHaveBeenLastCalledWith(Ampere(6));
-
-      // Loop 2 (6A): 6 == chargeState.ampere (6), so setAmpere is skipped.
+      yield* TestClock.adjust(Duration.seconds(5));
       yield* TestClock.adjust(Duration.seconds(25));
-
-      expect(env.tesla.setAmpere).toHaveBeenCalledTimes(1); // Unchanged
-      expect(env.tesla.setAmpere).toHaveBeenLastCalledWith(Ampere(6));
-
-      // Loop 3 (10A): starts at ~32s, setAmpere(10) at ~32s.
       yield* TestClock.adjust(Duration.seconds(2));
 
-      expect(env.tesla.setAmpere).toHaveBeenCalledTimes(2); // +1 Call
       expect(env.tesla.setAmpere).toHaveBeenLastCalledWith(Ampere(10));
 
-      // Grid import during the watch phase triggers AbruptDrop.
       env.dataAdapter.respond(badResponse);
       yield* TestClock.adjust(Duration.seconds(5));
 
-      env.dataAdapter.respond(goodResponse);
+      const exit = yield* Fiber.await(fiber);
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        expect(Cause.hasDies(exit.cause)).toBe(false);
+        const failure = Cause.findErrorOption(exit.cause);
+        expect(Option.isSome(failure) && failure.value._tag).toBe("GridImportExhausted");
+        if (Option.isSome(failure) && failure.value._tag === "GridImportExhausted") {
+          expect(failure.value.initialProduction).toBe(5000);
+          expect(failure.value.currentProduction).toBe(1000);
+        }
+      }
 
-      // Advance enough for Loop 4 to process (Retry + New Loop)
-      yield* TestClock.adjust(Duration.seconds(10));
-
-      expect(env.chargingSpeedController.calls.length).toBe(4); // 6, 6, 10, 8
-      expect(env.tesla.setAmpere).toHaveBeenCalledTimes(3); // 6, 10, 8 (Loop 2 skipped)
-      expect(env.tesla.setAmpere).toHaveBeenLastCalledWith(Ampere(8));
-
-      const status = fiber.pollUnsafe();
-      expect(status?._tag).not.toBe("Done"); // Still running
+      // Loop 1's start, then the ampere change retried within the same cycle
+      // (initial attempt plus the configured 10 retries) before giving up.
+      expect(env.tesla.setAmpere.mock.calls.length).toBe(12);
+      expect(env.chargingSpeedController.calls.length).toBe(3);
+      expect(env.batteryStateManager.events.map((event) => event._tag)).toContain("SessionEnded");
     }).pipe(Effect.provide(env.layer));
   });
 
