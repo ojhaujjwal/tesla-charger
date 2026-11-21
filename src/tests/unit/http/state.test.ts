@@ -9,6 +9,7 @@ import { AppStatus } from "../../../app-runtime.js";
 import { _Idle, type ChargingControlState, type ChargingSessionStats } from "../../../domain/charging-session.js";
 import { StateGroup } from "../../../http/state.js";
 import { KiloWattHours as KWh, StateOfCharge } from "../../../domain/brands.js";
+import { makeBatteryStateManagerTest } from "../../fixtures/battery-state-manager.js";
 
 describe("HTTP /state", () => {
   it.effect("GET /state returns live control, stats, appStatus and battery", () =>
@@ -61,10 +62,7 @@ describe("HTTP /state", () => {
         Layer.provide(
           Layer.mergeAll(
             Layer.succeed(AppRuntime, { controlRef, statsRef, appStatusRef }),
-            Layer.succeed(BatteryStateManager, {
-              start: () => Effect.never,
-              get: Effect.succeed(batteryState)
-            })
+            makeBatteryStateManagerTest(batteryState).layer
           )
         )
       );
