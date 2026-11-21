@@ -729,6 +729,17 @@ describe("App", () => {
         expect(buffered).toBe(1);
 
         yield* Deferred.succeed(gate, undefined);
+
+        // The flush now polls on a timer instead of spinning; once the
+        // subscriber has pulled the event, advance the clock so the next poll
+        // observes the drained hub.
+        let pending = yield* PubSub.size(pubSub);
+        while (pending > 0) {
+          yield* Effect.yieldNow;
+          pending = yield* PubSub.size(pubSub);
+        }
+        yield* TestClock.adjust(Duration.millis(100));
+
         yield* Fiber.join(stopFiber);
 
         expect(receivedEvents.map((event) => event._tag)).toEqual(["SessionEnded"]);

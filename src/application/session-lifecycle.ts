@@ -4,7 +4,7 @@ import type { ChargingControlState, ChargingSessionStats } from "../domain/charg
 import { withDailyImportRecorded, withChargeEnergyRecorded, withSessionStarted } from "../domain/charging-session.js";
 import { computeSessionSummary, type SessionSummary } from "../domain/session-summary.js";
 import type { TeslaChargerEvent } from "../domain/events.js";
-import { DateTime, Duration, Effect, FiberSet, PubSub, Ref } from "effect";
+import { DateTime, Duration, Effect, FiberSet, Option, PubSub, Ref } from "effect";
 import { startEventLogger } from "../event-logger/index.js";
 import type { TimingConfig } from "../app.js";
 import { KiloWattHours as KWh, type TimeOfDay, StateOfCharge, Voltage } from "../domain/brands.js";
@@ -61,10 +61,28 @@ export const beginSession = Effect.fn("beginSession")(function* (
 
 // `PubSub.shutdown` unsubscribes subscribers and drops messages they have not
 // pulled yet, so wait until `PubSub.size` reports that every subscriber has
-// taken the published events before the hub is closed.
+// taken the published events before the hub is closed. Poll on a timer rather
+// than spinning: a subscriber busy with a slow handler must not burn the CPU
+// for its whole retry budget. The deadline bounds shutdown instead; a
+// subscriber that never pulls within it loses the summary.
+const FLUSH_POLL_INTERVAL = Duration.millis(20);
+const FLUSH_DEADLINE = Duration.seconds(5);
+
 const flushPublishedEvents = Effect.fn("flushPublishedEvents")(function* (pubSub: PubSub.PubSub<TeslaChargerEvent>) {
-  while ((yield* PubSub.size(pubSub)) > 0) {
-    yield* Effect.yieldNow;
+  const drained = yield* Effect.gen(function* () {
+    while ((yield* PubSub.size(pubSub)) > 0) {
+      yield* Effect.sleep(FLUSH_POLL_INTERVAL);
+    }
+  }).pipe(Effect.timeoutOption(FLUSH_DEADLINE));
+
+  if (Option.isNone(drained)) {
+    yield* Effect.logWarning(
+      "Timed out flushing published events before shutdown; a subscriber that has not pulled the session summary will not receive it",
+      {
+        pendingDeliveries: yield* PubSub.size(pubSub),
+        deadlineMs: Duration.toMillis(FLUSH_DEADLINE)
+      }
+    );
   }
 });
 

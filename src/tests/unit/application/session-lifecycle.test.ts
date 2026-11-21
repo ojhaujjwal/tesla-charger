@@ -1,9 +1,17 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Cause, DateTime, Deferred, Duration, Effect, Exit, Fiber, PubSub, Ref } from "effect";
+import { Cause, DateTime, Deferred, Duration, Effect, Exit, Fiber, Logger, PubSub, Ref } from "effect";
 import * as TestClock from "effect/testing/TestClock";
-import { sleepUntilTimeOfDay } from "../../../application/session-lifecycle.js";
+import { endSession, sleepUntilTimeOfDay } from "../../../application/session-lifecycle.js";
+import {
+  createInitialChargingControlState,
+  createInitialChargingSessionStats,
+  type ChargingControlState
+} from "../../../domain/charging-session.js";
 import { TimeOfDay } from "../../../domain/brands.js";
 import type { TeslaChargerEvent } from "../../../domain/events.js";
+import { DataAdapter } from "../../../data-adapter/types.js";
+import { makeDataAdapterTest } from "../../fixtures/data-adapter.js";
+import { makeTeslaClientTest } from "../../fixtures/tesla-client.js";
 
 const utc = DateTime.zoneMakeOffset(0);
 
@@ -57,6 +65,65 @@ describe("sleepUntilTimeOfDay", () => {
       expect(yield* Ref.get(stopped)).toBe(true);
 
       yield* Fiber.join(fiber);
+    })
+  );
+});
+
+describe("endSession flush", () => {
+  // Generous upper bound in test-clock time: the flush deadline is seconds,
+  // so reaching ten seconds of advances proves the flush stopped waiting.
+  const advanceBudgetMs = 10_000;
+  const advanceStepMs = 100;
+
+  const endSessionWithStuckSubscriber = (pubSub: PubSub.PubSub<TeslaChargerEvent>) =>
+    Effect.gen(function* () {
+      const tesla = makeTeslaClientTest();
+      const controlRef = yield* Ref.make<ChargingControlState>(createInitialChargingControlState());
+      const statsRef = yield* Ref.make(createInitialChargingSessionStats());
+      return yield* endSession({
+        teslaClient: tesla.client,
+        dataAdapter: yield* DataAdapter,
+        controlRef,
+        statsRef,
+        pubSub,
+        costPerKwh: 0.3,
+        timingConfig: { syncIntervalInMs: 5000, vehicleAwakeningTimeInMs: 10000 },
+        cycleInFlight: false
+      });
+    }).pipe(Effect.provide(makeDataAdapterTest({ latestValues: [{ daily_import: 0, voltage: 230 }] }).layer));
+
+  it.effect("gives up flushing when a subscriber never pulls within the deadline", () =>
+    Effect.gen(function* () {
+      const pubSub = yield* PubSub.unbounded<TeslaChargerEvent>();
+      // Subscribed but never takes: the SessionEnded message stays buffered.
+      yield* PubSub.subscribe(pubSub);
+
+      const warnings: Array<string> = [];
+      const logger = Logger.make<unknown, void>((options) => {
+        warnings.push(`[${options.logLevel}] ${options.message}`);
+      });
+
+      const stopFiber = yield* endSessionWithStuckSubscriber(pubSub).pipe(
+        Effect.provide(Logger.layer([logger])),
+        Effect.forkChild
+      );
+
+      let buffered = yield* PubSub.size(pubSub);
+      while (buffered === 0) {
+        yield* Effect.yieldNow;
+        buffered = yield* PubSub.size(pubSub);
+      }
+      expect(buffered).toBe(1);
+
+      let advancedMs = 0;
+      while (stopFiber.pollUnsafe() === undefined && advancedMs < advanceBudgetMs) {
+        yield* TestClock.adjust(Duration.millis(advanceStepMs));
+        advancedMs += advanceStepMs;
+      }
+
+      expect(stopFiber.pollUnsafe()).toBeDefined();
+      yield* Fiber.join(stopFiber);
+      expect(warnings.some((warning) => warning.includes("session summary"))).toBe(true);
     })
   );
 });
