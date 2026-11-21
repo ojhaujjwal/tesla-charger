@@ -76,6 +76,7 @@ export const endSession = Effect.fn("endSession")(function* (params: {
   pubSub: PubSub.PubSub<TeslaChargerEvent>;
   costPerKwh: number;
   timingConfig: TimingConfig;
+  cycleInFlight: boolean;
 }) {
   const { teslaClient, dataAdapter } = params;
   const controlState = yield* Ref.get(params.controlRef);
@@ -85,7 +86,10 @@ export const endSession = Effect.fn("endSession")(function* (params: {
     ampereFluctuations: stats.ampereFluctuations
   });
 
-  if (controlState.status !== "Idle") {
+  // A cycle commits `controlRef` only when it finishes, so an interrupted or
+  // failed cycle leaves the last committed state behind even though the
+  // vehicle may already be charging.
+  if (controlState.status !== "Idle" || params.cycleInFlight) {
     yield* Effect.retry(teslaClient.stopCharging(), {
       times: 3,
       while: (err) => {
