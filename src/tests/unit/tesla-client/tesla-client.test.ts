@@ -14,8 +14,8 @@ import {
   Stream
 } from "effect";
 import * as TestClock from "effect/testing/TestClock";
-import { HttpClient, HttpClientResponse, HttpClientError } from "effect/unstable/http";
-import { ChildProcessSpawner } from "effect/unstable/process";
+import { HttpClient, HttpClientResponse, HttpClientError } from "effect/http";
+import { ChildProcessSpawner } from "effect/process";
 import { NodeFileSystem } from "@effect/platform-node";
 import { TeslaClient, TeslaClientLayer } from "../../../tesla-client/index.js";
 import {

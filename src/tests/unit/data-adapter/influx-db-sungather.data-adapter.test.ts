@@ -1,7 +1,7 @@
 import { Cause, Effect, Exit, Option, Redacted } from "effect";
 import { SunGatherInfluxDbDataAdapter } from "../../../data-adapter/influx-db-sungather.data-adapter.js";
 import { SourceNotAvailableError } from "../../../data-adapter/types.js";
-import { HttpClient, HttpClientRequest, HttpClientResponse, HttpClientError } from "effect/unstable/http";
+import { HttpClient, HttpClientRequest, HttpClientResponse, HttpClientError } from "effect/http";
 import { describe, it, expect } from "@effect/vitest";
 
 const mockResponse = (req: HttpClientRequest.HttpClientRequest, text: string): HttpClientResponse.HttpClientResponse =>

@@ -1,8 +1,8 @@
 import { describe, it, expect } from "@effect/vitest";
 import { Effect, Layer, Ref } from "effect";
 import { NodeHttpServer } from "@effect/platform-node";
-import { HttpBody, HttpClient, HttpRouter } from "effect/unstable/http";
-import { HttpApi, HttpApiBuilder } from "effect/unstable/httpapi";
+import { HttpBody, HttpClient, HttpRouter } from "effect/http";
+import { HttpApi, HttpApiBuilder } from "effect/http-api";
 import { DynamicChargingConfig } from "../../../charging-speed-controller/dynamic-config.js";
 import { DynamicChargingConfigGroup } from "../../../http/dynamic-charging-config.js";
 import { ValidationErrorHandlerLayer } from "../../../http/validation-error.js";
@@ -89,7 +89,7 @@ describe("HTTP /dynamic-charging-config", () => {
       const body = yield* response.json;
       expect(body).toEqual({
         kind: "Payload",
-        message: 'Expected a numeric value, got "a100"\n  at ["bufferPower"]'
+        message: 'Expected a numeric value\n  at ["bufferPower"]'
       });
     }).pipe(Effect.provide(NodeHttpServer.layerTest))
   );

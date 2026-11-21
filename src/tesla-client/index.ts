@@ -9,9 +9,9 @@ import {
   VehicleCommandFailedError
 } from "./errors.js";
 import { Context, Duration, Effect, FileSystem, Layer, Redacted, Schedule, Schema, Stream, pipe } from "effect";
-import { HttpClient, HttpBody, HttpClientError } from "effect/unstable/http";
+import { HttpClient, HttpBody, HttpClientError } from "effect/http";
 import type { PlatformError } from "effect/PlatformError";
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import {
   TeslaCachedTokenSchema,
   TeslaTokenResponseSchema,
@@ -111,7 +111,7 @@ export const TeslaClientLayer = (config: {
           .pipe(
             Effect.timeout(Duration.seconds(5)),
             Effect.retry({
-              schedule: Schedule.exponential(Duration.seconds(1), 2).pipe(Schedule.take(6)),
+              schedule: Schedule.exponential(Duration.seconds(1), 2).pipe(Schedule.upTo({ times: 6 })),
               while: (error) => error._tag === "HttpClientError" || error._tag === "TimeoutError"
             }),
             Effect.catchTag("TimeoutError", (err) =>
@@ -199,7 +199,7 @@ export const TeslaClientLayer = (config: {
           ),
 
           Effect.retry({
-            schedule: Schedule.exponential(Duration.seconds(0.1), 1.5).pipe(Schedule.take(10)),
+            schedule: Schedule.exponential(Duration.seconds(0.1), 1.5).pipe(Schedule.upTo({ times: 10 })),
             while: (error) => error._tag === "ContextDeadlineExceeded"
           }),
 
@@ -237,7 +237,7 @@ export const TeslaClientLayer = (config: {
           .pipe(
             Effect.timeout(Duration.seconds(10)),
             Effect.retry({
-              schedule: Schedule.exponential(Duration.seconds(1), 2).pipe(Schedule.take(4)),
+              schedule: Schedule.exponential(Duration.seconds(1), 2).pipe(Schedule.upTo({ times: 4 })),
               while: (error) => error._tag === "HttpClientError" || error._tag === "TimeoutError"
             }),
             Effect.mapError(

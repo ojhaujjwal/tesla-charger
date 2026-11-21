@@ -1,8 +1,8 @@
 import { describe, it, expect } from "@effect/vitest";
 import { Effect, Layer, Schema } from "effect";
 import { NodeHttpServer } from "@effect/platform-node";
-import { HttpBody, HttpClient, HttpRouter } from "effect/unstable/http";
-import { HttpApi, HttpApiBuilder, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
+import { HttpBody, HttpClient, HttpRouter } from "effect/http";
+import { HttpApi, HttpApiBuilder, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/http-api";
 import { ValidationErrorHandler, ValidationErrorHandlerLayer } from "../../../http/validation-error.js";
 
 const TestPayloadSchema = Schema.Struct({

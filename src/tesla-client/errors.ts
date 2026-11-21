@@ -7,7 +7,7 @@ export {
 
 import type { PlatformError } from "effect/PlatformError";
 import type { Schema } from "effect";
-import type { HttpClientError } from "effect/unstable/http";
+import type { HttpClientError } from "effect/http";
 import { Data } from "effect";
 
 // Internal retryable error (not exposed externally)
