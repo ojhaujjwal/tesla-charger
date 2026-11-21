@@ -1,4 +1,4 @@
-import { Cause, ConfigProvider, Effect, Option, Exit, Layer } from "effect";
+import { Cause, ConfigProvider, DateTime, Effect, Option, Exit, Layer } from "effect";
 import * as TestClock from "effect/testing/TestClock";
 import { AlphaEssCloudApiDataAdapterLayer } from "../../../data-adapter/alpha-ess-api.data-adapter.js";
 import { DataAdapter, DataNotAvailableError, SourceNotAvailableError } from "../../../data-adapter/types.js";
@@ -40,6 +40,48 @@ const okResponse = {
   data: powerData(),
   extra: null
 };
+
+const historicalSample = (uploadTime: string, overrides: Record<string, unknown> = {}) => ({
+  sysSn: "asdfasdf",
+  uploadTime,
+  ppv: 0,
+  load: 0,
+  cbat: 50,
+  feedIn: 0,
+  gridCharge: 0,
+  pchargingPile: 0,
+  ...overrides
+});
+
+const historicalResponse = (samples: ReadonlyArray<unknown>) => ({
+  code: 200,
+  msg: "Success",
+  expMsg: null,
+  data: samples,
+  extra: null
+});
+
+const localZone = DateTime.zoneMakeLocal();
+
+const localTime = (parts: { year: number; month: number; day: number; hour: number; minute: number }) =>
+  DateTime.makeZonedUnsafe(parts, { timeZone: localZone, adjustForTimeZone: true });
+
+const wallClock = (dateTime: DateTime.DateTime): string => {
+  const { year, month, day, hour, minute, second } = DateTime.toParts(dateTime);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${year}-${pad(month)}-${pad(day)} ${pad(hour)}:${pad(minute)}:${pad(second)}`;
+};
+
+const sampleMinutesAgo = (now: DateTime.DateTime, minutesAgo: number, overrides: Record<string, unknown> = {}) =>
+  historicalSample(wallClock(DateTime.subtract(now, { minutes: minutesAgo })), overrides);
+
+const makeHistoricalHttpClient = (responses: Record<string, unknown>, requests: Array<string> = []) =>
+  HttpClient.make((req) => {
+    requests.push(req.url);
+    const queryDate = new URL(req.url).searchParams.get("queryDate");
+    const body = queryDate === null ? undefined : responses[queryDate];
+    return Effect.succeed(mockResponse(req, JSON.stringify(body ?? {})));
+  });
 
 const TestConfigLayer = ConfigProvider.layer(
   ConfigProvider.fromUnknown({
@@ -369,11 +411,76 @@ describe("AlphaEssCloudApiDataAdapter", () => {
     })
   );
 
-  it.effect("should fail with DataNotAvailableError when calling getLowestValueInLastXMinutes", () =>
-    Effect.gen(function* () {
-      const adapter = yield* DataAdapter;
+  it.effect("should return the lowest historical value from the last X minutes", () => {
+    const now = localTime({ year: 2026, month: 8, day: 4, hour: 12, minute: 0 });
+    const requests: Array<string> = [];
+    const httpClient = makeHistoricalHttpClient(
+      {
+        [DateTime.formatIsoDate(now)]: historicalResponse([
+          sampleMinutesAgo(now, 35, { ppv: 100 }),
+          sampleMinutesAgo(now, 25, { ppv: 400 }),
+          sampleMinutesAgo(now, 20, { ppv: 300 }),
+          sampleMinutesAgo(now, 10, { ppv: 200 }),
+          sampleMinutesAgo(now, 5, { ppv: 500 })
+        ])
+      },
+      requests
+    );
 
-      const result = yield* Effect.exit(adapter.getLowestValueInLastXMinutes("current_production", 10));
+    return Effect.gen(function* () {
+      yield* TestClock.setTime(DateTime.toEpochMillis(now));
+
+      const adapter = yield* DataAdapter;
+      const result = yield* adapter.getLowestValueInLastXMinutes("current_production", 30);
+
+      expect(result).toBe(200);
+      expect(requests).toHaveLength(1);
+      expect(requests[0]).toContain("/api/getOneDayPowerBySn");
+      expect(requests[0]).toContain(`queryDate=${DateTime.formatIsoDate(now)}`);
+    }).pipe(Effect.provide(adapterLayer(httpClient)));
+  });
+
+  it.effect("should include the previous day when the window crosses midnight", () => {
+    const now = localTime({ year: 2026, month: 8, day: 4, hour: 0, minute: 10 });
+    const today = DateTime.formatIsoDate(now);
+    const yesterday = DateTime.formatIsoDate(DateTime.subtract(now, { days: 1 }));
+    const requests: Array<string> = [];
+    const httpClient = makeHistoricalHttpClient(
+      {
+        [yesterday]: historicalResponse([
+          sampleMinutesAgo(now, 35, { ppv: 50 }),
+          sampleMinutesAgo(now, 25, { ppv: 120 }),
+          sampleMinutesAgo(now, 15, { ppv: 80 })
+        ]),
+        [today]: historicalResponse([sampleMinutesAgo(now, 5, { ppv: 300 })])
+      },
+      requests
+    );
+
+    return Effect.gen(function* () {
+      yield* TestClock.setTime(DateTime.toEpochMillis(now));
+
+      const adapter = yield* DataAdapter;
+      const result = yield* adapter.getLowestValueInLastXMinutes("current_production", 30);
+
+      expect(result).toBe(80);
+      expect(requests).toHaveLength(2);
+      expect(requests.some((url) => url.includes(`queryDate=${yesterday}`))).toBe(true);
+      expect(requests.some((url) => url.includes(`queryDate=${today}`))).toBe(true);
+    }).pipe(Effect.provide(adapterLayer(httpClient)));
+  });
+
+  it.effect("should fail with DataNotAvailableError when the window has no samples", () => {
+    const now = localTime({ year: 2026, month: 8, day: 4, hour: 12, minute: 0 });
+    const httpClient = makeHistoricalHttpClient({
+      [DateTime.formatIsoDate(now)]: historicalResponse([])
+    });
+
+    return Effect.gen(function* () {
+      yield* TestClock.setTime(DateTime.toEpochMillis(now));
+
+      const adapter = yield* DataAdapter;
+      const result = yield* Effect.exit(adapter.getLowestValueInLastXMinutes("current_production", 30));
       const resultErr = Exit.match(result, {
         onSuccess: () => {
           throw new Error("Expected failure");
@@ -381,6 +488,24 @@ describe("AlphaEssCloudApiDataAdapter", () => {
         onFailure: (cause) => Option.getOrThrow(Cause.findErrorOption(cause))
       });
       expect(resultErr).toBeInstanceOf(DataNotAvailableError);
-    }).pipe(Effect.provide(adapterLayer(makeMockHttpClient({}))))
-  );
+    }).pipe(Effect.provide(adapterLayer(httpClient)));
+  });
+
+  it.effect("should fail with DataNotAvailableError for a field the historical endpoint does not expose", () => {
+    const requests: Array<string> = [];
+    const httpClient = makeHistoricalHttpClient({}, requests);
+
+    return Effect.gen(function* () {
+      const adapter = yield* DataAdapter;
+      const result = yield* Effect.exit(adapter.getLowestValueInLastXMinutes("voltage", 30));
+      const resultErr = Exit.match(result, {
+        onSuccess: () => {
+          throw new Error("Expected failure");
+        },
+        onFailure: (cause) => Option.getOrThrow(Cause.findErrorOption(cause))
+      });
+      expect(resultErr).toBeInstanceOf(DataNotAvailableError);
+      expect(requests).toHaveLength(0);
+    }).pipe(Effect.provide(adapterLayer(httpClient)));
+  });
 });
