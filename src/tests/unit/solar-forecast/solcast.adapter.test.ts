@@ -271,6 +271,39 @@ describe("SolcastForecastAdapter", () => {
       );
     });
 
+    it.effect("should retry the API on a later day after a 429 rate limit", () => {
+      const callTracker = { count: 0 };
+      let status = 429;
+      const httpClient = HttpClient.make((req) => {
+        callTracker.count++;
+        return Effect.succeed(mockResponse(req, JSON.stringify(mockSolcastResponse), status));
+      });
+
+      return withCleanCache(() =>
+        Effect.gen(function* () {
+          yield* TestClock.setTime(DateTime.toEpochMillis(Option.getOrThrow(DateTime.make("2026-02-14T10:00:00Z"))));
+          const forecast = yield* SolarForecast;
+
+          const firstAttempt = yield* Effect.exit(forecast.getForecast());
+          expect(Exit.isFailure(firstAttempt)).toBe(true);
+          expect(callTracker.count).toBe(1);
+
+          // Later the same day the flag still applies: no new API call.
+          yield* TestClock.adjust(Duration.hours(1));
+          const secondAttempt = yield* Effect.exit(forecast.getForecast());
+          expect(Exit.isFailure(secondAttempt)).toBe(true);
+          expect(callTracker.count).toBe(1);
+
+          // A new day clears the rate limit, so the API is retried.
+          status = 200;
+          yield* TestClock.adjust(Duration.hours(24));
+          const result = yield* forecast.getForecast();
+          expect(result.periods).toHaveLength(3);
+          expect(callTracker.count).toBe(2);
+        })
+      ).pipe(Effect.provide(getTestLayer(httpClient)));
+    });
+
     it.effect("should fail with SolarForecastNotAvailableError when API returns an invalid ISO duration", () => {
       const invalidPeriodResponse = {
         forecasts: [

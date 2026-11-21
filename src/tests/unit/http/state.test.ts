@@ -43,7 +43,7 @@ describe("HTTP /state", () => {
                   const control = yield* Ref.get(appRuntime.controlRef);
                   const stats = yield* Ref.get(appRuntime.statsRef);
                   const appStatus = yield* Ref.get(appRuntime.appStatusRef);
-                  const battery = batteryStateManager.get();
+                  const battery = yield* batteryStateManager.get;
                   return {
                     control,
                     stats: {
@@ -63,7 +63,7 @@ describe("HTTP /state", () => {
             Layer.succeed(AppRuntime, { controlRef, statsRef, appStatusRef }),
             Layer.succeed(BatteryStateManager, {
               start: () => Effect.never,
-              get: () => batteryState
+              get: Effect.succeed(batteryState)
             })
           )
         )

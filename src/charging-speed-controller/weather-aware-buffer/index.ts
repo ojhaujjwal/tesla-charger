@@ -1,9 +1,9 @@
 import { DataAdapter } from "../../data-adapter/types.js";
 import { ChargingSpeedController, InadequateDataToDetermineSpeedError } from "../types.js";
-import { Clock, DateTime, Effect, Layer, Option } from "effect";
+import { Clock, DateTime, Effect, Layer, Option, Ref } from "effect";
 import { SolarForecast } from "../../solar-forecast/types.js";
 import { BatteryStateManager } from "../../battery-state-manager.js";
-import type { WeatherAwareBufferConfig } from "./types.js";
+import type { SimulationResult, WeatherAwareBufferConfig } from "./types.js";
 import { calculateDefaultMonthlyPeakFactors, expectedCapacityKw } from "./solar-calculations.js";
 import { periodConfidence } from "./forecast-confidence.js";
 import { simulateCharge } from "./charge-simulation.js";
@@ -32,8 +32,7 @@ export const WeatherAwareBufferControllerLayer = (
         latitude: config.latitude
       });
 
-      let cachedSimulation: import("./types.js").SimulationResult | undefined;
-      let lastForecastHash: string | undefined;
+      const cacheRef = yield* Ref.make<{ simulation: SimulationResult; forecastHash: string } | null>(null);
 
       return {
         determineChargingSpeed: Effect.fn("determineChargingSpeed")(
@@ -49,7 +48,7 @@ export const WeatherAwareBufferControllerLayer = (
               )
             );
 
-            const batteryState = batteryStateManager.get();
+            const batteryState = yield* batteryStateManager.get;
 
             const forecastHash = forecast.periods.map((p) => DateTime.toEpochMillis(p.period_end)).join(",");
             const batteryHash = batteryState
@@ -57,19 +56,20 @@ export const WeatherAwareBufferControllerLayer = (
               : undefined;
             const currentHash = `${forecastHash}-${batteryHash}`;
 
-            if (currentHash !== lastForecastHash || cachedSimulation === undefined) {
-              cachedSimulation = simulateCharge(config, forecast, batteryState, now);
-              lastForecastHash = currentHash;
+            const cached = yield* Ref.get(cacheRef);
+            const isCacheHit = cached !== null && cached.forecastHash === currentHash;
+            const simulation = isCacheHit ? cached.simulation : simulateCharge(config, forecast, batteryState, now);
 
-              if (!cachedSimulation.canComplete && cachedSimulation.shortfallKwh > 0) {
+            if (!isCacheHit) {
+              yield* Ref.set(cacheRef, { simulation, forecastHash: currentHash });
+
+              if (!simulation.canComplete && simulation.shortfallKwh > 0) {
                 const cutoffHour = config.deadlineHour ?? config.solarCutoffHour;
                 yield* Effect.logWarning(
-                  `Forecast shows ${cachedSimulation.shortfallKwh.toFixed(1)} kWh shortfall by ${cutoffHour}:00 due to cloud cover. Charging conservatively.`
+                  `Forecast shows ${simulation.shortfallKwh.toFixed(1)} kWh shortfall by ${cutoffHour}:00 due to cloud cover. Charging conservatively.`
                 );
               }
             }
-
-            const simulation = cachedSimulation;
 
             const currentPeriod = forecast.periods.find((p) => {
               const periodEnd = p.period_end;

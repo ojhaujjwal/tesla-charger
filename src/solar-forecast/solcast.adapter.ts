@@ -1,4 +1,16 @@
-import { Clock, DateTime, Duration, Effect, FileSystem, Layer, Option, Redacted, Schema, SchemaIssue } from "effect";
+import {
+  Clock,
+  DateTime,
+  Duration,
+  Effect,
+  FileSystem,
+  Layer,
+  Option,
+  Redacted,
+  Ref,
+  Schema,
+  SchemaIssue
+} from "effect";
 import * as SchemaGetter from "effect/SchemaGetter";
 import type { Redacted as RedactedType } from "effect/Redacted";
 import { HttpClient } from "effect/http";
@@ -52,6 +64,14 @@ type FileCache = Schema.Schema.Type<typeof FileCacheSchema>;
 const CACHE_FILE_PATH = ".solcast-cache.json";
 const MEMORY_CACHE_TTL_MS = 60 * 60 * 1000; // 60 minutes
 const MAX_CACHE_AGE_DAYS = 2;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+const epochDay = (epochMillis: number) => Math.floor(epochMillis / MS_PER_DAY);
+
+type MemoryCache = {
+  data: SolarForecastResult;
+  fetchedAt: number;
+} | null;
 
 export type SolcastConfig = {
   readonly apiKey: RedactedType<string>;
@@ -64,24 +84,22 @@ export const SolcastForecastLayer = (
   Layer.effect(
     SolarForecast,
     Effect.gen(function* () {
-      let memoryCache: {
-        data: SolarForecastResult;
-        fetchedAt: number;
-      } | null = null;
-      let rateLimitedToday = false;
+      const memoryCacheRef = yield* Ref.make<MemoryCache>(null);
+      const rateLimitedDayRef = yield* Ref.make<number | null>(null);
 
       const httpClient = yield* HttpClient.HttpClient;
       const fileSystem = yield* FileSystem.FileSystem;
 
       const fetchFromApi = Effect.fn("fetchFromApi")(
         function* () {
-          if (rateLimitedToday) {
+          const rateLimitedDay = yield* Ref.get(rateLimitedDayRef);
+          if (rateLimitedDay !== null && rateLimitedDay === epochDay(yield* Clock.currentTimeMillis)) {
             const fileCache = yield* loadFromFileCache();
             if (fileCache) {
-              memoryCache = {
+              yield* Ref.set(memoryCacheRef, {
                 data: fileCache,
                 fetchedAt: yield* Clock.currentTimeMillis
-              };
+              });
               return fileCache;
             }
             return yield* new SolarForecastNotAvailableError({
@@ -99,13 +117,13 @@ export const SolcastForecastLayer = (
           });
 
           if (response.status === 429) {
-            rateLimitedToday = true;
+            yield* Ref.set(rateLimitedDayRef, epochDay(yield* Clock.currentTimeMillis));
             const fileCache = yield* loadFromFileCache();
             if (fileCache) {
-              memoryCache = {
+              yield* Ref.set(memoryCacheRef, {
                 data: fileCache,
                 fetchedAt: yield* Clock.currentTimeMillis
-              };
+              });
               return fileCache;
             }
             return yield* new SolarForecastNotAvailableError({
@@ -126,10 +144,10 @@ export const SolcastForecastLayer = (
             periods: parsed.forecasts
           };
 
-          memoryCache = {
+          yield* Ref.set(memoryCacheRef, {
             data: result,
             fetchedAt: yield* Clock.currentTimeMillis
-          };
+          });
 
           const fileCache: FileCache = {
             fetchedAt: DateTime.formatIso(yield* DateTime.now),
@@ -191,6 +209,7 @@ export const SolcastForecastLayer = (
 
       const getForecast = Effect.fn("getForecast")(
         function* () {
+          const memoryCache = yield* Ref.get(memoryCacheRef);
           if (memoryCache && (yield* Clock.currentTimeMillis) - memoryCache.fetchedAt < MEMORY_CACHE_TTL_MS) {
             return memoryCache.data;
           }
@@ -203,10 +222,10 @@ export const SolcastForecastLayer = (
             const ageMs = (yield* Clock.currentTimeMillis) - DateTime.toEpochMillis(fetchedAt);
 
             if (ageMs < MEMORY_CACHE_TTL_MS) {
-              memoryCache = {
+              yield* Ref.set(memoryCacheRef, {
                 data: fileCache,
                 fetchedAt: yield* Clock.currentTimeMillis
-              };
+              });
               return fileCache;
             }
 

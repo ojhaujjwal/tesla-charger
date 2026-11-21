@@ -1,7 +1,7 @@
 import { describe, it, vitest, beforeEach, expect } from "@effect/vitest";
 import type { MockedObject } from "@effect/vitest";
 import * as TestClock from "effect/testing/TestClock";
-import { Effect, Duration, Fiber, Layer, PubSub } from "effect";
+import { Effect, Deferred, Duration, Fiber, Layer, PubSub } from "effect";
 import { TeslaClient, type TeslaClientService } from "../../tesla-client/index.js";
 import { ChargeStateQueryFailedError } from "../../tesla-client/errors.js";
 import { BatteryStateManager } from "../../battery-state-manager.js";
@@ -50,7 +50,7 @@ describe("BatteryStateManager", () => {
       // Wait a bit — no fetch at startup
       yield* TestClock.adjust(Duration.millis(100));
       expect(teslaClientMock.getChargeState).not.toHaveBeenCalled();
-      expect(batteryStateManager.get()).toBeNull();
+      expect(yield* batteryStateManager.get).toBeNull();
 
       // Publish the first AmpereChangeInitiated event — should trigger fetch
       // because batteryState is null (timeSinceLastQuery = Infinity)
@@ -65,7 +65,7 @@ describe("BatteryStateManager", () => {
       expect(teslaClientMock.getChargeState).toHaveBeenCalledTimes(1);
 
       // Verify state was populated
-      const state = batteryStateManager.get();
+      const state = yield* batteryStateManager.get;
       expect(state).not.toBeNull();
       expect(state?.batteryLevel).toBe(45);
       expect(state?.chargeLimitSoc).toBe(80);
@@ -99,7 +99,7 @@ describe("BatteryStateManager", () => {
       expect(teslaClientMock.getChargeState).toHaveBeenCalledTimes(1);
 
       // State should be null (failed to fetch)
-      const state = batteryStateManager.get();
+      const state = yield* batteryStateManager.get;
       expect(state).toBeNull();
 
       yield* Fiber.interrupt(fiber);
@@ -194,7 +194,7 @@ describe("BatteryStateManager", () => {
       expect(teslaClientMock.getChargeState).toHaveBeenCalledTimes(2);
 
       // Verify state was updated
-      const state = batteryStateManager.get();
+      const state = yield* batteryStateManager.get;
       expect(state?.batteryLevel).toBe(62);
 
       yield* Fiber.interrupt(fiber);
@@ -232,7 +232,7 @@ describe("BatteryStateManager", () => {
       });
 
       yield* TestClock.adjust(Duration.millis(100));
-      const initialState = batteryStateManager.get();
+      const initialState = yield* batteryStateManager.get;
       expect(initialState?.batteryLevel).toBe(50);
 
       // Advance past cooldown
@@ -252,10 +252,38 @@ describe("BatteryStateManager", () => {
       expect(teslaClientMock.getChargeState).toHaveBeenCalledTimes(2);
 
       // State should still be the old value (refresh failed)
-      const state = batteryStateManager.get();
+      const state = yield* batteryStateManager.get;
       expect(state?.batteryLevel).toBe(50);
 
       yield* Fiber.interrupt(fiber);
+      yield* PubSub.shutdown(pubSub);
+    }).pipe(provideBatteryStateManagerLayer)
+  );
+
+  it.effect("should expose the manager's state to a reader fiber forked before the first fetch", () =>
+    Effect.gen(function* () {
+      const batteryStateManager = yield* BatteryStateManager;
+
+      const gate = yield* Deferred.make<void>();
+      const readerFiber = yield* Effect.gen(function* () {
+        yield* Deferred.await(gate);
+        return yield* batteryStateManager.get;
+      }).pipe(Effect.forkChild);
+
+      const pubSub = yield* PubSub.unbounded<TeslaChargerEvent>();
+      const managerFiber = yield* batteryStateManager.start(pubSub).pipe(Effect.forkChild);
+
+      yield* TestClock.adjust(Duration.millis(100));
+      expect(yield* batteryStateManager.get).toBeNull();
+
+      yield* PubSub.publish(pubSub, { _tag: "ChargingStarted" as const });
+      yield* TestClock.adjust(Duration.millis(100));
+
+      yield* Deferred.succeed(gate, undefined);
+      const state = yield* Fiber.join(readerFiber);
+      expect(state?.batteryLevel).toBe(50);
+
+      yield* Fiber.interrupt(managerFiber);
       yield* PubSub.shutdown(pubSub);
     }).pipe(provideBatteryStateManagerLayer)
   );

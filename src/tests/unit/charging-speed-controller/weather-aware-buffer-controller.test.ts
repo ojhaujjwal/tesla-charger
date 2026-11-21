@@ -344,7 +344,7 @@ describe("WeatherAwareBufferController - Pure Functions", () => {
 
       mockBatteryStateManager = {
         start: vi.fn(),
-        get: vi.fn(() => batteryState)
+        get: Effect.sync(() => batteryState)
       };
     });
 

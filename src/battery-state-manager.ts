@@ -1,4 +1,4 @@
-import { Context, Clock, Effect, Layer, PubSub } from "effect";
+import { Context, Clock, Effect, Layer, PubSub, Ref } from "effect";
 import { TeslaClient } from "./tesla-client/index.js";
 import type { TeslaChargerEvent } from "./domain/events.js";
 import type { StateOfCharge } from "./domain/brands.js";
@@ -15,14 +15,14 @@ export class BatteryStateManager extends Context.Service<
   BatteryStateManager,
   {
     readonly start: (pubSub: PubSub.PubSub<TeslaChargerEvent>) => Effect.Effect<void>;
-    readonly get: () => BatteryState | null;
+    readonly get: Effect.Effect<BatteryState | null>;
   }
 >()("@tesla-charger/BatteryStateManager") {
   static readonly layer = Layer.effect(
     BatteryStateManager,
     Effect.gen(function* () {
       const teslaClient = yield* TeslaClient;
-      let batteryState: BatteryState | null = null;
+      const batteryStateRef = yield* Ref.make<BatteryState | null>(null);
 
       const fetchAndStoreBatteryState = Effect.fn("fetchAndStoreBatteryState")(function* () {
         const result = yield* teslaClient.getChargeState().pipe(
@@ -36,19 +36,19 @@ export class BatteryStateManager extends Context.Service<
 
         if (result) {
           const now = yield* Clock.currentTimeMillis;
-          batteryState = {
+          yield* Ref.set(batteryStateRef, {
             batteryLevel: result.batteryLevel,
             chargeLimitSoc: result.chargeLimitSoc,
             queriedAtMs: now
-          };
+          });
         }
       });
 
       const start = Effect.fn("start")(
         function* (pubSub: PubSub.PubSub<TeslaChargerEvent>) {
           // No initial fetch — the car may still be asleep at startup.
-          // The first AmpereChanged event will trigger a fetch (since batteryState
-          // is null, timeSinceLastQuery is Infinity and exceeds the cooldown).
+          // The first AmpereChanged event will trigger a fetch (since the stored
+          // state is null, timeSinceLastQuery is Infinity and exceeds the cooldown).
 
           // Subscribe to events and process them
           const subscription = yield* PubSub.subscribe(pubSub);
@@ -64,6 +64,7 @@ export class BatteryStateManager extends Context.Service<
                 event._tag === "AmpereChangeFinished"
               ) {
                 const now = yield* Clock.currentTimeMillis;
+                const batteryState = yield* Ref.get(batteryStateRef);
 
                 const timeSinceLastQuery = batteryState ? now - batteryState.queriedAtMs : Infinity;
 
@@ -80,11 +81,9 @@ export class BatteryStateManager extends Context.Service<
         (effect) => effect.pipe(Effect.scoped)
       );
 
-      const get = () => batteryState;
-
       return {
         start,
-        get
+        get: Ref.get(batteryStateRef)
       };
     }).pipe(Effect.withSpan("BatteryStateManagerLayer"))
   );

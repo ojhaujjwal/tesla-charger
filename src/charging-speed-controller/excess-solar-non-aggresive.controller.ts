@@ -1,8 +1,16 @@
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Ref } from "effect";
 import { ChargingSpeedController, InadequateDataToDetermineSpeedError } from "./types.js";
 import { DynamicChargingConfig } from "./dynamic-config.js";
 import { DataAdapter } from "../data-adapter/types.js";
 import { Ampere } from "../domain/brands.js";
+
+type ReadHistoryEntry = { speed: Ampere; dataSignature: string };
+
+type ControllerState = {
+  readHistory: ReadonlyArray<ReadHistoryEntry>;
+  lastAppliedSpeed: Ampere;
+  lastDataSignature: string | null;
+};
 
 export const ExcessSolarNonAggresiveControllerLayer = (config: {
   baseControllerLayer: Layer.Layer<ChargingSpeedController, never, DataAdapter | DynamicChargingConfig>;
@@ -15,9 +23,11 @@ export const ExcessSolarNonAggresiveControllerLayer = (config: {
       const dataAdapter = yield* DataAdapter;
       const requiredConsistentReads = config.requiredConsistentReads ?? 3;
 
-      const readHistory: { speed: Ampere; dataSignature: string }[] = [];
-      let lastAppliedSpeed: Ampere = Ampere(0);
-      let lastDataSignature: string | null = null;
+      const stateRef = yield* Ref.make<ControllerState>({
+        readHistory: [],
+        lastAppliedSpeed: Ampere(0),
+        lastDataSignature: null
+      });
 
       return {
         determineChargingSpeed: Effect.fn("determineChargingSpeed")(
@@ -31,33 +41,31 @@ export const ExcessSolarNonAggresiveControllerLayer = (config: {
             ]);
             const dataSignature = `${rawData.export_to_grid}:${rawData.current_production}:${rawData.current_load}`;
 
-            const isFreshData = dataSignature !== lastDataSignature;
-            lastDataSignature = dataSignature;
+            const lastAppliedSpeed = yield* Ref.modify(stateRef, (previous) => {
+              const isFreshData = dataSignature !== previous.lastDataSignature;
 
-            if (isFreshData) {
-              readHistory.push({ speed: candidateSpeed, dataSignature });
-              if (readHistory.length > requiredConsistentReads) {
-                readHistory.shift();
+              let readHistory = previous.readHistory;
+              if (isFreshData) {
+                const withCandidate = [...readHistory, { speed: candidateSpeed, dataSignature }];
+                readHistory = withCandidate.length > requiredConsistentReads ? withCandidate.slice(1) : withCandidate;
               }
-            }
 
-            if (candidateSpeed < lastAppliedSpeed) {
-              lastAppliedSpeed = candidateSpeed;
-              return candidateSpeed;
-            }
+              let lastAppliedSpeed = previous.lastAppliedSpeed;
 
-            if (candidateSpeed > lastAppliedSpeed) {
-              const hasEnoughFreshReads = readHistory.length >= requiredConsistentReads;
-              const allReadingsSupportIncrease = readHistory.every((r) => r.speed >= candidateSpeed);
-              const isFirstFreshRead = readHistory.length === 1;
-
-              if ((hasEnoughFreshReads && allReadingsSupportIncrease) || isFirstFreshRead) {
+              if (candidateSpeed < lastAppliedSpeed) {
                 lastAppliedSpeed = candidateSpeed;
-                return candidateSpeed;
+              } else if (candidateSpeed > lastAppliedSpeed) {
+                const hasEnoughFreshReads = readHistory.length >= requiredConsistentReads;
+                const allReadingsSupportIncrease = readHistory.every((r) => r.speed >= candidateSpeed);
+                const isFirstFreshRead = readHistory.length === 1;
+
+                if ((hasEnoughFreshReads && allReadingsSupportIncrease) || isFirstFreshRead) {
+                  lastAppliedSpeed = candidateSpeed;
+                }
               }
 
-              return lastAppliedSpeed;
-            }
+              return [lastAppliedSpeed, { readHistory, lastAppliedSpeed, lastDataSignature: dataSignature }];
+            });
 
             return lastAppliedSpeed;
           },

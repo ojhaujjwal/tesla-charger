@@ -227,7 +227,7 @@ export const ChargingSessionLive = (config: {
           }
         }
 
-        const batteryState = batteryStateManager.get();
+        const batteryState = yield* batteryStateManager.get;
         const outcome: SessionOutcome =
           batteryState && batteryState.batteryLevel >= batteryState.chargeLimitSoc
             ? { status: "Completed" }
