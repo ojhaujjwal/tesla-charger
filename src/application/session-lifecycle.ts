@@ -4,7 +4,7 @@ import type { ChargingControlState, ChargingSessionStats } from "../domain/charg
 import { withDailyImportRecorded, withChargeEnergyRecorded, withSessionStarted } from "../domain/charging-session.js";
 import { computeSessionSummary, type SessionSummary } from "../domain/session-summary.js";
 import type { TeslaChargerEvent } from "../domain/events.js";
-import { DateTime, Duration, Effect, Fiber, PubSub, Ref } from "effect";
+import { DateTime, Duration, Effect, FiberSet, PubSub, Ref } from "effect";
 import { startEventLogger } from "../event-logger/index.js";
 import type { TimingConfig } from "../app.js";
 import { KiloWattHours as KWh, type TimeOfDay, StateOfCharge, Voltage } from "../domain/brands.js";
@@ -17,12 +17,13 @@ export const beginSession = Effect.fn("beginSession")(function* (
   },
   statsRef: Ref.Ref<ChargingSessionStats>,
   pubSub: PubSub.PubSub<TeslaChargerEvent>,
+  fibers: FiberSet.FiberSet<unknown, unknown>,
   options?: { readonly forceChargeToHundredPercent?: boolean }
 ) {
   yield* teslaClient.refreshAccessToken();
-  const tokenRefreshFiber = yield* teslaClient.setupAccessTokenAutoRefreshRecurring(60 * 60 * 2).pipe(
+  yield* teslaClient.setupAccessTokenAutoRefreshRecurring(60 * 60 * 2).pipe(
     Effect.flatMap(() => Effect.void),
-    Effect.forkChild
+    Effect.forkScoped
   );
 
   yield* Effect.sleep(1000);
@@ -54,10 +55,17 @@ export const beginSession = Effect.fn("beginSession")(function* (
     yield* Effect.logInfo("Charge state unavailable at startup, skipping forced charge to 100%");
   }
 
-  const batteryStateManagerFiber = yield* batteryStateManager.start(pubSub).pipe(Effect.forkChild);
-  const eventLoggerFiber = yield* startEventLogger(pubSub).pipe(Effect.forkChild);
+  yield* FiberSet.run(fibers, batteryStateManager.start(pubSub));
+  yield* FiberSet.run(fibers, startEventLogger(pubSub));
+});
 
-  return { tokenRefreshFiber, batteryStateManagerFiber, eventLoggerFiber };
+// `PubSub.shutdown` unsubscribes subscribers and drops messages they have not
+// pulled yet, so wait until `PubSub.size` reports that every subscriber has
+// taken the published events before the hub is closed.
+const flushPublishedEvents = Effect.fn("flushPublishedEvents")(function* (pubSub: PubSub.PubSub<TeslaChargerEvent>) {
+  while ((yield* PubSub.size(pubSub)) > 0) {
+    yield* Effect.yieldNow;
+  }
 });
 
 export const endSession = Effect.fn("endSession")(function* (params: {
@@ -68,7 +76,6 @@ export const endSession = Effect.fn("endSession")(function* (params: {
   pubSub: PubSub.PubSub<TeslaChargerEvent>;
   costPerKwh: number;
   timingConfig: TimingConfig;
-  fibers: ReadonlyArray<Fiber.Fiber<unknown, unknown>>;
 }) {
   const { teslaClient, dataAdapter } = params;
   const controlState = yield* Ref.get(params.controlRef);
@@ -120,12 +127,8 @@ export const endSession = Effect.fn("endSession")(function* (params: {
   });
 
   yield* PubSub.publish(params.pubSub, { _tag: "SessionEnded", summary });
-  yield* Effect.yieldNow;
+  yield* flushPublishedEvents(params.pubSub);
   yield* PubSub.shutdown(params.pubSub);
-
-  for (const fiber of params.fibers) {
-    yield* Fiber.interrupt(fiber);
-  }
 });
 
 export const sleepUntilTimeOfDay = Effect.fn("sleepUntilTimeOfDay")(function* (
