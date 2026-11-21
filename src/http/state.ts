@@ -55,7 +55,7 @@ export const StateHandlers = Effect.fn("StateHandlers")(function* (
       const control = yield* Ref.get(appRuntime.controlRef);
       const stats = yield* Ref.get(appRuntime.statsRef);
       const appStatus = yield* Ref.get(appRuntime.appStatusRef);
-      const battery = batteryStateManager.get();
+      const battery = yield* batteryStateManager.get;
       return {
         control,
         stats: {

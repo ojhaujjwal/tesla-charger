@@ -46,7 +46,7 @@ describe("App", () => {
   let batteryState: BatteryState | null = null;
   const batteryStateManagerMock: MockedObject<BatteryStateManager["Service"]> = {
     start: vitest.fn(),
-    get: vitest.fn(() => batteryState)
+    get: Effect.sync(() => batteryState)
   };
 
   const TestTeslaClient = Layer.succeed(TeslaClient, teslaClientMock);
