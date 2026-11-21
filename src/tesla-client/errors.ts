@@ -1,4 +1,9 @@
-export { VehicleAsleepError, VehicleCommandFailedError, ChargeStateQueryFailedError } from "../domain/errors.js";
+export {
+  VehicleAsleepError,
+  VehicleCommandFailedError,
+  VehicleChargeCompleteError,
+  ChargeStateQueryFailedError
+} from "../domain/errors.js";
 
 import type { PlatformError } from "effect/PlatformError";
 import type { Schema } from "effect";

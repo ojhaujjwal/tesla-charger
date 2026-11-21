@@ -6,6 +6,7 @@ import {
   KiloWattHoursFromString,
   HourOfDay,
   HourOfDayFromString,
+  TimeOfDayFromString,
   Watt,
   WattFromString,
   LatitudeFromString,
@@ -62,6 +63,15 @@ export const AppConfig = {
     )
   },
 
+  charging: {
+    // Raise the vehicle charge limit to 100% at app startup so the car does
+    // not stop the session on its own (the controller decides when to stop).
+    // The original limit is deliberately not restored afterwards.
+    forceChargeToHundredPercent: EffectConfig.boolean("FORCE_CHARGE_TO_HUNDRED_PERCENT").pipe(
+      EffectConfig.withDefault(true)
+    )
+  },
+
   weatherAware: {
     minBufferPower: EffectConfig.schema(WattFromString, "EXCESS_SOLAR_BUFFER_POWER").pipe(
       EffectConfig.withDefault(Watt(500))
@@ -84,6 +94,10 @@ export const AppConfig = {
 
   cost: {
     perKwh: EffectConfig.number("COST_PER_KWH").pipe(EffectConfig.withDefault(0.3))
+  },
+
+  shutdown: {
+    at: EffectConfig.option(EffectConfig.schema(TimeOfDayFromString, "SHUTDOWN_AT"))
   },
 
   httpApi: {

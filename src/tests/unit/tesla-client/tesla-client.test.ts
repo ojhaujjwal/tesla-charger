@@ -18,8 +18,12 @@ import { HttpClient, HttpClientResponse, HttpClientError } from "effect/unstable
 import { ChildProcessSpawner } from "effect/unstable/process";
 import { NodeFileSystem } from "@effect/platform-node";
 import { TeslaClient, TeslaClientLayer } from "../../../tesla-client/index.js";
-import { VehicleAsleepError, VehicleCommandFailedError } from "../../../tesla-client/errors.js";
-import { Ampere } from "../../../domain/brands.js";
+import {
+  VehicleAsleepError,
+  VehicleCommandFailedError,
+  VehicleChargeCompleteError
+} from "../../../tesla-client/errors.js";
+import { Ampere, StateOfCharge } from "../../../domain/brands.js";
 
 const getFailure = (exit: Exit.Exit<unknown, unknown>): unknown => {
   if (!Exit.isFailure(exit)) throw new Error("Expected failure");
@@ -511,6 +515,39 @@ describe("TeslaClient", () => {
       ).pipe(Effect.provide(NodeFileSystem.layer))
     );
 
+    it.effect("should return VehicleChargeCompleteError verified against the charge state API", () =>
+      withTestDir((tmpDir) =>
+        Effect.gen(function* () {
+          // The verification query reads the cached token before hitting the API.
+          yield* writeTokenFile(tmpDir);
+          const client = yield* TeslaClient;
+          const result = yield* Effect.exit(client.startCharging());
+
+          expect(Exit.isFailure(result)).toBe(true);
+          if (Exit.isFailure(result)) {
+            const failure = getFailure(result);
+            expect(failure).toStrictEqual(
+              new VehicleChargeCompleteError({
+                message: "Vehicle rejected charging-start because charging is already complete",
+                stderr: "Failed to execute command: car could not execute command: complete\n",
+                batteryLevel: StateOfCharge(72),
+                chargeLimitSoc: StateOfCharge(80)
+              })
+            );
+          }
+        }).pipe(
+          Effect.provide(
+            makeTestLayer(tmpDir, {
+              httpClient: makeMockHttpClient({ body: validChargeStateJson }),
+              commandExecutor: makeMockChildProcessSpawner([
+                { exitCode: 1, stderr: "Failed to execute command: car could not execute command: complete\n" }
+              ])
+            })
+          )
+        )
+      ).pipe(Effect.provide(NodeFileSystem.layer))
+    );
+
     it.effect("should retry with exponential backoff when command execution times out", () =>
       withTestDir((tmpDir) =>
         Effect.gen(function* () {
@@ -595,21 +632,40 @@ describe("TeslaClient", () => {
       withTestDir((tmpDir) =>
         Effect.gen(function* () {
           const client = yield* TeslaClient;
-          // Note: This test is aspirational. stopCharging currently does not
-          // handle the "already not charging" case specially.
+          const result = yield* Effect.exit(client.stopCharging());
+
+          expect(result).toStrictEqual(Exit.void);
+        }).pipe(
+          Effect.provide(
+            makeTestLayer(tmpDir, {
+              commandExecutor: makeMockChildProcessSpawner([
+                { exitCode: 1, stderr: "Failed to execute command: car could not execute command: not_charging\n" }
+              ])
+            })
+          )
+        )
+      ).pipe(Effect.provide(NodeFileSystem.layer))
+    );
+
+    it.effect("should return error when command fails for other reasons", () =>
+      withTestDir((tmpDir) =>
+        Effect.gen(function* () {
+          const client = yield* TeslaClient;
           const result = yield* Effect.exit(client.stopCharging());
 
           expect(result).toStrictEqual(
             Exit.fail(
               new VehicleCommandFailedError({
-                message: "Command failed. Stderr: ",
-                stderr: ""
+                message: "Command failed. Stderr: unknown error occurred",
+                stderr: "unknown error occurred"
               })
             )
           );
         }).pipe(
           Effect.provide(
-            makeTestLayer(tmpDir, { commandExecutor: makeMockChildProcessSpawner([{ exitCode: 1, stderr: "" }]) })
+            makeTestLayer(tmpDir, {
+              commandExecutor: makeMockChildProcessSpawner([{ exitCode: 1, stderr: "unknown error occurred" }])
+            })
           )
         )
       ).pipe(Effect.provide(NodeFileSystem.layer))
@@ -700,6 +756,79 @@ describe("TeslaClient", () => {
         Effect.gen(function* () {
           const client = yield* TeslaClient;
           const result = yield* Effect.exit(client.setAmpere(Ampere(10)));
+
+          expect(result).toStrictEqual(
+            Exit.fail(
+              new VehicleCommandFailedError({
+                message: "Command failed. Stderr: some other error",
+                stderr: "some other error"
+              })
+            )
+          );
+        }).pipe(
+          Effect.provide(
+            makeTestLayer(tmpDir, {
+              commandExecutor: makeMockChildProcessSpawner([{ exitCode: 1, stderr: "some other error" }])
+            })
+          )
+        )
+      ).pipe(Effect.provide(NodeFileSystem.layer))
+    );
+
+    it.effect(
+      "should return VehicleChargeCompleteError without verification data when the charge state query fails",
+      () =>
+        withTestDir((tmpDir) =>
+          Effect.gen(function* () {
+            const client = yield* TeslaClient;
+            const result = yield* Effect.exit(client.setAmpere(Ampere(10)));
+
+            expect(Exit.isFailure(result)).toBe(true);
+            if (Exit.isFailure(result)) {
+              const failure = getFailure(result);
+              expect(failure).toStrictEqual(
+                new VehicleChargeCompleteError({
+                  message: "Vehicle rejected charging-set-amps because charging is already complete",
+                  stderr: "Failed to execute command: car could not execute command: complete\n"
+                })
+              );
+            }
+          }).pipe(
+            Effect.provide(
+              makeTestLayer(tmpDir, {
+                // Default http mock answers 200 with an empty body, so the
+                // verification query fails and no evidence is attached.
+                commandExecutor: makeMockChildProcessSpawner([
+                  { exitCode: 1, stderr: "Failed to execute command: car could not execute command: complete\n" }
+                ])
+              })
+            )
+          )
+        ).pipe(Effect.provide(NodeFileSystem.layer))
+    );
+  });
+
+  describe("setChargeLimit", () => {
+    it.effect("should set charge limit successfully", () =>
+      withTestDir((tmpDir) =>
+        Effect.gen(function* () {
+          const client = yield* TeslaClient;
+          const result = yield* Effect.exit(client.setChargeLimit(StateOfCharge(100)));
+
+          expect(result).toStrictEqual(Exit.void);
+        }).pipe(
+          Effect.provide(
+            makeTestLayer(tmpDir, { commandExecutor: makeMockChildProcessSpawner([{ exitCode: 0, stderr: "" }]) })
+          )
+        )
+      ).pipe(Effect.provide(NodeFileSystem.layer))
+    );
+
+    it.effect("should return error when command fails", () =>
+      withTestDir((tmpDir) =>
+        Effect.gen(function* () {
+          const client = yield* TeslaClient;
+          const result = yield* Effect.exit(client.setChargeLimit(StateOfCharge(80)));
 
           expect(result).toStrictEqual(
             Exit.fail(

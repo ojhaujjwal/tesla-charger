@@ -16,6 +16,7 @@ describe("BatteryStateManager", () => {
     startCharging: vitest.fn(),
     stopCharging: vitest.fn(),
     setAmpere: vitest.fn(),
+    setChargeLimit: vitest.fn(),
     wakeUpCar: vitest.fn(),
     getChargeState: vitest.fn()
   };

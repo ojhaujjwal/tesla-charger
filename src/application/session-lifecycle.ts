@@ -7,7 +7,7 @@ import type { TeslaChargerEvent } from "../domain/events.js";
 import { DateTime, Duration, Effect, Fiber, PubSub, Ref } from "effect";
 import { startEventLogger } from "../event-logger/index.js";
 import type { TimingConfig } from "../app.js";
-import { KiloWattHours as KWh, Voltage } from "../domain/brands.js";
+import { KiloWattHours as KWh, type TimeOfDay, StateOfCharge, Voltage } from "../domain/brands.js";
 
 export const beginSession = Effect.fn("beginSession")(function* (
   teslaClient: TeslaClientService,
@@ -16,7 +16,8 @@ export const beginSession = Effect.fn("beginSession")(function* (
     readonly start: (pubSub: PubSub.PubSub<TeslaChargerEvent>) => Effect.Effect<void>;
   },
   statsRef: Ref.Ref<ChargingSessionStats>,
-  pubSub: PubSub.PubSub<TeslaChargerEvent>
+  pubSub: PubSub.PubSub<TeslaChargerEvent>,
+  options?: { readonly forceChargeToHundredPercent?: boolean }
 ) {
   yield* teslaClient.refreshAccessToken();
   const tokenRefreshFiber = yield* teslaClient.setupAccessTokenAutoRefreshRecurring(60 * 60 * 2).pipe(
@@ -34,6 +35,23 @@ export const beginSession = Effect.fn("beginSession")(function* (
 
   if (initialChargeState) {
     yield* Ref.update(statsRef, (s) => withChargeEnergyRecorded(s, initialChargeState.chargeEnergyAdded));
+
+    if (options?.forceChargeToHundredPercent === true && initialChargeState.chargeLimitSoc < StateOfCharge(100)) {
+      yield* Effect.logInfo("Raising vehicle charge limit to 100% (not restored on shutdown)", {
+        previousLimit: initialChargeState.chargeLimitSoc
+      });
+      // Best effort: the session still works (and ends gracefully) if the
+      // vehicle refuses the new limit.
+      yield* teslaClient.setChargeLimit(StateOfCharge(100)).pipe(
+        Effect.catch((err) =>
+          Effect.logWarning("Could not raise the vehicle charge limit to 100%", {
+            reason: err._tag === "VehicleCommandFailed" ? err.message : err._tag
+          })
+        )
+      );
+    }
+  } else if (options?.forceChargeToHundredPercent === true) {
+    yield* Effect.logInfo("Charge state unavailable at startup, skipping forced charge to 100%");
   }
 
   const batteryStateManagerFiber = yield* batteryStateManager.start(pubSub).pipe(Effect.forkChild);
@@ -72,7 +90,16 @@ export const endSession = Effect.fn("endSession")(function* (params: {
         }
         return true;
       }
-    });
+    }).pipe(
+      // Shutdown must always proceed: the session summary still needs to be
+      // recorded and the session fibers interrupted, even if the vehicle
+      // refuses or fails to stop charging.
+      Effect.catch((err) =>
+        Effect.logWarning("Could not stop vehicle charging, continuing shutdown", {
+          reason: err._tag === "VehicleCommandFailed" ? err.message : err._tag
+        })
+      )
+    );
   }
 
   const finalChargeState = yield* teslaClient
@@ -101,5 +128,28 @@ export const endSession = Effect.fn("endSession")(function* (params: {
   }
 });
 
-export const shutdownAfterMaxRuntime = (maxHours: number, stop: Effect.Effect<void>): Effect.Effect<void> =>
-  Effect.sleep(Duration.hours(maxHours)).pipe(Effect.flatMap(() => stop));
+export const sleepUntilTimeOfDay = Effect.fn("sleepUntilTimeOfDay")(function* (
+  time: TimeOfDay,
+  options?: { readonly zone?: DateTime.TimeZone }
+) {
+  const zone = options?.zone ?? DateTime.zoneMakeLocal();
+  const now = DateTime.setZone(yield* DateTime.now, zone);
+
+  const todayAtTime = DateTime.setParts(now, {
+    hour: Math.floor(time / 60),
+    minute: time % 60,
+    second: 0,
+    millisecond: 0
+  });
+
+  const isStillAheadToday = DateTime.toEpochMillis(todayAtTime) >= DateTime.toEpochMillis(now);
+  const scheduledShutdown = isStillAheadToday ? todayAtTime : DateTime.add(todayAtTime, { days: 1 });
+  const delayMs = DateTime.toEpochMillis(scheduledShutdown) - DateTime.toEpochMillis(now);
+
+  yield* Effect.logInfo("Scheduled automatic shutdown", {
+    shutdownAt: DateTime.formatIsoZoned(scheduledShutdown),
+    inMilliseconds: delayMs
+  });
+
+  yield* Effect.sleep(Duration.millis(delayMs));
+});

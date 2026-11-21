@@ -10,12 +10,13 @@ import { AppRuntime, AppStatus } from "./app-runtime.js";
 import { TeslaChargerEventPubSub } from "./domain/events.js";
 import type { ChargingConfig } from "./domain/charging-session.js";
 import { ChargingSession } from "./domain/charging-session.js";
-import { beginSession, endSession, shutdownAfterMaxRuntime } from "./application/session-lifecycle.js";
+import type { TimeOfDay } from "./domain/brands.js";
+import { beginSession, endSession, sleepUntilTimeOfDay } from "./application/session-lifecycle.js";
 
 export type TimingConfig = {
   syncIntervalInMs: number;
   vehicleAwakeningTimeInMs: number;
-  maxRuntimeHours?: number;
+  shutdownAt?: TimeOfDay;
 };
 
 export class App extends Context.Service<
@@ -47,6 +48,7 @@ export const AppLayer = (config: {
   readonly chargingConfig: ChargingConfig;
   readonly timingConfig: TimingConfig;
   readonly costPerKwh?: number;
+  readonly forceChargeToHundredPercent?: boolean;
 }) =>
   Layer.effect(
     App,
@@ -62,11 +64,15 @@ export const AppLayer = (config: {
       let tokenRefreshFiber: Fiber.Fiber<void, FiberErrors> | undefined;
       let batteryStateManagerFiber: Fiber.Fiber<void, FiberErrors> | undefined;
       let eventLoggerFiber: Fiber.Fiber<void, FiberErrors> | undefined;
-      let mainSyncFiber: Fiber.Fiber<void, FiberErrors> | undefined;
-      let runtimeMonitorFiber: Fiber.Fiber<void, FiberErrors> | undefined;
+      let mainSyncFiber: Fiber.Fiber<unknown, FiberErrors> | undefined;
+      let shutdownAtTimeFiber: Fiber.Fiber<void, FiberErrors> | undefined;
+      const hasStoppedRef = yield* Ref.make(false);
 
       const stop = Effect.fn("stop")(
         function* () {
+          const alreadyStopped = yield* Ref.getAndSet(hasStoppedRef, true);
+          if (alreadyStopped) return;
+
           yield* endSession({
             teslaClient,
             dataAdapter,
@@ -75,13 +81,9 @@ export const AppLayer = (config: {
             pubSub,
             costPerKwh,
             timingConfig: config.timingConfig,
-            fibers: [
-              batteryStateManagerFiber,
-              eventLoggerFiber,
-              tokenRefreshFiber,
-              mainSyncFiber,
-              runtimeMonitorFiber
-            ].filter((f): f is NonNullable<typeof f> => f !== undefined)
+            fibers: [batteryStateManagerFiber, eventLoggerFiber, tokenRefreshFiber, mainSyncFiber].filter(
+              (f): f is NonNullable<typeof f> => f !== undefined
+            )
           });
 
           yield* Ref.set(appRuntime.appStatusRef, AppStatus.Stopped);
@@ -97,7 +99,8 @@ export const AppLayer = (config: {
           dataAdapter,
           batteryStateManager,
           appRuntime.statsRef,
-          pubSub
+          pubSub,
+          { forceChargeToHundredPercent: config.forceChargeToHundredPercent ?? false }
         );
         tokenRefreshFiber = sessionFibers.tokenRefreshFiber;
         batteryStateManagerFiber = sessionFibers.batteryStateManagerFiber;
@@ -115,29 +118,27 @@ export const AppLayer = (config: {
           return result.outcome;
         });
 
-        mainSyncFiber = yield* Effect.repeat(runSyncCycle(), {
+        const mainSync = yield* Effect.repeat(runSyncCycle(), {
           while: (outcome) => outcome.status === "Running"
         }).pipe(
-          Effect.flatMap(() => stop()),
           Effect.catchTag("GridImportExhausted", (err) => Effect.die(err)),
           Effect.catchTag("VehicleNotWakingUp", (err) => Effect.die(err)),
           Effect.forkChild
         );
+        mainSyncFiber = mainSync;
 
-        if (config.timingConfig.maxRuntimeHours) {
-          runtimeMonitorFiber = yield* shutdownAfterMaxRuntime(config.timingConfig.maxRuntimeHours, stop()).pipe(
-            Effect.forkChild
-          );
-        }
+        // End the session when the sync loop finishes on its own (for example,
+        // the vehicle reaches its charge limit) or when SHUTDOWN_AT is reached.
+        const shutdownAt = config.timingConfig.shutdownAt;
+        shutdownAtTimeFiber = yield* Effect.raceFirst(
+          Fiber.join(mainSync),
+          shutdownAt !== undefined ? sleepUntilTimeOfDay(shutdownAt) : Effect.never
+        ).pipe(
+          Effect.flatMap(() => stop()),
+          Effect.forkChild
+        );
 
-        const fibers: Fiber.Fiber<void, FiberErrors>[] = [
-          tokenRefreshFiber,
-          batteryStateManagerFiber,
-          eventLoggerFiber,
-          mainSyncFiber
-        ];
-        if (runtimeMonitorFiber) fibers.push(runtimeMonitorFiber);
-        yield* Fiber.joinAll(fibers);
+        yield* Fiber.join(shutdownAtTimeFiber);
       });
 
       return { start, stop };
