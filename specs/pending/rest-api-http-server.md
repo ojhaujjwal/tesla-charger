@@ -270,7 +270,7 @@ npm run ci
 
 ## References
 
-- Effect HttpServer guide: `ai-docs/src/51_http-server/10_basics.ts` (in effect-smol)
+- Effect HttpServer guide: `ai-docs/src/51_http-server/10_basics.ts` (in repos/effect)
 - Existing dynamic config: `src/charging-speed-controller/dynamic-config.ts`
 - App lifecycle: `src/app.ts` (AppLayer, start/stop)
 - Layer wiring: `src/main.ts` (MainLayer construction)

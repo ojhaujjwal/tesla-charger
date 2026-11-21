@@ -1,6 +1,6 @@
 import { Duration, Effect, Layer, Redacted, Schema } from "effect";
 import type { Redacted as RedactedType } from "effect/Redacted";
-import { HttpClient, HttpBody } from "effect/unstable/http";
+import { HttpClient, HttpBody } from "effect/http";
 import { type IDataAdapter, type Field, DataNotAvailableError, SourceNotAvailableError, DataAdapter } from "./types.js";
 import { AppConfig } from "../config.js";
 

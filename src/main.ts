@@ -1,7 +1,7 @@
 import { NodeHttpClient, NodeRuntime, NodeServices } from "@effect/platform-node";
 import { Effect, Layer, Option, Redacted } from "effect";
-import { Command, Flag } from "effect/unstable/cli";
-import { HttpRouter } from "effect/unstable/http";
+import { Command, Flag } from "effect/cli";
+import { HttpRouter } from "effect/http";
 import { AppConfig } from "./config.js";
 import { Watt } from "./domain/brands.js";
 import { httpServerLayer } from "./http-server-layer.js";
@@ -75,7 +75,7 @@ const programBody = Effect.fn("programBody")(function* () {
 const cli = Command.make(
   "tesla-charger",
   {
-    controller: Flag.choice("controller", [
+    controller: Flag.Literals("controller", [
       "fixed-lowest-speed",
       "conservative",
       "excess-feed-in-solar",

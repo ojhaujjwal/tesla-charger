@@ -1,5 +1,5 @@
 import { Effect, Schema } from "effect";
-import { HttpApiBuilder, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
+import { HttpApiBuilder, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/http-api";
 
 export class HealthGroup extends HttpApiGroup.make("health", { topLevel: true })
   .add(

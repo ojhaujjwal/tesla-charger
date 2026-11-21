@@ -1,5 +1,5 @@
 import { Layer } from "effect";
-import { HttpApi, HttpApiBuilder, OpenApi } from "effect/unstable/httpapi";
+import { HttpApi, HttpApiBuilder, OpenApi } from "effect/http-api";
 import { HealthGroup, HealthHandlers } from "./health.js";
 import { StateGroup, StateHandlers } from "./state.js";
 import { DynamicChargingConfigGroup, DynamicConfigHandlers } from "./dynamic-charging-config.js";

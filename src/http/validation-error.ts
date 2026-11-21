@@ -1,6 +1,6 @@
 import { Effect, Schema } from "effect";
-import { HttpServerResponse } from "effect/unstable/http";
-import { HttpApiMiddleware } from "effect/unstable/httpapi";
+import { HttpServerResponse } from "effect/http";
+import { HttpApiMiddleware } from "effect/http-api";
 
 export const ValidationErrorBody = Schema.Struct({
   kind: Schema.String,

@@ -1,5 +1,5 @@
 import { DateTime, Effect, Ref, Schema } from "effect";
-import { HttpApiBuilder, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
+import { HttpApiBuilder, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/http-api";
 import { AppRuntime } from "../app-runtime.js";
 import { BatteryStateManager } from "../battery-state-manager.js";
 import { AppStatus } from "../app-runtime.js";

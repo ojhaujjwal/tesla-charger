@@ -5,7 +5,7 @@ import {
   type AlphaEssConfig
 } from "../../../data-adapter/alpha-ess-api.data-adapter.js";
 import { DataAdapter, DataNotAvailableError, SourceNotAvailableError } from "../../../data-adapter/types.js";
-import { HttpClient, HttpClientRequest, HttpClientResponse, HttpClientError } from "effect/unstable/http";
+import { HttpClient, HttpClientRequest, HttpClientResponse, HttpClientError } from "effect/http";
 import { tracerLayer, toJsonSpan, type TraceSpanJson } from "../../../tracing/tracer.js";
 import { describe, it, expect } from "@effect/vitest";
 
@@ -73,7 +73,7 @@ describe("AlphaEssCloudApiDataAdapter", () => {
         )
       );
 
-      const httpSpan = spans.find((span) => span.name === "http.client GET");
+      const httpSpan = spans.find((span) => span.name === "GET");
       expect(httpSpan).toBeDefined();
       expect(httpSpan?.attributes["http.request.header.sign"]).toBe("<redacted>");
       expect(httpSpan?.attributes["http.request.header.appid"]).toBe("<redacted>");

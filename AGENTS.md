@@ -8,7 +8,7 @@ This project uses the following tools:
 Run 'npm run ci' after changing any code.
 
 ## This project uses "effect"
-Before writing any code, YOU MUST read repos/effect-smol/LLMS.md fully.
+Before writing any code, YOU MUST read repos/effect/LLMS.md fully.
 
 ## Testing with Effect and Vitest
 

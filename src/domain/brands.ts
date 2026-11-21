@@ -1,4 +1,4 @@
-import { Brand, Effect, Option, Schema, SchemaIssue } from "effect";
+import { Brand, Effect, Schema, SchemaIssue } from "effect";
 import * as SchemaGetter from "effect/SchemaGetter";
 
 export type Ampere = Brand.Branded<number, "Ampere">;
@@ -65,11 +65,11 @@ export const TimeOfDayFromString = Schema.fromBrand(
 )(
   Schema.String.pipe(
     Schema.decodeTo(Schema.Int, {
-      decode: SchemaGetter.transformOrFail((input: string) => {
+      decode: SchemaGetter.transformEffect((input: string) => {
         const minutes = parseTimeOfDay(input);
         return minutes === undefined
           ? Effect.fail(
-              new SchemaIssue.InvalidValue(Option.some(input), {
+              new SchemaIssue.InvalidValue({
                 message: `Expected a time like "17:00", "5PM", or "5:30 PM", got "${input}"`
               })
             )

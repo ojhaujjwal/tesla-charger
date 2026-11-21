@@ -1,7 +1,7 @@
 import { Clock, DateTime, Duration, Effect, FileSystem, Layer, Option, Redacted, Schema, SchemaIssue } from "effect";
 import * as SchemaGetter from "effect/SchemaGetter";
 import type { Redacted as RedactedType } from "effect/Redacted";
-import { HttpClient } from "effect/unstable/http";
+import { HttpClient } from "effect/http";
 import { SolarForecast, SolarForecastNotAvailableError, type SolarForecastResult } from "./types.js";
 
 // Schema for Solcast API response
@@ -26,12 +26,9 @@ const SolarForecastPeriodSchema = Schema.Struct({
   period_end: Schema.DateTimeUtcFromString,
   period: Schema.String.pipe(
     Schema.decodeTo(Schema.Duration, {
-      decode: SchemaGetter.transformOrFail((iso: string) =>
+      decode: SchemaGetter.transformEffect((iso: string) =>
         Option.match(parseIsoDuration(iso), {
-          onNone: () =>
-            Effect.fail(
-              new SchemaIssue.InvalidValue(Option.some(iso), { message: `Invalid ISO 8601 duration: ${iso}` })
-            ),
+          onNone: () => Effect.fail(new SchemaIssue.InvalidValue({ message: `Invalid ISO 8601 duration: ${iso}` })),
           onSome: (duration) => Effect.succeed(duration)
         })
       ),

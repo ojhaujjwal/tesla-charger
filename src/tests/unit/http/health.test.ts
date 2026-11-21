@@ -1,8 +1,8 @@
 import { describe, it, expect } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import { NodeHttpServer } from "@effect/platform-node";
-import { HttpClient, HttpRouter } from "effect/unstable/http";
-import { HttpApi, HttpApiBuilder } from "effect/unstable/httpapi";
+import { HttpClient, HttpRouter } from "effect/http";
+import { HttpApi, HttpApiBuilder } from "effect/http-api";
 import { HealthGroup } from "../../../http/health.js";
 
 describe("HTTP /healthz", () => {

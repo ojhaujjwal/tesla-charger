@@ -1,10 +1,10 @@
 import { Config, Effect, Layer, Redacted, Schema } from "effect";
-import { HttpClient, HttpBody } from "effect/unstable/http";
+import { HttpClient, HttpBody } from "effect/http";
 import { NodeServices, NodeHttpClient, NodeRuntime } from "@effect/platform-node";
 
-const clientId = Effect.runSync(Config.string("TESLA_OAUTH2_CLIENT_ID"));
-const clientSecret = Effect.runSync(Config.redacted("TESLA_OAUTH2_CLIENT_SECRET"));
-const appDomain = Effect.runSync(Config.string("TESLA_APP_DOMAIN"));
+const clientId = Effect.runSync(Config.String("TESLA_OAUTH2_CLIENT_ID"));
+const clientSecret = Effect.runSync(Config.Redacted("TESLA_OAUTH2_CLIENT_SECRET"));
+const appDomain = Effect.runSync(Config.String("TESLA_APP_DOMAIN"));
 
 const program = Effect.fn("setupTeslaPartnerApplication")(function* () {
   const httpClient = yield* HttpClient.HttpClient;

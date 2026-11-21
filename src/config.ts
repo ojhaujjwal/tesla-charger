@@ -14,38 +14,38 @@ import {
 } from "./domain/brands.js";
 
 export const AppConfig = {
-  nodeEnv: EffectConfig.string("NODE_ENV").pipe(EffectConfig.withDefault("production")),
+  nodeEnv: EffectConfig.String("NODE_ENV").pipe(EffectConfig.withDefault("production")),
 
   sentry: {
-    dsn: EffectConfig.string("SENTRY_DSN")
+    dsn: EffectConfig.String("SENTRY_DSN")
   },
 
   tesla: {
-    appDomain: EffectConfig.string("TESLA_APP_DOMAIN"),
-    oauth2ClientId: EffectConfig.string("TESLA_OAUTH2_CLIENT_ID"),
-    oauth2ClientSecret: EffectConfig.redacted("TESLA_OAUTH2_CLIENT_SECRET"),
-    vin: EffectConfig.string("TESLA_VIN")
+    appDomain: EffectConfig.String("TESLA_APP_DOMAIN"),
+    oauth2ClientId: EffectConfig.String("TESLA_OAUTH2_CLIENT_ID"),
+    oauth2ClientSecret: EffectConfig.Redacted("TESLA_OAUTH2_CLIENT_SECRET"),
+    vin: EffectConfig.String("TESLA_VIN")
   },
 
   influx: {
-    url: EffectConfig.string("INFLUX_URL"),
-    token: EffectConfig.redacted("INFLUX_TOKEN"),
-    org: EffectConfig.string("INFLUX_ORG"),
-    bucket: EffectConfig.string("INFLUX_BUCKET")
+    url: EffectConfig.String("INFLUX_URL"),
+    token: EffectConfig.Redacted("INFLUX_TOKEN"),
+    org: EffectConfig.String("INFLUX_ORG"),
+    bucket: EffectConfig.String("INFLUX_BUCKET")
   },
 
   alphaEssAPI: {
-    appId: EffectConfig.redacted("ALPHA_ESS_API_APP_ID"),
-    appSecret: EffectConfig.redacted("ALPHA_ESS_API_APP_SECRET"),
-    sysSn: EffectConfig.string("ALPHA_ESS_API_SYS_SN"),
-    baseUrl: EffectConfig.string("ALPHA_ESS_API_BASE_URL").pipe(
+    appId: EffectConfig.Redacted("ALPHA_ESS_API_APP_ID"),
+    appSecret: EffectConfig.Redacted("ALPHA_ESS_API_APP_SECRET"),
+    sysSn: EffectConfig.String("ALPHA_ESS_API_SYS_SN"),
+    baseUrl: EffectConfig.String("ALPHA_ESS_API_BASE_URL").pipe(
       EffectConfig.withDefault("https://openapi.alphaess.com/")
     )
   },
 
   solcast: {
-    apiKey: EffectConfig.redacted("SOLCAST_API_KEY"),
-    rooftopResourceId: EffectConfig.string("SOLCAST_ROOFTOP_RESOURCE_ID")
+    apiKey: EffectConfig.Redacted("SOLCAST_API_KEY"),
+    rooftopResourceId: EffectConfig.String("SOLCAST_ROOFTOP_RESOURCE_ID")
   },
 
   controller: {
@@ -67,7 +67,7 @@ export const AppConfig = {
     // Raise the vehicle charge limit to 100% at app startup so the car does
     // not stop the session on its own (the controller decides when to stop).
     // The original limit is deliberately not restored afterwards.
-    forceChargeToHundredPercent: EffectConfig.boolean("FORCE_CHARGE_TO_HUNDRED_PERCENT").pipe(
+    forceChargeToHundredPercent: EffectConfig.Boolean("FORCE_CHARGE_TO_HUNDRED_PERCENT").pipe(
       EffectConfig.withDefault(true)
     )
   },
@@ -76,11 +76,11 @@ export const AppConfig = {
     minBufferPower: EffectConfig.schema(WattFromString, "EXCESS_SOLAR_BUFFER_POWER").pipe(
       EffectConfig.withDefault(Watt(500))
     ),
-    bufferMultiplierMax: EffectConfig.number("BUFFER_MULTIPLIER_MAX").pipe(EffectConfig.withDefault(3)),
+    bufferMultiplierMax: EffectConfig.Number("BUFFER_MULTIPLIER_MAX").pipe(EffectConfig.withDefault(3)),
     carBatteryCapacityKwh: EffectConfig.schema(KiloWattHoursFromString, "CAR_BATTERY_CAPACITY_KWH").pipe(
       EffectConfig.withDefault(KiloWattHours(60))
     ),
-    peakSolarCapacityKw: EffectConfig.number("SOLCAST_CAPACITY_KW").pipe(EffectConfig.withDefault(9)),
+    peakSolarCapacityKw: EffectConfig.Number("SOLCAST_CAPACITY_KW").pipe(EffectConfig.withDefault(9)),
     latitude: EffectConfig.schema(LatitudeFromString, "SOLCAST_LATITUDE"),
     longitude: EffectConfig.schema(LongitudeFromString, "SOLCAST_LONGITUDE"),
     defaultDailyProductionKwh: EffectConfig.schema(KiloWattHoursFromString, "DEFAULT_DAILY_PRODUCTION_KWH").pipe(
@@ -93,7 +93,7 @@ export const AppConfig = {
   },
 
   cost: {
-    perKwh: EffectConfig.number("COST_PER_KWH").pipe(EffectConfig.withDefault(0.3))
+    perKwh: EffectConfig.Number("COST_PER_KWH").pipe(EffectConfig.withDefault(0.3))
   },
 
   shutdown: {
@@ -101,11 +101,11 @@ export const AppConfig = {
   },
 
   httpApi: {
-    port: EffectConfig.int("HTTP_API_PORT").pipe(EffectConfig.withDefault(8080))
+    port: EffectConfig.Int("HTTP_API_PORT").pipe(EffectConfig.withDefault(8080))
   },
 
   tracing: {
-    fileDirectory: EffectConfig.option(EffectConfig.string("TRACE_DESTINATION")),
+    fileDirectory: EffectConfig.option(EffectConfig.String("TRACE_DESTINATION")),
     traceLevel: EffectConfig.schema(Schema.Literals(LogLevel.values), "TRACE_LEVEL").pipe(
       EffectConfig.withDefault("All")
     )

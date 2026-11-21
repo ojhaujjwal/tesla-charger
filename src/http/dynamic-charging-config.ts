@@ -1,5 +1,5 @@
 import { Effect, Schema } from "effect";
-import { HttpApiBuilder, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi";
+import { HttpApiBuilder, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/http-api";
 import { DynamicChargingConfig } from "../charging-speed-controller/dynamic-config.js";
 import { Watt } from "../domain/brands.js";
 import { ValidationErrorHandler } from "./validation-error.js";

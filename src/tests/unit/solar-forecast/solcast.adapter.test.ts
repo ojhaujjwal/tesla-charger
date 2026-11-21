@@ -1,7 +1,7 @@
 import { describe, it, expect } from "@effect/vitest";
 import * as TestClock from "effect/testing/TestClock";
 import { Cause, DateTime, Duration, Effect, Exit, FileSystem, Layer, Option, Redacted } from "effect";
-import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
+import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 import { NodeFileSystem } from "@effect/platform-node";
 import { SolarForecast, SolarForecastNotAvailableError } from "../../../solar-forecast/types.js";
 import { SolcastForecastLayer } from "../../../solar-forecast/solcast.adapter.js";

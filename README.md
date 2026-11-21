@@ -239,4 +239,4 @@ Effect.retry({
 - Formatting/linting use `oxfmt` / `oxlint`; a `husky` pre-commit hook is installed.
 - Runtime requires Node >= 21.7.3.
 - Tests run with Vitest (`npm run test -- --run`). **Never use `bun test`** (per `AGENTS.md`).
-- Before any Effect work, `AGENTS.md` requires reading `repos/effect-smol/LLMS.md`.
+- Before any Effect work, `AGENTS.md` requires reading `repos/effect/LLMS.md`.
