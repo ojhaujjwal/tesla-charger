@@ -50,7 +50,7 @@ export type TeslaClientService = ElectricVehicle["Service"] & {
   >;
   readonly refreshAccessToken: () => Effect.Effect<void, AuthenticationFailedError>;
   readonly setupAccessTokenAutoRefreshRecurring: (
-    timeoutInSeconds: number
+    intervalInSeconds: number
   ) => Effect.Effect<void, AuthenticationFailedError>;
   readonly startCharging: () => ChargeCommandResult;
   readonly stopCharging: () => CommandResult;
@@ -363,9 +363,14 @@ export const TeslaClientLayer = (config: {
           ),
 
         refreshAccessToken,
-        setupAccessTokenAutoRefreshRecurring: (timeoutInSeconds: number) =>
+        // Recurs forever, waiting `intervalInSeconds` after each refresh
+        // completes (Schedule.spaced, not Schedule.fixed) so a refresh that
+        // runs long cannot stack up the next one immediately. A failed refresh
+        // still stops the recurrence with AuthenticationFailedError, matching
+        // the previous behaviour.
+        setupAccessTokenAutoRefreshRecurring: (intervalInSeconds: number) =>
           Effect.repeat(refreshAccessToken(), {
-            schedule: Schedule.duration(Duration.seconds(timeoutInSeconds))
+            schedule: Schedule.spaced(Duration.seconds(intervalInSeconds))
           }),
         startCharging: () =>
           execTeslaControl(["charging-start"]).pipe(
